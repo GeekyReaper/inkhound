@@ -1,0 +1,32 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+**/Properties/launchSettings.json
+
+# ASP.NET Core
+wwwroot/
+
+# Angular
+src/Inkhound.Client/node_modules/
+src/Inkhound.Client/dist/
+src/Inkhound.Client/.angular/
+
+# IDE / OS
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Residual folders
+src/Inkhound.Client.old/
+src/Nouveau dossier/

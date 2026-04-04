@@ -1,0 +1,18 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "dotnet.defaultSolution": "src/Inkhound.Web/Inkhound.Web.csproj",
+  "typescript.tsdk": "src/Inkhound.Client/node_modules/typescript/lib",
+  "terminal.integrated.env.windows": {
+    "APP_PORT": "5000"
+  },
+  "terminal.integrated.env.linux": {
+    "APP_PORT": "5000"
+  },
+  "terminal.integrated.env.osx": {
+    "APP_PORT": "5000"
+  }
+}

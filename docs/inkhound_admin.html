@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inkhound — Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sidebar-w:240px;--header-h:56px;
+  --brand:#0a52a8;--brand-hover:#083d80;--brand-dark:#062d5e;
+  --sidebar-bg:#07305a;
+  --body-bg:#f4f6f9;--text:#1a2535;
+  --muted:#6b7a99;--border:#dde3ef;
+  --card:#fff;--radius:7px;
+}
+body{font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--body-bg);height:100vh;overflow:hidden;display:flex;flex-direction:column}
+.app-shell{display:flex;height:100%;overflow:hidden;position:relative}
+
+/* ── Sidebar ── */
+.sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);display:flex;flex-direction:column;flex-shrink:0;transition:width .2s;overflow:hidden}
+.sidebar.collapsed{width:58px}
+.sidebar-brand{height:var(--header-h);display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid #ffffff18;flex-shrink:0;text-decoration:none}
+.brand-logo{width:30px;height:30px;border-radius:7px;flex-shrink:0;object-fit:cover}
+.brand-text{font-size:17px;font-weight:700;color:#fff;white-space:nowrap;letter-spacing:-.3px;transition:opacity .15s}
+.sidebar.collapsed .brand-text{opacity:0;width:0;overflow:hidden}
+.sidebar-nav{flex:1;overflow-y:auto;padding:8px 0}
+.nav-title{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#ffffff44;padding:16px 16px 5px;white-space:nowrap}
+.sidebar.collapsed .nav-title{opacity:0}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;color:#ffffffbb;cursor:pointer;white-space:nowrap;transition:background .15s;border-left:3px solid transparent}
+.nav-item:hover{background:#ffffff12;color:#fff}
+.nav-item.active{background:#ffffff18;color:#fff;border-left-color:#fff}
+.nav-item svg{flex-shrink:0;width:18px;height:18px}
+.nav-label{white-space:nowrap;transition:opacity .15s;font-size:13.5px}
+.sidebar.collapsed .nav-label{opacity:0;width:0;overflow:hidden}
+.nav-badge{margin-left:auto;background:#e55353;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;flex-shrink:0}
+.sidebar.collapsed .nav-badge{display:none}
+.sidebar-footer{padding:12px 14px;border-top:1px solid #ffffff18;display:flex;align-items:center;gap:10px;cursor:pointer;color:#ffffffbb}
+.sidebar-footer:hover{background:#ffffff12;color:#fff}
+.sidebar-footer span{white-space:nowrap;transition:opacity .15s;font-size:13px}
+.sidebar.collapsed .sidebar-footer span{opacity:0;width:0;overflow:hidden}
+
+/* ── Header ── */
+.main-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.header{height:var(--header-h);background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
+.header-toggle{cursor:pointer;padding:6px;border-radius:5px;display:flex;align-items:center;color:var(--muted)}
+.header-toggle:hover{background:#f0f3f8}
+.bc-wrap{flex:1;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.bc-wrap span{color:var(--text)}
+.bc-link{cursor:pointer;color:var(--brand)}
+.bc-link:hover{text-decoration:underline}
+.hbtn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);position:relative}
+.hbtn:hover{background:#f0f3f8}
+.notif-dot{width:8px;height:8px;background:#e55353;border-radius:50%;position:absolute;top:6px;right:6px;border:2px solid #fff}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;border:2px solid #dde3ef}
+
+/* ── Content ── */
+.content{flex:1;overflow-y:auto;padding:24px}
+.page{display:none}.page.active{display:block}
+.page-title{font-size:20px;font-weight:700;margin-bottom:4px;color:var(--text)}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+
+/* ── Cards ── */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;position:relative;overflow:hidden}
+.stat-accent{position:absolute;top:0;left:0;width:4px;height:100%;border-radius:4px 0 0 4px}
+.stat-label{font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.stat-value{font-size:26px;font-weight:700;line-height:1;color:var(--text)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px}
+.card-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.card-title{font-weight:600;font-size:14px;color:var(--text)}
+.card-body{padding:16px}
+.row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.row-3{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px}
+.badge-success{background:#e6f4ea;color:#1a6e30}
+.badge-danger{background:#fce8e8;color:#9b1c1c}
+.badge-warning{background:#fef9e7;color:#7a5c00}
+.badge-info{background:#e8f4fd;color:#0c5a8a}
+.badge-secondary{background:#eef0f5;color:#4a5568}
+.badge-primary{background:#e8effe;color:#1a3fa8}
+
+/* ── Table ── */
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th{text-align:left;padding:10px 12px;font-weight:600;color:var(--muted);border-bottom:2px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.table td{padding:10px 12px;border-bottom:1px solid #f0f3f8;vertical-align:middle}
+.table tr:last-child td{border-bottom:none}
+.trow{cursor:pointer;transition:background .12s}
+.trow:hover td{background:#f5f8ff}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:all .15s;white-space:nowrap}
+.btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn-primary:hover{background:var(--brand-hover)}
+.btn-outline{background:transparent;color:var(--brand);border-color:var(--brand)}
+.btn-outline:hover{background:#eef2fc}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border)}
+.btn-ghost:hover{background:#f0f3f8;color:var(--text)}
+.btn-danger{background:#e55353;color:#fff;border-color:#e55353}
+.btn-danger:hover{background:#cc3333}
+.btn-danger-outline{background:#fff;color:#c0392b;border-color:#e74c3c}
+.btn-danger-outline:hover{background:#fff5f5}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── Forms ── */
+.form-group{margin-bottom:18px}
+.form-label{display:block;font-size:13px;font-weight:500;margin-bottom:5px;color:var(--text)}
+.form-control{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;color:var(--text);background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}
+.form-control:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(10,82,168,.1)}
+.form-control.error{border-color:#e55353;box-shadow:0 0 0 3px rgba(229,83,83,.1)}
+.form-hint{font-size:11px;color:var(--muted);margin-top:4px}
+.ferr{font-size:11px;color:#e55353;margin-top:4px;display:none}
+.ferr.show{display:block}
+.form-row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pwd-wrap{position:relative}
+.pwd-wrap .form-control{padding-right:40px}
+.pwd-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--muted);display:flex;align-items:center}
+.pwd-eye:hover{color:var(--text)}
+
+/* ── Settings ── */
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid #f0f3f8}
+.settings-row:last-child{border-bottom:none}
+.settings-label{font-weight:500;font-size:13px}
+.settings-desc{font-size:12px;color:var(--muted);margin-top:2px}
+.toggle{width:40px;height:22px;border-radius:11px;position:relative;cursor:pointer;flex-shrink:0;transition:background .2s}
+.toggle.on{background:var(--brand)}.toggle.off{background:#ced4da}
+.toggle::after{content:'';width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:3px;transition:left .2s}
+.toggle.on::after{left:21px}.toggle.off::after{left:3px}
+
+/* ── Misc ── */
+.divider{height:1px;background:var(--border);margin:20px 0}
+.sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px;margin-top:4px}
+.uav-lg{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0}
+.uav-sm{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.signal-dot{width:8px;height:8px;border-radius:50%;display:inline-block;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.mode-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px}
+.mode-add{background:#e6f4ea;color:#1a6e30}
+.mode-edit{background:#e8effe;color:#1a3fa8}
+.subview-enter{animation:slideIn .18s ease}
+@keyframes slideIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
+.progress-bar{height:8px;background:#eef0f5;border-radius:4px;overflow:hidden}
+.progress-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.trace-row{padding:6px 0;border-bottom:1px solid #f0f3f8;display:flex;gap:8px;font-size:12px}
+.trace-time{font-size:10px;color:var(--muted);flex-shrink:0;font-family:monospace;width:52px;margin-top:1px}
+.trace-lvl{font-size:10px;font-weight:700;flex-shrink:0;width:52px;margin-top:1px}
+.chart-bars{display:flex;align-items:flex-end;gap:8px;height:110px;padding:4px 0}
+.bar-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1}
+.bar{background:var(--brand);border-radius:3px 3px 0 0;width:100%;opacity:.85}
+.bar:hover{opacity:1}
+.bar-lbl{font-size:10px;color:var(--muted)}
+.alert-box{padding:11px 14px;border-radius:var(--radius);border:1px solid;font-size:13px;display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.al-info{background:#e8f4fd;border-color:#bee5eb;color:#0c5a8a}
+.al-warn{background:#fef9e7;border-color:#ffd97d;color:#7a5c00}
+select.form-control{cursor:pointer}
+.tab-nav{display:flex;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab-item{padding:8px 16px;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted)}
+.tab-item.active{border-bottom-color:var(--brand);color:var(--brand);font-weight:600}
+.tab-item:hover:not(.active){color:var(--text)}
+
+/* ── Job popup ── */
+.jpopback{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;display:none;align-items:flex-start;justify-content:flex-end;padding-top:56px;padding-right:14px}
+.jpopback.open{display:flex}
+.jpop{background:#fff;border:1px solid var(--border);border-radius:10px;width:310px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}
+.jpop-hdr{padding:12px 16px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.jpop-x{width:24px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted)}
+.jpop-x:hover{background:#f0f3f8}
+.popup-link{font-size:11px;color:var(--brand);font-weight:600;display:flex;align-items:center;gap:3px;cursor:pointer}
+
+/* ── Delete modal ── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:none;align-items:center;justify-content:center}
+.modal-backdrop.open{display:flex}
+.modal{background:#fff;border-radius:12px;width:420px;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.2)}
+.modal-header{padding:20px 20px 14px;display:flex;align-items:flex-start;gap:14px;border-bottom:1px solid var(--border)}
+.modal-icon{width:44px;height:44px;border-radius:50%;background:#fce8e8;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:4px;color:var(--text)}
+.modal-subtitle{font-size:13px;color:var(--muted);line-height:1.5}
+.modal-body{padding:16px 20px}
+.modal-user-card{background:#f4f6f9;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;gap:12px}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:10px}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;background:#1a6e30;color:#fff;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px;z-index:300;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen" style="min-height:100vh;background:linear-gradient(135deg,#07305a 0%,#0a52a8 100%);display:flex;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:38px;width:360px;box-shadow:0 8px 40px rgba(0,0,0,.2)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px;justify-content:center">
+      <img src="data:image/png;base64,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" width="44" height="44" style="border-radius:10px"/>
+      <span style="font-size:22px;font-weight:800;color:#07305a;letter-spacing:-.5px">Inkhound</span>
+    </div>
+    <div style="font-size:19px;font-weight:700;margin-bottom:4px;color:#1a2535">Sign in</div>
+    <div style="font-size:13px;color:#6b7a99;margin-bottom:22px">Access your administration panel</div>
+    <div class="form-group"><label class="form-label">Username</label><input class="form-control" value="admin" id="loginInput"/></div>
+    <div class="form-group"><label class="form-label">Password</label><input class="form-control" type="password" value="admin"/></div>
+    <div style="margin-bottom:16px;display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" checked style="accent-color:#0a52a8"/> Remember me</div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px;font-size:14px" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<div id="appShell" class="app-shell" style="display:none">
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <img src="data:image/png;base64,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" class="brand-logo"/>
+      <span class="brand-text">Inkhound</span>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-title">Main</div>
+      <div class="nav-item active" id="navDashboard" onclick="showPage('dashboard',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span class="nav-label">Dashboard</span>
+      </div>
+      <div class="nav-item" id="navJobs" onclick="showPage('jobs',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        <span class="nav-label">Jobs</span>
+        <span class="nav-badge" id="navJobBadge" style="display:none">1</span>
+      </div>
+      <div class="nav-title">Administration</div>
+      <div class="nav-item" id="navUsers" onclick="showPage('users',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-label">Users</span>
+      </div>
+      <div class="nav-item" id="navSettings" onclick="showPage('settings',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="nav-label">Settings</span>
+      </div>
+      <div class="nav-item" id="navProfile" onclick="showPage('profile',this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span class="nav-label">My Profile</span>
+      </div>
+    </div>
+    <div class="sidebar-footer" onclick="doLogout()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      <span>Sign out</span>
+    </div>
+  </nav>
+
+  <div class="main-wrap">
+    <header class="header">
+      <div class="header-toggle" onclick="toggleSidebar()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </div>
+      <div class="bc-wrap" id="breadcrumb">Home <span style="color:var(--muted)">/</span> <span>Dashboard</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span class="signal-dot" style="background:#2eb85c"></span>SignalR</div>
+        <div class="hbtn" onclick="toggleJobPopup()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <div class="notif-dot" id="bellDot" style="display:none"></div>
+        </div>
+        <div class="avatar" id="userAvatar" onclick="showPage('profile',document.getElementById('navProfile'))">AD</div>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- DASHBOARD -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">Real-time platform overview</div>
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-accent" style="background:var(--brand)"></div><div class="stat-label">Platform status</div><div style="display:flex;align-items:center;gap:8px;margin-top:4px"><span class="signal-dot" style="background:#2eb85c"></span><span style="font-size:15px;font-weight:600">Operational</span></div><div style="font-size:11px;color:#2eb85c;margin-top:6px">↑ Uptime 99.8%</div></div>
+          <div class="stat-card"><div class="stat-accent" style="background:#2eb85c"></div><div class="stat-label">Connected users</div><div class="stat-value" id="connUsers">4</div><div style="font-size:11px;color:var(--muted);margin-top:6px">Real-time via SignalR</div></div>
+          <div class="stat-card"><div class="stat-accent" style="background:#f9b115"></div><div class="stat-label">CPU usage</div><div class="stat-value" id="cpuVal">42<small style="font-size:14px">%</small></div></div>
+          <div class="stat-card"><div class="stat-accent" style="background:#e55353"></div><div class="stat-label">Memory</div><div class="stat-value" id="memVal">61<small style="font-size:14px">%</small></div></div>
+        </div>
+        <div class="row-3">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Request activity (req/s)</span><span class="badge badge-info">Live</span></div>
+            <div class="card-body"><div class="chart-bars" id="chartBars"></div></div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Active alerts</span><span class="badge badge-warning">1</span></div>
+            <div class="card-body" style="padding:10px">
+              <div class="alert-box al-warn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><div><strong>High latency</strong><br/><span style="font-size:11px">Detected at 14:25 UTC</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Last deployment</span><span class="badge badge-success">Healthy</span></div>
+            <div class="card-body">
+              <div class="settings-row" style="padding:8px 0"><span class="settings-label">Version</span><span style="font-family:monospace;font-size:13px">v1.4.1</span></div>
+              <div class="settings-row" style="padding:8px 0"><span class="settings-label">Commit</span><span style="font-family:monospace;font-size:13px;color:var(--muted)">abc123</span></div>
+              <div class="settings-row" style="padding:8px 0;border:none"><span class="settings-label">Deployed at</span><span style="font-size:13px">03/23/2026 08:00</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Maintenance mode</span></div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div><div style="font-weight:500;font-size:13px">Enable maintenance</div><div style="font-size:11px;color:var(--muted)">Blocks access for all users</div></div>
+                <div class="toggle off" id="maintenanceToggle" onclick="toggleMaintenance()"></div>
+              </div>
+              <div class="alert-box al-info" style="margin:0;font-size:12px">Synced in real-time to all SignalR clients.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JOBS -->
+      <div class="page" id="page-jobs">
+        <div class="page-title">Jobs</div>
+        <div class="page-sub">Async job execution and monitoring</div>
+        <div class="row-2">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Start a job</span></div>
+            <div class="card-body">
+              <div class="form-group"><label class="form-label">Job type</label><select class="form-control" id="jobTypeSelect"><option>Import</option><option>Export</option><option>Sync</option></select></div>
+              <div class="form-row-2">
+                <div class="form-group"><label class="form-label">Source</label><input class="form-control" id="jobSource" value="erp-prod"/></div>
+                <div class="form-group"><label class="form-label">Mode</label><select class="form-control" id="jobMode"><option>delta</option><option>full</option></select></div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:4px">
+                <button class="btn btn-primary btn-sm" id="startBtn" onclick="startJob()"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>Start</button>
+                <button class="btn btn-sm" id="cancelBtn" style="background:#fef9e7;color:#7a5c00;border:1px solid #ffd97d" onclick="cancelJob()" disabled>Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Current state</span><span class="badge badge-secondary" id="jobStatusBadge">No job</span></div>
+            <div class="card-body">
+              <div id="jobStateEmpty" style="text-align:center;padding:16px;color:var(--muted);font-size:13px">No job running</div>
+              <div id="jobStateActive" style="display:none">
+                <div style="font-size:13px;font-weight:600;margin-bottom:10px" id="jobTitleDetail">—</div>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                  <div class="progress-bar" style="flex:1"><div class="progress-fill" id="progressFillDetail" style="width:0%;background:var(--brand)"></div></div>
+                  <span style="font-size:12px;font-weight:700;color:var(--brand);min-width:32px" id="pctDetail">0%</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="jobResultGrid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Live traces</span><button class="btn btn-sm btn-outline" onclick="clearTraces()">Clear</button></div>
+          <div class="card-body" style="padding:0 16px;max-height:200px;overflow-y:auto" id="traceContainer">
+            <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px">Start a job to see traces</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS -->
+      <div class="page" id="page-users">
+        <div id="view-list">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">
+            <div><div class="page-title" style="margin-bottom:2px">Users</div><div class="page-sub" style="margin-bottom:0">Manage accounts and roles</div></div>
+            <button class="btn btn-primary" onclick="openAdd()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New user
+            </button>
+          </div>
+          <div class="card">
+            <div class="card-body" style="padding:0">
+              <table class="table">
+                <thead><tr><th style="width:44px"></th><th>Username</th><th>Role</th><th>ID</th><th style="width:160px"></th></tr></thead>
+                <tbody id="userTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="view-detail" style="display:none" class="subview-enter"></div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="page" id="page-settings">
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Platform configuration</div>
+        <div class="tab-nav">
+          <div class="tab-item active" onclick="switchTab(this,'tab-general')">General</div>
+          <div class="tab-item" onclick="switchTab(this,'tab-auth')">Authentication</div>
+          <div class="tab-item" onclick="switchTab(this,'tab-signalr')">SignalR</div>
+        </div>
+        <div id="tab-general">
+          <div class="card">
+            <div class="card-header"><span class="card-title">General</span></div>
+            <div class="card-body">
+              <div class="settings-row"><div><div class="settings-label">Application name</div></div><input class="form-control" value="Inkhound" style="width:160px"/></div>
+              <div class="settings-row"><div><div class="settings-label">Server port</div><div class="settings-desc">APP_PORT</div></div><input class="form-control" value="5000" style="width:80px"/></div>
+              <div class="settings-row"><div><div class="settings-label">Maintenance mode</div><div class="settings-desc">Synced via PlatformState</div></div><div class="toggle off" id="settingsMaintenanceToggle" onclick="toggleMaintenance2()"></div></div>
+            </div>
+          </div>
+        </div>
+        <div id="tab-auth" style="display:none">
+          <div class="card">
+            <div class="card-header"><span class="card-title">JWT Authentication</span></div>
+            <div class="card-body">
+              <div class="settings-row"><div><div class="settings-label">Users file</div></div><code style="font-size:12px;color:var(--muted)">data/system/users.json</code></div>
+              <div class="settings-row"><div><div class="settings-label">JWT key</div><div class="settings-desc">Auto-generated on first launch</div></div><code style="font-size:12px;color:var(--muted)">data/system/jwt.key</code></div>
+              <div class="settings-row"><div><div class="settings-label">Token expiry</div></div><input class="form-control" value="480" style="width:80px"/></div>
+            </div>
+          </div>
+        </div>
+        <div id="tab-signalr" style="display:none">
+          <div class="card">
+            <div class="card-header"><span class="card-title">SignalR Hub</span></div>
+            <div class="card-body">
+              <div class="settings-row"><div><div class="settings-label">Hub endpoint</div></div><code style="font-size:12px;color:var(--muted)">/hub/app</code></div>
+              <div class="settings-row"><div><div class="settings-label">Auto-reconnect</div></div><div class="toggle on"></div></div>
+              <div class="settings-row"><div><div class="settings-label">Full snapshot on connect</div></div><div class="toggle on"></div></div>
+              <div class="settings-row"><div><div class="settings-label">Connection status</div></div><span style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2eb85c"><span class="signal-dot" style="background:#2eb85c"></span>Connected</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="page" id="page-profile">
+        <div class="page-title">My Profile</div>
+        <div class="page-sub">Your personal information and session</div>
+        <div class="row-2">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Account details</span></div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+                <div style="width:52px;height:52px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700" id="profileAvatar">AD</div>
+                <div><div style="font-size:16px;font-weight:700" id="profileName">admin</div><span class="badge badge-primary" style="margin-top:4px">admin</span></div>
+              </div>
+              <div class="form-group"><label class="form-label">Username</label><input class="form-control" id="profileLogin" value="admin"/></div>
+              <div class="form-group"><label class="form-label">New password</label><input class="form-control" type="password" placeholder="Leave blank to keep current"/></div>
+              <button class="btn btn-primary btn-sm">Save changes</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Current session</span></div>
+            <div class="card-body">
+              <div class="settings-row" style="padding:8px 0"><span class="settings-label">User ID</span><code style="font-size:11px;color:var(--muted)">uuid-1234</code></div>
+              <div class="settings-row" style="padding:8px 0"><span class="settings-label">JWT role</span><span class="badge badge-primary">admin</span></div>
+              <div class="settings-row" style="padding:8px 0"><span class="settings-label">Expires</span><span style="font-size:12px">in 7h 58m</span></div>
+              <div class="settings-row" style="padding:8px 0;border:none"><span class="settings-label">Host</span><span style="font-size:12px;color:var(--muted)">localhost:5000</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- JOB POPUP -->
+  <div class="jpopback" id="jobPopup" onclick="if(event.target===this)closeJobPopup()">
+    <div class="jpop">
+      <div class="jpop-hdr">
+        <span style="font-size:13px;font-weight:600">Running jobs</span>
+        <div class="jpop-x" onclick="closeJobPopup()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+      </div>
+      <div id="jobPopupBody"></div>
+    </div>
+  </div>
+
+  <!-- DELETE MODAL -->
+  <div class="modal-backdrop" id="deleteModal" onclick="if(event.target===this)closeDeleteModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e55353" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </div>
+        <div>
+          <div class="modal-title">Delete user account</div>
+          <div class="modal-subtitle">This action is permanent and cannot be undone. The user will immediately lose access to Inkhound.</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="modal-user-card">
+          <div class="uav-sm" id="modalAvatar" style="background:#6b7a99;color:#fff">AL</div>
+          <div>
+            <div style="font-weight:600;font-size:13px" id="modalUserLogin">alice</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px"><span id="modalUserRole" class="badge badge-secondary">guest</span> &nbsp;<span id="modalUserId" style="font-family:monospace">u2</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" onclick="closeDeleteModal()">Cancel</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmDelete()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Yes, delete account
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="toastMsg">Saved</span>
+  </div>
+</div>
+
+<script>
+var sidebarCollapsed=false,maintenanceOn=false;
+var users=[
+  {id:'u1',login:'admin',role:'admin',createdAt:'01/12/2026'},
+  {id:'u2',login:'alice',role:'guest',createdAt:'02/15/2026'},
+  {id:'u3',login:'bob',role:'guest',createdAt:'03/03/2026'},
+  {id:'u4',login:'carol',role:'admin',createdAt:'03/10/2026'}
+];
+var editingId=null,detailMode=null,pendingDeleteId=null;
+var jobRunning=false,jobProgress=0,jobTitleStr='',jobTypeStr='',stepIdx=0;
+var jobSteps=[
+  {p:10,msg:'Starting process...',lvl:'Info',r:{}},
+  {p:25,msg:'Connecting to data source...',lvl:'Info',r:{source:'erp-prod',mode:'delta',status:'running'}},
+  {p:45,msg:'Reading records...',lvl:'Info',r:{source:'erp-prod',mode:'delta',status:'running',recordsProcessed:'450'}},
+  {p:62,msg:'600 records processed.',lvl:'Info',r:{source:'erp-prod',mode:'delta',status:'running',recordsProcessed:'600'}},
+  {p:80,msg:'Validating data...',lvl:'Info',r:{source:'erp-prod',mode:'delta',status:'running',recordsProcessed:'1000'}},
+  {p:95,msg:'Finalizing...',lvl:'Info',r:{source:'erp-prod',mode:'delta',status:'done',recordsProcessed:'1200'}},
+  {p:100,msg:'Import complete — 1200 records.',lvl:'Success',r:{source:'erp-prod',mode:'delta',status:'done',recordsProcessed:'1200',errors:'0',duration:'2.1s'}}
+];
+var BRAND='#0a52a8';
+
+function doLogin(){
+  var l=document.getElementById('loginInput').value||'admin';
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('appShell').style.display='flex';
+  document.getElementById('userAvatar').textContent=l.substring(0,2).toUpperCase();
+  document.getElementById('profileAvatar').textContent=l.substring(0,2).toUpperCase();
+  document.getElementById('profileName').textContent=l;
+  document.getElementById('profileLogin').value=l;
+  renderUsers();renderChart();
+  setInterval(()=>{
+    document.getElementById('cpuVal').innerHTML=Math.round(30+Math.random()*45)+'<small style="font-size:14px">%</small>';
+    document.getElementById('memVal').innerHTML=Math.round(50+Math.random()*25)+'<small style="font-size:14px">%</small>';
+    document.getElementById('connUsers').textContent=Math.floor(2+Math.random()*6);
+  },3000);
+}
+function doLogout(){jobRunning=false;document.getElementById('loginScreen').style.display='flex';document.getElementById('appShell').style.display='none';}
+function toggleSidebar(){sidebarCollapsed=!sidebarCollapsed;document.getElementById('sidebar').classList.toggle('collapsed',sidebarCollapsed);}
+function showPage(name,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if(el)el.classList.add('active');
+  var labels={dashboard:'Dashboard',jobs:'Jobs',users:'Users',settings:'Settings',profile:'My Profile'};
+  if(name==='users'){showListView();setBreadcrumb([{label:'Users'}]);}
+  else setBreadcrumb([{label:labels[name]}]);
+  closeJobPopup();
+}
+function setBreadcrumb(crumbs){
+  var html='Home';
+  crumbs.forEach(c=>{html+=' <span style="color:var(--muted)">/</span> ';html+=c.action?'<span class="bc-link" onclick="'+c.action+'">'+c.label+'</span>':'<span>'+c.label+'</span>';});
+  document.getElementById('breadcrumb').innerHTML=html;
+}
+function switchTab(el,id){
+  document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));el.classList.add('active');
+  ['tab-general','tab-auth','tab-signalr'].forEach(t=>document.getElementById(t).style.display=t===id?'block':'none');
+}
+function toggleMaintenance(){maintenanceOn=!maintenanceOn;document.getElementById('maintenanceToggle').className='toggle '+(maintenanceOn?'on':'off');document.getElementById('settingsMaintenanceToggle').className='toggle '+(maintenanceOn?'on':'off');}
+function toggleMaintenance2(){maintenanceOn=!maintenanceOn;document.getElementById('maintenanceToggle').className='toggle '+(maintenanceOn?'on':'off');document.getElementById('settingsMaintenanceToggle').className='toggle '+(maintenanceOn?'on':'off');}
+function renderChart(){
+  var data=[120,210,185,340,290,180,260,320,210,145,380,290],max=Math.max(...data);
+  document.getElementById('chartBars').innerHTML=data.map((v,i)=>{
+    var labels=['12:00','12:05','12:10','12:15','12:20','12:25','12:30','12:35','12:40','12:45','12:50','12:55'];
+    return '<div class="bar-wrap"><div class="bar" style="height:'+Math.round((v/max)*100)+'%"></div><div class="bar-lbl">'+labels[i]+'</div></div>';
+  }).join('');
+}
+function openDeleteModal(id){
+  var u=users.find(x=>x.id===id);if(!u)return;
+  pendingDeleteId=id;
+  var bg=u.role==='admin'?BRAND:'#6b7a99';
+  document.getElementById('modalAvatar').textContent=u.login.substring(0,2).toUpperCase();
+  document.getElementById('modalAvatar').style.background=bg;
+  document.getElementById('modalUserLogin').textContent=u.login;
+  document.getElementById('modalUserId').textContent=u.id;
+  var rb=document.getElementById('modalUserRole');rb.textContent=u.role;rb.className='badge badge-'+(u.role==='admin'?'primary':'secondary');
+  document.getElementById('deleteModal').classList.add('open');
+}
+function closeDeleteModal(){document.getElementById('deleteModal').classList.remove('open');pendingDeleteId=null;}
+function confirmDelete(){
+  if(!pendingDeleteId)return;
+  var u=users.find(x=>x.id===pendingDeleteId);var login=u?u.login:'user';
+  users=users.filter(x=>x.id!==pendingDeleteId);closeDeleteModal();
+  var isInDetail=document.getElementById('view-detail').style.display!=='none';
+  if(isInDetail)showListView();else renderUsers();
+  showToast(login+' has been deleted');
+}
+function showListView(){
+  document.getElementById('view-list').style.display='block';
+  document.getElementById('view-detail').style.display='none';
+  editingId=null;detailMode=null;renderUsers();
+}
+function openAdd(){detailMode='add';editingId=null;renderDetailView(null,'add');}
+function openEdit(id){detailMode='edit';editingId=id;renderDetailView(users.find(x=>x.id===id),'edit');}
+function renderUsers(){
+  document.getElementById('userTbody').innerHTML=users.map(u=>{
+    var bg=u.role==='admin'?BRAND:'#6b7a99';
+    var deleteBtn=u.login!=='admin'
+      ?'<button class="btn btn-danger-outline btn-sm" onclick="event.stopPropagation();openDeleteModal(\''+u.id+'\')">'
+          +'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>Delete</button>'
+      :'';
+    return '<tr class="trow" onclick="openEdit(\''+u.id+'\')">'
+      +'<td><div class="uav-sm" style="background:'+bg+';color:#fff">'+u.login.substring(0,2).toUpperCase()+'</div></td>'
+      +'<td><span style="font-weight:500">'+u.login+'</span></td>'
+      +'<td><span class="badge badge-'+(u.role==='admin'?'primary':'secondary')+'">'+u.role+'</span></td>'
+      +'<td><code style="font-size:11px;color:var(--muted)">'+u.id+'</code></td>'
+      +'<td style="text-align:right;white-space:nowrap">'
+        +'<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openEdit(\''+u.id+'\')" style="margin-right:6px">'
+          +'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</button>'+deleteBtn
+      +'</td></tr>';
+  }).join('');
+}
+function renderDetailView(user,mode){
+  var isEdit=mode==='edit';
+  var avatarBg=isEdit?(user.role==='admin'?BRAND:'#6b7a99'):'#dde3ef';
+  var avatarColor=isEdit?'#fff':'#999';
+  var initials=isEdit?user.login.substring(0,2).toUpperCase():'?';
+  var modeBadge=isEdit
+    ?'<span class="mode-badge mode-edit"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</span>'
+    :'<span class="mode-badge mode-add"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New</span>';
+  var deleteBtn=isEdit&&user.login!=='admin'
+    ?'<button class="btn btn-danger-outline btn-sm" onclick="openDeleteModal(\''+user.id+'\')">'
+        +'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>Delete account</button>'
+    :'';
+  var html=
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px">'
+      +'<div><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">'
+        +'<div class="page-title" style="margin-bottom:0">'+(isEdit?'Edit account':'New account')+'</div>'+modeBadge
+      +'</div><div class="page-sub" style="margin-bottom:0">'+(isEdit?'Update information for '+user.login:'Create a new user account')+'</div></div>'
+    +'</div>'
+    +'<div class="card">'
+      +'<div class="card-header"><div style="display:flex;align-items:center;gap:12px">'
+        +'<div class="uav-lg" id="detailAvatar" style="background:'+avatarBg+';color:'+avatarColor+'">'+initials+'</div>'
+        +'<div><div style="font-weight:700;font-size:15px" id="detailNamePreview">'+(isEdit?user.login:'New user')+'</div>'
+        +'<div style="font-size:12px;color:var(--muted);margin-top:2px" id="detailRolePreview">'+(isEdit?user.role:'—')+'</div></div>'
+      +'</div></div>'
+      +'<div class="card-body">'
+        +'<div class="sec-title">Credentials</div>'
+        +'<div class="form-row-2">'
+          +'<div class="form-group"><label class="form-label">Username<span style="color:#e55353;margin-left:2px">*</span></label>'
+            +'<input class="form-control" id="ufLogin" value="'+(isEdit?user.login:'')+'" placeholder="Username" oninput="updatePreview()"/>'
+            +'<div class="ferr" id="ufLoginErr">This field is required</div></div>'
+          +'<div class="form-group"><label class="form-label">Role<span style="color:#e55353;margin-left:2px">*</span></label>'
+            +'<select class="form-control" id="ufRole" onchange="updatePreview()">'
+              +'<option value="guest"'+(isEdit&&user.role==='guest'?' selected':!isEdit?' selected':'')+'>guest — Read only</option>'
+              +'<option value="admin"'+(isEdit&&user.role==='admin'?' selected':'')+'>admin — Full access</option>'
+            +'</select></div>'
+        +'</div>'
+        +'<div class="divider"></div>'
+        +'<div class="sec-title">Security</div>'
+        +'<div class="form-row-2">'
+          +'<div class="form-group"><label class="form-label">'+(isEdit?'New password':'Password')+(isEdit?'':'<span style="color:#e55353;margin-left:2px">*</span>')+'</label>'
+            +'<div class="pwd-wrap"><input class="form-control" type="password" id="ufPwd" placeholder="••••••••"/>'
+            +'<div class="pwd-eye" onclick="togglePwd(\'ufPwd\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div></div>'
+            +(isEdit?'<div class="form-hint">Leave blank to keep current password</div>':'<div class="form-hint">Minimum 6 characters</div>')
+            +'<div class="ferr" id="ufPwdErr">Required (min. 6 characters)</div></div>'
+          +(!isEdit?'<div class="form-group"><label class="form-label">Confirm password<span style="color:#e55353;margin-left:2px">*</span></label>'
+            +'<div class="pwd-wrap"><input class="form-control" type="password" id="ufConfirm" placeholder="••••••••"/>'
+            +'<div class="pwd-eye" onclick="togglePwd(\'ufConfirm\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div></div>'
+            +'<div class="ferr" id="ufConfirmErr">Passwords do not match</div></div>':'')
+        +'</div>'
+        +(isEdit?'<div class="divider"></div><div class="sec-title">Information</div>'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">'
+            +'<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">User ID</div><code style="font-size:11px;color:var(--muted)">'+user.id+'</code></div>'
+            +'<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Created</div><span style="font-size:12px">'+user.createdAt+'</span></div>'
+            +'<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Status</div><span class="badge badge-success">Active</span></div>'
+          +'</div>':'')
+      +'</div>'
+      +'<div style="padding:14px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+        +'<div style="display:flex;align-items:center;gap:10px">'
+          +'<button class="btn btn-ghost btn-sm" onclick="showListView()">'
+            +'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Back</button>'
+          +deleteBtn
+        +'</div>'
+        +'<button class="btn btn-primary btn-sm" onclick="saveUser()">'
+          +'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
+          +(isEdit?'Save changes':'Create account')
+        +'</button>'
+      +'</div>'
+    +'</div>';
+  var dv=document.getElementById('view-detail');
+  dv.innerHTML=html;dv.className='subview-enter';
+  document.getElementById('view-list').style.display='none';
+  dv.style.display='block';
+  setBreadcrumb([{label:'Users',action:'showListView()'},{label:isEdit?'Edit — '+user.login:'New user'}]);
+}
+function updatePreview(){
+  var l=document.getElementById('ufLogin'),r=document.getElementById('ufRole');if(!l||!r)return;
+  var login=l.value.trim()||'New user',role=r.value;
+  var np=document.getElementById('detailNamePreview'),rp=document.getElementById('detailRolePreview'),av=document.getElementById('detailAvatar');
+  if(np)np.textContent=login;if(rp)rp.textContent=role;
+  if(av){av.textContent=login.substring(0,2).toUpperCase();av.style.background=role==='admin'?BRAND:'#6b7a99';av.style.color='#fff';}
+}
+function togglePwd(id,btn){
+  var inp=document.getElementById(id);if(!inp)return;
+  if(inp.type==='password'){inp.type='text';btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';}
+  else{inp.type='password';btn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';}
+}
+function saveUser(){
+  var login=document.getElementById('ufLogin').value.trim(),role=document.getElementById('ufRole').value,pwd=document.getElementById('ufPwd').value;
+  var isEdit=detailMode==='edit',valid=true;
+  ['ufLoginErr','ufPwdErr','ufConfirmErr'].forEach(id=>{var e=document.getElementById(id);if(e)e.classList.remove('show');});
+  ['ufLogin','ufPwd','ufConfirm'].forEach(id=>{var e=document.getElementById(id);if(e)e.classList.remove('error');});
+  if(!login){var e=document.getElementById('ufLoginErr');var i=document.getElementById('ufLogin');if(e)e.classList.add('show');if(i)i.classList.add('error');valid=false;}
+  if(!isEdit&&pwd.length<6){var e=document.getElementById('ufPwdErr');var i=document.getElementById('ufPwd');if(e)e.classList.add('show');if(i)i.classList.add('error');valid=false;}
+  var conf=document.getElementById('ufConfirm');
+  if(!isEdit&&conf&&pwd!==conf.value){var e=document.getElementById('ufConfirmErr');if(e)e.classList.add('show');if(conf)conf.classList.add('error');valid=false;}
+  if(!valid)return;
+  if(isEdit){var u=users.find(x=>x.id===editingId);if(u){u.login=login;u.role=role;}showToast('Account updated successfully');}
+  else{var d=new Date();var ds=('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)+'/'+d.getFullYear();users.push({id:'u'+Date.now(),login,role,createdAt:ds});showToast('Account created successfully');}
+  showListView();
+}
+function toggleJobPopup(){var p=document.getElementById('jobPopup');if(p.classList.contains('open')){closeJobPopup();}else{renderJobPopup();p.classList.add('open');}}
+function closeJobPopup(){document.getElementById('jobPopup').classList.remove('open');}
+function renderJobPopup(){
+  var body=document.getElementById('jobPopupBody');
+  if(!jobRunning){body.innerHTML='<div style="text-align:center;padding:20px 16px;color:var(--muted)"><div style="width:40px;height:40px;border-radius:50%;background:#f4f6f9;display:flex;align-items:center;justify-content:center;margin:0 auto 10px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg></div><div style="font-size:13px;font-weight:500;color:#4a5568;margin-bottom:4px">No running jobs</div><div style="font-size:12px">Start a job from the Jobs view.</div></div>';return;}
+  var pct=Math.round(jobProgress),clr=pct===100?'#2eb85c':BRAND;
+  body.innerHTML='<div style="padding:16px 16px 4px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px">'+jobTypeStr+'</div>'
+    +'<div style="font-size:13px;font-weight:600;margin-bottom:10px">'+jobTitleStr+'</div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div class="progress-bar" style="flex:1"><div id="popupProgressFill" class="progress-fill" style="width:'+pct+'%;background:'+clr+'"></div></div>'
+    +'<span id="popupPct" style="font-size:12px;font-weight:700;color:'+clr+';min-width:32px;text-align:right">'+pct+'%</span></div>'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px">'
+      +'<span style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px">'+(pct<100?'<span class="signal-dot" style="background:'+BRAND+';width:7px;height:7px"></span> Running...':'<span style="width:7px;height:7px;border-radius:50%;display:inline-block;background:#2eb85c"></span> Completed')+'</span>'
+      +'<span class="popup-link" onclick="goToJobDetail()">View details <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>'
+    +'</div></div>';
+}
+function goToJobDetail(){closeJobPopup();showPage('jobs',document.getElementById('navJobs'));}
+function updatePopupProgress(){
+  var fill=document.getElementById('popupProgressFill'),pctEl=document.getElementById('popupPct');if(!fill||!pctEl)return;
+  var pct=Math.round(jobProgress),clr=pct===100?'#2eb85c':BRAND;
+  fill.style.width=pct+'%';fill.style.background=clr;pctEl.textContent=pct+'%';pctEl.style.color=clr;
+}
+function startJob(){
+  if(jobRunning)return;jobRunning=true;stepIdx=0;jobProgress=0;
+  document.getElementById('traceContainer').innerHTML='';
+  var type=document.getElementById('jobTypeSelect').value,mode=document.getElementById('jobMode').value,src=document.getElementById('jobSource').value||'erp-prod';
+  jobTypeStr=type;jobTitleStr=type+' '+mode+' from '+src;
+  document.getElementById('navJobBadge').style.display='flex';document.getElementById('bellDot').style.display='block';
+  document.getElementById('startBtn').disabled=true;document.getElementById('cancelBtn').disabled=false;
+  document.getElementById('jobStateEmpty').style.display='none';document.getElementById('jobStateActive').style.display='block';
+  document.getElementById('jobTitleDetail').textContent=jobTitleStr;
+  document.getElementById('jobStatusBadge').textContent='Running';document.getElementById('jobStatusBadge').className='badge badge-warning';
+  if(document.getElementById('jobPopup').classList.contains('open'))renderJobPopup();
+  runStep();
+}
+function runStep(){
+  if(stepIdx>=jobSteps.length){finishJob();return;}
+  var step=jobSteps[stepIdx++];
+  setTimeout(()=>{
+    if(!jobRunning)return;
+    jobProgress=step.p;
+    document.getElementById('progressFillDetail').style.width=step.p+'%';document.getElementById('pctDetail').textContent=step.p+'%';
+    addTrace(step.lvl,step.msg);
+    var grid=document.getElementById('jobResultGrid');
+    if(grid)grid.innerHTML=Object.entries(step.r).map(([k,v])=>'<div style="background:#f4f6f9;border-radius:5px;padding:6px 8px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">'+k+'</div><div style="font-size:12px;font-weight:600;margin-top:2px">'+v+'</div></div>').join('');
+    if(document.getElementById('jobPopup').classList.contains('open'))updatePopupProgress();
+    runStep();
+  },900);
+}
+function finishJob(){
+  jobRunning=false;jobProgress=100;addTrace('Success','Job completed successfully.');
+  document.getElementById('jobStatusBadge').textContent='Succeeded';document.getElementById('jobStatusBadge').className='badge badge-success';
+  document.getElementById('startBtn').disabled=false;document.getElementById('cancelBtn').disabled=true;
+  document.getElementById('navJobBadge').style.display='none';document.getElementById('bellDot').style.display='none';
+  if(document.getElementById('jobPopup').classList.contains('open'))renderJobPopup();
+}
+function cancelJob(){
+  if(!jobRunning)return;jobRunning=false;addTrace('Cancel','Job cancelled by user.');
+  document.getElementById('jobStatusBadge').textContent='Canceled';document.getElementById('jobStatusBadge').className='badge badge-danger';
+  document.getElementById('startBtn').disabled=false;document.getElementById('cancelBtn').disabled=true;
+  document.getElementById('navJobBadge').style.display='none';document.getElementById('bellDot').style.display='none';
+  if(document.getElementById('jobPopup').classList.contains('open'))renderJobPopup();
+}
+function addTrace(lvl,msg){
+  var colors={Info:BRAND,Error:'#e55353',Success:'#2eb85c',Cancel:'#f9b115'};
+  var t=new Date(),ts=('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2)+':'+('0'+t.getSeconds()).slice(-2);
+  var c=document.getElementById('traceContainer');if(!c)return;
+  var d=document.createElement('div');d.className='trace-row';
+  d.innerHTML='<span class="trace-time">'+ts+'</span><span class="trace-lvl" style="color:'+colors[lvl]+'">'+lvl+'</span><span>'+msg+'</span>';
+  c.appendChild(d);c.scrollTop=c.scrollHeight;
+}
+function clearTraces(){document.getElementById('traceContainer').innerHTML='';}
+function showToast(msg){var t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400);}
+</script>
+</body>
+</html>

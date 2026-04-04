@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🚀 Debug Backend (.NET)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-dotnet",
+      "program": "${workspaceFolder}/src/Inkhound.Web/bin/Debug/net9.0/Inkhound.Web.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/Inkhound.Web",
+      "stopAtEntry": false,
+      "launchSettingsProfile": "",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Now listening on: http://[^:]+:(\\d+)",
+        "uriFormat": "http://localhost:%s"
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "APP_PORT": "5000",
+        "DOTNET_WATCH_RESTART_ON_RUDE_EDIT": "true"
+      },
+      "sourceFileMap": {
+        "/Views": "${workspaceFolder}/src/Inkhound.Web/Views"
+      }
+    },
+    {
+      "name": "🅰️ Debug Angular (ng serve)",
+      "type": "chrome",
+      "request": "launch",
+      "preLaunchTask": "serve-angular",
+      "url": "http://localhost:4200",
+      "webRoot": "${workspaceFolder}/src/Inkhound.Client/src",
+      "sourceMapPathOverrides": {
+        "webpack:/*": "${webRoot}/*",
+        "/./*": "${webRoot}/*",
+        "/src/*": "${webRoot}/*",
+        "/*": "*",
+        "/./~/*": "${workspaceFolder}/node_modules/*"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "⚡ Full Stack Debug",
+      "configurations": [
+        "🚀 Debug Backend (.NET)",
+        "🅰️ Debug Angular (ng serve)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
