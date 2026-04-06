@@ -1,9 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Inkhound.Core.Models;
+using Inkhound.Core.Interface;
 
 namespace Inkhound.Core.ComicVine;
 
-public sealed class ComicVineService
+public sealed class ComicVineService : IinkhoundService
 {
     private const string VolumePrefix = "4050";
     private const string IssuePrefix = "4000";
@@ -24,14 +26,64 @@ public sealed class ComicVineService
         PropertyNameCaseInsensitive = true
     };
 
+    public static string ServiceName = "ComicVine";
+
     private readonly HttpClient _http;
     private readonly ComicVineOptions _options;
 
-    public ComicVineService(HttpClient http, ComicVineOptions options)
+    public ComicVineService(ComicVineOptions options)
     {
-        _http = http;
+
         _options = options;
+        _http = new HttpClient
+        {
+            BaseAddress = new Uri(_options.BaseUrl),
+            Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds)
+        };
     }
+
+    public bool Initialize(out List<string> errors)
+    {
+
+        if (_options != null && _options.IsValid(out errors))
+        {
+            return true;
+        }
+        errors = ["Invalid options provided for ComicVineService."];
+        return false;
+    }
+
+    public static async Task<(bool IsValid, List<string> Errors)> CheckOptionsAsync(
+        List<OptionDefinition> optionDefinitions,
+        CancellationToken ct = default)
+    {
+        var options = ComicVineOptions.SetOptions(optionDefinitions);
+        if (options == null)
+            return (false, ["Failed to set options."]);
+
+        if (!options.IsValid(out var localErrors))
+            return (false, localErrors);
+
+        using var http = new HttpClient
+        {
+            BaseAddress = new Uri(options.BaseUrl),
+            Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds)
+        };
+
+        var url = $"volumes/?api_key={options.ApiKey}&format=json&limit=1&field_list=id";
+        var response = await http.GetAsync(url, ct);
+
+        if (!response.IsSuccessStatusCode)
+            return (false, [$"ComicVine API unreachable: HTTP {(int)response.StatusCode}"]);
+
+        var body = await response.Content.ReadFromJsonAsync<CvStatusResponse>(JsonOpts, ct);
+        if (body is null || body.StatusCode != 1)
+            return (false, [$"ComicVine API error: {body?.Error ?? "empty response"}"]);
+
+        return (true, []);
+    }
+
+    private record CvStatusResponse(int StatusCode, string Error);
 
     private const string PublisherPrefix = "4010";
 
@@ -69,28 +121,28 @@ public sealed class ComicVineService
             : null;
 
 
-        var offset = (page - 1) * (limit ?? _options.pageSize);
+        var offset = (page - 1) * (limit ?? _options.PageSize);
 
-        var url = ListUrl("volumes", VolumeFieldList, limit ?? _options.pageSize, offset,
+        var url = ListUrl("volumes", VolumeFieldList, limit ?? _options.PageSize, offset,
             $"name:{Uri.EscapeDataString(query)}", sort);
         return GetPagedAsync<CvVolume>(url, ct);
     }
 
     // Search publishers by name (paged), with optional sort
     public Task<CvPagedResponse<CvPublisherDetail>> SearchPublishersAsync(
-        string               query,
-        int                  page      = 1,
-        int?                 limit     = null,
-        PublisherSortField?  sortField = null,
-        SortDirection        sortDir   = SortDirection.Asc,
-        CancellationToken    ct        = default)
+        string query,
+        int page = 1,
+        int? limit = null,
+        PublisherSortField? sortField = null,
+        SortDirection sortDir = SortDirection.Asc,
+        CancellationToken ct = default)
     {
         string? sort = sortField.HasValue
             ? $"{PublisherSortFieldNames[sortField.Value]}:{(sortDir == SortDirection.Asc ? "asc" : "desc")}"
             : null;
 
-        var effectiveLimit = limit ?? _options.pageSize;
-        var offset         = (page - 1) * effectiveLimit;
+        var effectiveLimit = limit ?? _options.PageSize;
+        var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("publishers", PublisherFieldList, effectiveLimit, offset,
             $"name:{Uri.EscapeDataString(query)}", sort);
@@ -99,18 +151,18 @@ public sealed class ComicVineService
 
     // Get a single page of publishers without name filter — lists all
     public Task<CvPagedResponse<CvPublisherDetail>> GetPublishersPageAsync(
-        int                  page      = 1,
-        int?                 limit     = null,
-        PublisherSortField?  sortField = null,
-        SortDirection        sortDir   = SortDirection.Asc,
-        CancellationToken    ct        = default)
+        int page = 1,
+        int? limit = null,
+        PublisherSortField? sortField = null,
+        SortDirection sortDir = SortDirection.Asc,
+        CancellationToken ct = default)
     {
         string? sort = sortField.HasValue
             ? $"{PublisherSortFieldNames[sortField.Value]}:{(sortDir == SortDirection.Asc ? "asc" : "desc")}"
             : null;
 
-        var effectiveLimit = limit ?? _options.pageSize;
-        var offset         = (page - 1) * effectiveLimit;
+        var effectiveLimit = limit ?? _options.PageSize;
+        var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("publishers", PublisherFieldList, effectiveLimit, offset, sort: sort);
         return GetPagedAsync<CvPublisherDetail>(url, ct);
@@ -118,11 +170,11 @@ public sealed class ComicVineService
 
     // Get ALL publishers — auto-paginates and merges all pages
     public async Task<IReadOnlyList<CvPublisherDetail>> GetAllPublishersAsync(
-        PublisherSortField?  sortField = null,
-        SortDirection        sortDir   = SortDirection.Asc,
-        CancellationToken    ct        = default)
+        PublisherSortField? sortField = null,
+        SortDirection sortDir = SortDirection.Asc,
+        CancellationToken ct = default)
     {
-        var all         = new List<CvPublisherDetail>();
+        var all = new List<CvPublisherDetail>();
         var currentPage = 1;
         while (true)
         {
@@ -155,7 +207,7 @@ public sealed class ComicVineService
     public async Task<IReadOnlyList<CvIssue>> GetAllIssuesForVolumeAsync(
         int comicVineVolumeId, CancellationToken ct = default)
     {
-        var all         = new List<CvIssue>();
+        var all = new List<CvIssue>();
         var currentPage = 1;
         while (true)
         {
@@ -172,8 +224,8 @@ public sealed class ComicVineService
     public Task<CvPagedResponse<CvIssue>> GetIssuesPageAsync(
         int comicVineVolumeId, int page = 1, int? limit = null, CancellationToken ct = default)
     {
-        var effectiveLimit = limit ?? _options.pageSize;
-        var offset         = (page - 1) * effectiveLimit;
+        var effectiveLimit = limit ?? _options.PageSize;
+        var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("issues", IssueListFieldList, effectiveLimit, offset,
             $"volume:{comicVineVolumeId}");

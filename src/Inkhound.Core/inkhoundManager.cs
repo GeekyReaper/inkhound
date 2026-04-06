@@ -18,14 +18,9 @@ public class inkhoundManager
 
         var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
 
-        var http = new HttpClient
-        {
-            BaseAddress = new Uri(options.BaseUrl),
-            Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds)
-        };
-        http.DefaultRequestHeaders.Add("User-Agent", "Inkhound/1.0");
 
-        comicVine = new ComicVineService(http, options);
+
+        comicVine = new ComicVineService(options);
         InitSQL();
     }
 
