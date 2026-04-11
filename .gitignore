@@ -27,6 +27,9 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# Runtime data
+src/Inkhound.Console/data/
+
 # Residual folders
 src/Inkhound.Client.old/
 src/Nouveau dossier/

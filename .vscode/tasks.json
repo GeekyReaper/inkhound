@@ -62,6 +62,24 @@
       "problemMatcher": "$msCompile"
     },
     {
+      "label": "build-console",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/Inkhound.Console/Inkhound.Console.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": "build",
+      "presentation": {
+        "group": "dev",
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
       "label": "serve-angular",
       "type": "shell",
       "command": "npm run start",

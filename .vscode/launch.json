@@ -26,6 +26,17 @@
       }
     },
     {
+      "name": "🖥️ Debug Console",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-console",
+      "program": "${workspaceFolder}/src/Inkhound.Console/bin/Debug/net9.0/Inkhound.Console.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/Inkhound.Console",
+      "stopAtEntry": false,
+      "console": "integratedTerminal"
+    },
+    {
       "name": "🅰️ Debug Angular (ng serve)",
       "type": "chrome",
       "request": "launch",
