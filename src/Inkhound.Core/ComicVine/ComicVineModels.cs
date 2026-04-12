@@ -62,6 +62,9 @@ public record CvPublisherDetail(
     string SiteDetailUrl
 );
 
+// Result of FindVolume — best matching volume and its corresponding issue
+public record CvFindResult(CvVolume? Volume, CvIssue? Issue);
+
 // Issue — returned by list (no person_credits) and detail (with person_credits)
 public record CvIssue(
     int Id,

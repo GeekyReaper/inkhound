@@ -8,7 +8,8 @@ public record VolumeAuthor(string Name, string Role);
 public class Volume
 {
     public Guid Id { get; set; }
-    public string ComicVineId { get; set; } = string.Empty;
+    public string SourceId { get; set; } = string.Empty;
+    public string SourceType { get; set; } = string.Empty;
     public Guid LibraryId { get; set; }
     public string Title { get; set; } = string.Empty;
     public int? Year { get; set; }

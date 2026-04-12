@@ -1,42 +1,71 @@
 ﻿using System.Runtime.CompilerServices;
+using Inkhound.Core;
 using Inkhound.Core.ComicVine;
+
+using Inkhound.Core.Models;
+using Inkhound;
+using Inkhound.Core.ComicArchiveGenerator;
 
 var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
 
-var http = new HttpClient
+var manager = new InkhoundManager();
+manager.OnHealthcheck = (state) =>
 {
-    BaseAddress = new Uri(options.BaseUrl),   // <- BaseUrl utilisé ici
-    Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds)
-};
-http.DefaultRequestHeaders.Add("User-Agent", "Inkhound/1.0");
-
-
-
-var service = new ComicVineService(http, options);
-
-int page = 1;
-int pagesize = 50;
-bool stop = false;
-
-while (!stop)
-
-{
-    var publisher = await service.GetPublishersPageAsync(pagesize, (page - 1) * pagesize, PublisherSortField.Name, SortDirection.Asc);
-
-    Console.WriteLine($"Page {page} of {publisher.NumberOfTotalResults}");
-
-    foreach (var p in publisher.Results)
+    Console.WriteLine($"Healthcheck: {state.GlobalState}");
+    foreach (var service in state.stateServices)
     {
-        Console.WriteLine($"- {p.Id} {p.Name} ({p.LocationCity}, {p.LocationState}) {p.Deck}");
+        Console.WriteLine($"- {service.ServiceName}: {service.State} (Last refresh: {service.LastRefresh})");
     }
+};
+manager.OnTrace = (message) =>
+{
+    Console.WriteLine(message.ToConsole());
+};
 
-    page++;
+manager.OnJobUpdated = (job) =>
+{
+    Console.WriteLine($"Job update: {job.Title} - {job.State} ({job.Progress.Percentage}%)  Duration: {job.Duration.TotalSeconds}s Progression: {job.Progress.Completed}/{job.Progress.Total} Errors: {job.Progress.Error}");
+};
+await manager.AutomaticLoadServices();
 
-    Console.Write("Continue ? (y/n) : ");
-    var input = Console.ReadLine();
-    stop = input == null || input.ToLower() != "y";
+var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
+Console.WriteLine($"{result.Volume?.Name} ({result.Volume?.Publisher}) - {result.Volume?.StartYear}");
+Console.WriteLine($"\t{result.Issue?.IssueNumber} ({result.Issue?.Name})");
 
-}
+
+//var result1 = manager.LaunchJobConvertPdfToImage(new ArchiveConverterPdfJobParameters() { SourcePath = "Les Aigles decapitees T08.pdf", WorkingPath = "Les Aigles decapitees T08" });
+//var result2 = manager.LaunchJobConvertPdfToImage(new ArchiveConverterPdfJobParameters() { SourcePath = "002 - Elfes T02 L'Honneur des Elfes sylvains.pdf", WorkingPath = "Elfes T02" });
+
+//var archive = manager.GetService<ArchiveService, ArchiveOption>();
+//var images = await archive.ConvertPdfToImage("Les Aigles decapitees T08.pdf", "Les Aigles decapitees T08");
+//var images = result1.Result;
+//var images2 = result2.Result;
+// Console.WriteLine($"Converted {images.Count} images:");
+// foreach (var img in images)
+// {
+//     Console.WriteLine($"- {img}");
+// }
+
+
+// while (!stop)
+// {
+
+//     var publisher = await service.GetPublishersPageAsync(pagesize, (page - 1) * pagesize, PublisherSortField.Name, SortDirection.Asc);
+
+//     Console.WriteLine($"Page {page} of {publisher.NumberOfTotalResults}");
+
+//     foreach (var p in publisher.Results)
+//     {
+//         Console.WriteLine($"- {p.Id} {p.Name} ({p.LocationCity}, {p.LocationState}) {p.Deck}");
+//     }
+
+//     page++;
+
+//     Console.Write("Continue ? (y/n) : ");
+//     var input = Console.ReadLine();
+//     stop = input == null || input.ToLower() != "y";
+
+// }
 //var search = "";
 
 // Console.Write("Search for a comic series: ");

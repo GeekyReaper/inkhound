@@ -1,10 +1,11 @@
-using System.Text.Json;
+using Foundation.Core.Model;
 using Inkhound.Core.Models;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
-namespace Inkhound.Core.Data;
+namespace Inkhound.Core.DbStorage;
 
-public class InkhoundDbContext : DbContext
+public class DbStorageContext : DbContext
 {
     public DbSet<Library> Libraries => Set<Library>();
     public DbSet<Volume> Volumes => Set<Volume>();
@@ -12,7 +13,7 @@ public class InkhoundDbContext : DbContext
 
     public DbSet<OptionDefinition> Options => Set<OptionDefinition>();
 
-    public InkhoundDbContext(DbContextOptions<InkhoundDbContext> options) : base(options) { }
+    public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -44,12 +45,13 @@ public class InkhoundDbContext : DbContext
                 v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>());
     }
 
+    #region Option Management
     public List<OptionDefinition> GetOptionsForService(string serviceName)
     {
         return Options.Where(o => o.ServiceName == serviceName).ToList();
     }
 
-    public void SetOptionsForService(string serviceName, List<OptionDefinition> options)
+    public void SetOptionsForService(List<OptionDefinition> options, string serviceName)
     {
         var existingOptions = Options.Where(o => o.ServiceName == serviceName).ToList();
 
@@ -62,6 +64,7 @@ public class InkhoundDbContext : DbContext
                 existing.Value = option.Value;
                 existing.ValueType = option.ValueType;
                 existing.DefaultValue = option.DefaultValue;
+
                 existing.Mandatory = option.Mandatory;
                 existing.LastValue = DateTime.UtcNow;
             }
@@ -83,4 +86,5 @@ public class InkhoundDbContext : DbContext
 
         SaveChanges();
     }
+    #endregion
 }

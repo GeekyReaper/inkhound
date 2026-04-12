@@ -1,8 +1,9 @@
-using Inkhound.Core.Models;
+using Foundation.Core.Interface;
+using Foundation.Core.Model;
 
 namespace Inkhound.Core.ComicVine;
 
-public class ComicVineOptions
+public class ComicVineOptions : IOptionList
 {
     public const string SectionName = "ComicVine";
     public string ApiKey { get; set; } = string.Empty;
@@ -13,8 +14,6 @@ public class ComicVineOptions
     public int TimeoutSeconds { get; set; } = 30;
 
     public int PageSize { get; set; } = 20;
-
-    public string ServiceName => ComicVineService.ServiceName;
 
     public bool IsValid(out List<string> errors)
     {
@@ -36,42 +35,55 @@ public class ComicVineOptions
     }
 
 
-    public static List<OptionDefinition> GetOptions()
+    public ComicVineOptions()
+    {
+
+    }
+
+    public List<OptionDefinition> GetOptions()
     {
         return new List<OptionDefinition>
         {
-            new OptionDefinition { Name = "ApiKey", ValueType = OptionValueType.Password, DefaultValue = string.Empty, Mandatory = true },
-            new OptionDefinition { Name = "UserAgent", ValueType = OptionValueType.String, DefaultValue = "Inkhound/1.0", Mandatory = false },
-            new OptionDefinition { Name = "BaseUrl", ValueType = OptionValueType.String, DefaultValue = "https://comicvine.gamespot.com/api/", Mandatory = true },
-            new OptionDefinition { Name = "TimeoutSeconds", ValueType = OptionValueType.Int, DefaultValue = "30", Mandatory = false },
-            new OptionDefinition { Name = "PageSize", ValueType = OptionValueType.Int, DefaultValue = "20", Mandatory = false }
+            new OptionDefinition { Name = "ApiKey", Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Mandatory = true },
+            new OptionDefinition { Name = "UserAgent", ValueType = EValueType.STRING, Value = UserAgent, DefaultValue = "Inkhound/1.0", Mandatory = false },
+            new OptionDefinition { Name = "BaseUrl", ValueType =EValueType.STRING, Value = BaseUrl, DefaultValue = "https://comicvine.gamespot.com/api/", RegexValidator = @"^https://.*$", Mandatory = true },
+            new OptionDefinition { Name = "TimeoutSeconds", ValueType = EValueType.INT, Value = TimeoutSeconds.ToString(), DefaultValue = "30", Mandatory = false },
+            new OptionDefinition { Name = "PageSize", ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false }
         };
     }
 
-    public static ComicVineOptions SetOptions(List<OptionDefinition> options)
+
+
+    public bool LoadOptions(List<OptionDefinition> options, out List<string> errors)
     {
-        var comicVineOptions = new ComicVineOptions();
+        errors = new List<string>();
+
         foreach (var option in options)
         {
-            switch (option.Name)
+            if (option.IsValid(out var optionErrors))
             {
-                case "ApiKey":
-                    comicVineOptions.ApiKey = option.Value;
-                    break;
-                case "UserAgent":
-                    comicVineOptions.UserAgent = option.Value;
-                    break;
-                case "BaseUrl":
-                    comicVineOptions.BaseUrl = option.Value;
-                    break;
-                case "TimeoutSeconds":
-                    comicVineOptions.TimeoutSeconds = option.GetInt();
-                    break;
-                case "PageSize":
-                    comicVineOptions.PageSize = option.GetInt();
-                    break;
+                switch (option.Name)
+                {
+                    case "ApiKey":
+                        ApiKey = option.Value;
+                        break;
+                    case "UserAgent":
+                        UserAgent = option.Value;
+                        break;
+                    case "BaseUrl":
+                        BaseUrl = option.Value;
+                        break;
+                    case "TimeoutSeconds":
+                        TimeoutSeconds = option.GetInt();
+                        break;
+                    case "PageSize":
+                        PageSize = option.GetInt();
+                        break;
+                }
             }
+            errors.AddRange(optionErrors);
         }
-        return comicVineOptions;
+        return errors.Count == 0 && !IsValid(out errors);
     }
+
 }

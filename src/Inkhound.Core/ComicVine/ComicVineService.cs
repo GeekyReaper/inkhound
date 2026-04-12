@@ -1,11 +1,17 @@
+using System.Globalization;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Inkhound.Core.Models;
-using Inkhound.Core.Interface;
+using Foundation.Core;
+using Foundation.Core.Interface;
+using Foundation.Core.Model;
+using System.Runtime.CompilerServices;
 
 namespace Inkhound.Core.ComicVine;
 
-public sealed class ComicVineService : IinkhoundService
+public partial class ComicVineService : BaseService<ComicVineOptions>
 {
     private const string VolumePrefix = "4050";
     private const string IssuePrefix = "4000";
@@ -20,69 +26,67 @@ public sealed class ComicVineService : IinkhoundService
     private static readonly string IssueDetailFieldList =
         "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
 
+    private HttpClient _http;
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         PropertyNameCaseInsensitive = true
     };
 
-    public static string ServiceName = "ComicVine";
 
-    private readonly HttpClient _http;
-    private readonly ComicVineOptions _options;
 
-    public ComicVineService(ComicVineOptions options)
+    public ComicVineService()
     {
-
-        _options = options;
-        _http = new HttpClient
-        {
-            BaseAddress = new Uri(_options.BaseUrl),
-            Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds)
-        };
+        _http = BuildHttpClient();
     }
 
-    public bool Initialize(out List<string> errors)
-    {
+    #region Override BaseService
 
-        if (_options != null && _options.IsValid(out errors))
+    public override string GetServiceName() => "ComicVine";
+    public override async Task<bool> LoadOptions(List<OptionDefinition> optionList)
+    {
+        // Rebuild _http before base.LoadOptions so CheckInternalState uses the updated options
+        Options.LoadOptions(optionList, out _);
+        _http = BuildHttpClient();
+        return await base.LoadOptions(optionList);
+    }
+
+    protected override async Task<EState> CheckInternalState()
+    {
+        var url = $"volumes/?api_key={Options.ApiKey}&format=json&limit=1&field_list=id";
+        try
         {
-            return true;
+            var response = await _http.GetAsync(url);
+
+            if (!response.IsSuccessStatusCode)
+                return (EState.ERROR);
+
+            var body = await response.Content.ReadFromJsonAsync<CvStatusResponse>(JsonOpts);
+            if (body is null || body.StatusCode != 1)
+                return EState.ERROR;
         }
-        errors = ["Invalid options provided for ComicVineService."];
-        return false;
-    }
-
-    public static async Task<(bool IsValid, List<string> Errors)> CheckOptionsAsync(
-        List<OptionDefinition> optionDefinitions,
-        CancellationToken ct = default)
-    {
-        var options = ComicVineOptions.SetOptions(optionDefinitions);
-        if (options == null)
-            return (false, ["Failed to set options."]);
-
-        if (!options.IsValid(out var localErrors))
-            return (false, localErrors);
-
-        using var http = new HttpClient
+        catch (Exception ex)
         {
-            BaseAddress = new Uri(options.BaseUrl),
-            Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds)
-        };
+            SendTrace("Request to ComicVine failed", ex);
+            return EState.ERROR;
+        }
 
-        var url = $"volumes/?api_key={options.ApiKey}&format=json&limit=1&field_list=id";
-        var response = await http.GetAsync(url, ct);
-
-        if (!response.IsSuccessStatusCode)
-            return (false, [$"ComicVine API unreachable: HTTP {(int)response.StatusCode}"]);
-
-        var body = await response.Content.ReadFromJsonAsync<CvStatusResponse>(JsonOpts, ct);
-        if (body is null || body.StatusCode != 1)
-            return (false, [$"ComicVine API error: {body?.Error ?? "empty response"}"]);
-
-        return (true, []);
+        return EState.OK;
     }
 
+    #endregion
+
+    private HttpClient BuildHttpClient()
+    {
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri(Options.BaseUrl),
+            Timeout = TimeSpan.FromSeconds(Options.TimeoutSeconds)
+        };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(Options.UserAgent);
+        return client;
+    }
     private record CvStatusResponse(int StatusCode, string Error);
 
     private const string PublisherPrefix = "4010";
@@ -121,9 +125,9 @@ public sealed class ComicVineService : IinkhoundService
             : null;
 
 
-        var offset = (page - 1) * (limit ?? _options.PageSize);
+        var offset = (page - 1) * (limit ?? Options.PageSize);
 
-        var url = ListUrl("volumes", VolumeFieldList, limit ?? _options.PageSize, offset,
+        var url = ListUrl("volumes", VolumeFieldList, limit ?? Options.PageSize, offset,
             $"name:{Uri.EscapeDataString(query)}", sort);
         return GetPagedAsync<CvVolume>(url, ct);
     }
@@ -141,7 +145,7 @@ public sealed class ComicVineService : IinkhoundService
             ? $"{PublisherSortFieldNames[sortField.Value]}:{(sortDir == SortDirection.Asc ? "asc" : "desc")}"
             : null;
 
-        var effectiveLimit = limit ?? _options.PageSize;
+        var effectiveLimit = limit ?? Options.PageSize;
         var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("publishers", PublisherFieldList, effectiveLimit, offset,
@@ -161,7 +165,7 @@ public sealed class ComicVineService : IinkhoundService
             ? $"{PublisherSortFieldNames[sortField.Value]}:{(sortDir == SortDirection.Asc ? "asc" : "desc")}"
             : null;
 
-        var effectiveLimit = limit ?? _options.PageSize;
+        var effectiveLimit = limit ?? Options.PageSize;
         var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("publishers", PublisherFieldList, effectiveLimit, offset, sort: sort);
@@ -224,7 +228,7 @@ public sealed class ComicVineService : IinkhoundService
     public Task<CvPagedResponse<CvIssue>> GetIssuesPageAsync(
         int comicVineVolumeId, int page = 1, int? limit = null, CancellationToken ct = default)
     {
-        var effectiveLimit = limit ?? _options.PageSize;
+        var effectiveLimit = limit ?? Options.PageSize;
         var offset = (page - 1) * effectiveLimit;
 
         var url = ListUrl("issues", IssueListFieldList, effectiveLimit, offset,
@@ -245,7 +249,7 @@ public sealed class ComicVineService : IinkhoundService
     private string ListUrl(string resource, string fields, int limit, int offset,
         string? filter = null, string? sort = null)
     {
-        var url = $"{resource}/?api_key={_options.ApiKey}&format=json" +
+        var url = $"{resource}/?api_key={Options.ApiKey}&format=json" +
                   $"&field_list={fields}&limit={Math.Clamp(limit, 1, MaxPageSize)}&offset={offset}";
         if (filter is not null) url += $"&filter={filter}";
         if (sort is not null) url += $"&sort={sort}";
@@ -253,7 +257,7 @@ public sealed class ComicVineService : IinkhoundService
     }
 
     private string DetailUrl(string resource, string prefix, int id, string fields) =>
-        $"{resource}/{prefix}-{id}/?api_key={_options.ApiKey}&format=json&field_list={fields}";
+        $"{resource}/{prefix}-{id}/?api_key={Options.ApiKey}&format=json&field_list={fields}";
 
     private async Task<CvPagedResponse<T>> GetPagedAsync<T>(string url, CancellationToken ct)
     {
@@ -272,5 +276,174 @@ public sealed class ComicVineService : IinkhoundService
         var response = await _http.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(JsonOpts, ct);
+    }
+
+    public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode,
+        CancellationToken ct = default)
+    {
+        var parts = issueFilename.Replace('\\', '/').Split('/', 2);
+        var folderName = parts.Length == 2 ? parts[0] : Path.GetFileNameWithoutExtension(parts[0]);
+        var fileName = parts.Length == 2 ? Path.GetFileNameWithoutExtension(parts[1]) : folderName;
+
+        var (title, year) = ParseFolderName(folderName);
+        var issueNum = ParseIssueNumber(fileName);
+        var normalizedTitle = NormalizeForSearch(title);
+
+        var searchResult = await SearchVolumesAsync(title, limit: 20, ct: ct);
+        if (searchResult.Results.Count == 0)
+            return new CvFindResult(null, null);
+
+        var bestVolume = searchResult.Results
+            .Select(v => (Volume: v, Score: ScoreVolume(v, normalizedTitle, year, issueNum, favoriteCountryCode)))
+            .MaxBy(x => x.Score)
+            .Volume;
+
+        if (issueNum is null)
+            return new CvFindResult(bestVolume, null);
+
+        // Find the matching issue — paginate if needed
+        var page = 1;
+        while (true)
+        {
+            var issuePage = await GetIssuesPageAsync(bestVolume.Id, page, MaxPageSize, ct);
+            var match = issuePage.Results.FirstOrDefault(
+                i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
+
+            if (match is not null)
+                return new CvFindResult(bestVolume, match);
+
+            if (issuePage.Results.Count + issuePage.Offset >= issuePage.NumberOfTotalResults)
+                break;
+
+            page++;
+            await Task.Delay(250, ct);
+        }
+
+        return new CvFindResult(bestVolume, null);
+    }
+
+    // ── FindVolume helpers ─────────────────────────────────────────────────────
+
+    private static readonly Dictionary<string, string[]> PublisherCountryHints =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["FR"] = ["dargaud", "dupuis", "casterman", "glenat", "soleil", "lombard",
+                      "delcourt", "ankama", "fluide", "bamboo", "vents d'ouest"],
+            ["US"] = ["marvel", "dc comics", "image", "dark horse", "idw", "dynamite", "boom", "archie"],
+            ["JP"] = ["shueisha", "kodansha", "shogakukan", "viz"],
+        };
+
+    [GeneratedRegex(@"^(.+?)\s*\((\d{4})\)\s*$")]
+    private static partial Regex FolderYearRegex();
+
+    [GeneratedRegex(@"\bT\s*0*(\d+)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex TomeNumberRegex();
+
+    [GeneratedRegex(@"^0*(\d+)")]
+    private static partial Regex LeadingNumberRegex();
+
+    [GeneratedRegex(@"[-–]\s*0*(\d{1,4})\s*[-–]")]
+    private static partial Regex DashEnclosedNumberRegex();
+
+    [GeneratedRegex(@"\b0*(\d{1,4})\b")]
+    private static partial Regex IsolatedNumberRegex();
+
+    private static (string Title, int? Year) ParseFolderName(string folder)
+    {
+        var match = FolderYearRegex().Match(folder.Trim());
+        if (match.Success && int.TryParse(match.Groups[2].Value, out var year))
+            return (match.Groups[1].Value.Trim(), year);
+        return (folder.Trim(), null);
+    }
+
+    private static int? ParseIssueNumber(string filename)
+    {
+        // 1. French "Tome" format: T01, T 02
+        var m = TomeNumberRegex().Match(filename);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var n)) return n;
+
+        // 2. Starts with a number: "01 - ", "002 "
+        m = LeadingNumberRegex().Match(filename);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
+
+        // 3. Number enclosed in dashes: " - 012 - "
+        m = DashEnclosedNumberRegex().Match(filename);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
+
+        // 4. First isolated integer
+        m = IsolatedNumberRegex().Match(filename);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
+
+        return null;
+    }
+
+    private static double ScoreVolume(CvVolume candidate, string normalizedQuery,
+        int? year, int? issueNum, string countryCode)
+    {
+        double score = 0;
+
+        // Title similarity (0–60)
+        var candidateNorm = NormalizeForSearch(candidate.Name);
+        if (candidateNorm == normalizedQuery)
+            score += 60;
+        else if (candidateNorm.Contains(normalizedQuery) || normalizedQuery.Contains(candidateNorm))
+            score += 40;
+        else
+            score += Math.Max(0, 30 - LevenshteinDistance(candidateNorm, normalizedQuery));
+
+        // Year match (0–15)
+        if (year.HasValue && candidate.StartYear == year.Value.ToString())
+            score += 15;
+
+        // Issue count coverage (−20 to +15)
+        if (issueNum.HasValue)
+        {
+            if (candidate.CountOfIssues >= issueNum.Value)
+                score += 15;
+            else
+                score -= 20;
+        }
+
+        // Publisher country (0–10)
+        if (!string.IsNullOrEmpty(candidate.Publisher?.Name)
+            && PublisherCountryHints.TryGetValue(countryCode, out var hints))
+        {
+            var pub = candidate.Publisher.Name.ToLowerInvariant();
+            if (hints.Any(pub.Contains))
+                score += 10;
+        }
+
+        return score;
+    }
+
+    private static string NormalizeForSearch(string input)
+    {
+        var normalized = input.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(normalized.Length);
+        foreach (var c in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark) continue;
+            sb.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : ' ');
+        }
+        return string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static int LevenshteinDistance(string a, string b)
+    {
+        if (a.Length == 0) return b.Length;
+        if (b.Length == 0) return a.Length;
+
+        var d = new int[a.Length + 1, b.Length + 1];
+        for (var i = 0; i <= a.Length; i++) d[i, 0] = i;
+        for (var j = 0; j <= b.Length; j++) d[0, j] = j;
+
+        for (var i = 1; i <= a.Length; i++)
+        for (var j = 1; j <= b.Length; j++)
+        {
+            var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
+        }
+
+        return d[a.Length, b.Length];
     }
 }
