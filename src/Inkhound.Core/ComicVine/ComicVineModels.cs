@@ -29,24 +29,44 @@ public record CvDetailResponse<T>(
 
 // Shared sub-objects
 public record CvPublisher(int Id, string Name, string ApiDetailUrl);
-public record CvImage(string MediumUrl, string OriginalUrl);
+public record CvImage(
+    string? IconUrl,
+    string? MediumUrl,
+    string? ScreenUrl,
+    string? ScreenLargeUrl,
+    string? SmallUrl,
+    string? SuperUrl,
+    string? ThumbUrl,
+    string? TinyUrl,
+    string? OriginalUrl,
+    string? ImageTags
+);
 public record CvVolumeRef(int Id, string Name, string ApiDetailUrl);
 
-// Person credit on an issue (role = "writer", "penciller", "inker", etc.)
+// Generic credit (team, character, concept, location, object)
+public record CvCredit(int Id, string Name, string ApiDetailUrl);
+
+// Person credit — same as CvCredit but with a role field ("writer", "penciller", "inker", etc.)
 public record CvPersonCredit(int Id, string Name, string Role);
 
 // Volume — returned by list search and detail endpoint
 public record CvVolume(
     int Id,
     string Name,
-    string? StartYear,          // string in API, may be null for ongoing series
+    string? StartYear,                                  // string in API, may be null for ongoing series
     int CountOfIssues,
     CvPublisher? Publisher,
     CvImage? Image,
-    string? Deck,               // short tagline
-    string? Description,        // full HTML description
+    string? Deck,                                       // short tagline
+    string? Description,                               // full HTML description
     string ApiDetailUrl,
-    string SiteDetailUrl
+    string SiteDetailUrl,
+    IReadOnlyList<CvPersonCredit>? PersonCredits,
+    IReadOnlyList<CvCredit>? TeamCredits,
+    IReadOnlyList<CvCredit>? CharacterCredits,
+    IReadOnlyList<CvCredit>? ConceptCredits,
+    IReadOnlyList<CvCredit>? LocationCredits,
+    IReadOnlyList<CvCredit>? ObjectCredits
 );
 
 // Publisher — returned by list search and detail endpoint

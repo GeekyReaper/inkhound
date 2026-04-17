@@ -5,6 +5,7 @@ using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
 using Inkhound;
 using Inkhound.Core.ComicArchiveGenerator;
+using Microsoft.VisualBasic;
 
 var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
 
@@ -27,10 +28,31 @@ manager.OnJobUpdated = (job) =>
     Console.WriteLine($"Job update: {job.Title} - {job.State} ({job.Progress.Percentage}%)  Duration: {job.Duration.TotalSeconds}s Progression: {job.Progress.Completed}/{job.Progress.Total} Errors: {job.Progress.Error}");
 };
 await manager.AutomaticLoadServices();
+var stop = false;
+while (!stop)
+{
+    Console.Write("Volume name : ");
+    var volumename = Console.ReadLine();
 
-var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
-Console.WriteLine($"{result.Volume?.Name} ({result.Volume?.Publisher}) - {result.Volume?.StartYear}");
-Console.WriteLine($"\t{result.Issue?.IssueNumber} ({result.Issue?.Name})");
+    stop = volumename == "q";
+
+    if (!stop)
+    {
+        var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolumeByName(volumename, "FR");
+        Console.WriteLine($"{result}");
+        //ComicVineService.ExtractVolumeCandidates(volumename); //
+        //Console.WriteLine($"{result.Count}");
+        //foreach (var r in result)
+        //{
+        //    Console.WriteLine($"{r}");
+        //}
+        Console.WriteLine("");
+    }
+}
+
+//var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
+//Console.WriteLine($"{result.Volume?.Name} ({result.Volume?.Publisher}) - {result.Volume?.StartYear}");
+//Console.WriteLine($"\t{result.Issue?.IssueNumber} ({result.Issue?.Name})");
 
 
 //var result1 = manager.LaunchJobConvertPdfToImage(new ArchiveConverterPdfJobParameters() { SourcePath = "Les Aigles decapitees T08.pdf", WorkingPath = "Les Aigles decapitees T08" });

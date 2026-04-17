@@ -8,6 +8,7 @@ using Foundation.Core;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
 using System.Runtime.CompilerServices;
+using System.Resources;
 
 namespace Inkhound.Core.ComicVine;
 
@@ -18,7 +19,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     private const int MaxPageSize = 100;
 
     private static readonly string VolumeFieldList =
-        "id,name,start_year,count_of_issues,publisher,image,deck,description,api_detail_url,site_detail_url";
+        "id,name,start_year,count_of_issues,publisher,image,deck,description,api_detail_url,site_detail_url,person_credits,team_credits,character_credits,concept_credits,location_credits,object_credits";
 
     private static readonly string IssueListFieldList =
         "id,name,issue_number,volume,cover_date,store_date,image,api_detail_url,site_detail_url";
@@ -275,7 +276,8 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     {
         var response = await _http.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<T>(JsonOpts, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<T>(json, JsonOpts);
     }
 
     public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode,
@@ -322,8 +324,61 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         return new CvFindResult(bestVolume, null);
     }
 
-    // ── FindVolume helpers ─────────────────────────────────────────────────────
+    // ── FindVolumeByName ──────────────────────────────────────────────────────
+    public async Task<CvVolume?> FindVolumeByName(string volumeName, string favoriteCountryCode,
+        CancellationToken ct = default)
+    {
+        var candidates = ExtractVolumeCandidates(volumeName)
+            .Where(c => !string.IsNullOrWhiteSpace(c.Title))
+            .ToList();
 
+        if (candidates.Count == 0)
+            return null;
+
+        // 1. Search in parallel — one query per candidate
+        var searchTasks = candidates.Select(c => SearchVolumesAsync(c.Title.Trim(), limit: 20, ct: ct));
+        var searchResults = await Task.WhenAll(searchTasks);
+
+        // 2. Deduplicate by volume ID — for volumes found by multiple candidates,
+        //    keep the candidate whose title best matches the volume name
+        var bestCandidatePerVolume = candidates
+            .Zip(searchResults, (candidate, result) => (candidate, result.Results))
+            .SelectMany(x => x.Results.Select(v => (Volume: v, Candidate: x.candidate)))
+            .GroupBy(x => x.Volume.Id)
+            .Select(g => g.MaxBy(x =>
+                NormalizeForSearch(x.Volume.Name).Contains(NormalizeForSearch(x.Candidate.Title)) ? 1 : 0))
+            .ToList();
+
+        // 3. Fetch full details sequentially to respect ComicVine rate limit (250ms between calls)
+        var detailedVolumes = new List<(CvVolume Volume, ParsedVolumeName Candidate)>();
+        for (var i = 0; i < bestCandidatePerVolume.Count; i++)
+        {
+            var item = bestCandidatePerVolume[i];
+            var detail = await GetVolumeAsync(item.Volume.Id, ct);
+            if (detail is not null)
+                detailedVolumes.Add((detail, item.Candidate));
+            if (i < bestCandidatePerVolume.Count - 1)
+                await Task.Delay(250, ct);
+        }
+
+        if (detailedVolumes.Count == 0)
+            return null;
+
+        // 4. Score each detailed volume against its best candidate
+        return detailedVolumes
+            .Select(x =>
+            {
+                var normalizedTitle = NormalizeForSearch(x.Candidate.Title);
+                var minCount = Math.Max(x.Candidate.MinTomes ?? 0, x.Candidate.IssueNumber ?? 0);
+                var score = ScoreVolume(x.Volume, normalizedTitle, x.Candidate.Year, minCount,
+                    favoriteCountryCode, x.Candidate.metadata);
+                return (x.Volume, score);
+            })
+            .MaxBy(x => x.score)
+            .Volume;
+    }
+
+    // ── FindVolume helpers ─────────────────────────────────────────────────────
     private static readonly Dictionary<string, string[]> PublisherCountryHints =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -333,10 +388,13 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             ["JP"] = ["shueisha", "kodansha", "shogakukan", "viz"],
         };
 
+    #region REGEX
     [GeneratedRegex(@"^(.+?)\s*\((\d{4})\)\s*$")]
     private static partial Regex FolderYearRegex();
+    [GeneratedRegex(@"\s*(\d{4})\s*")]
+    private static partial Regex YearRegex();
 
-    [GeneratedRegex(@"\bT\s*0*(\d+)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b[T,t,V,v][omevlu]*[\s\.\-_]*0*(\d+)\b", RegexOptions.IgnoreCase)]
     private static partial Regex TomeNumberRegex();
 
     [GeneratedRegex(@"^0*(\d+)")]
@@ -348,6 +406,128 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     [GeneratedRegex(@"\b0*(\d{1,4})\b")]
     private static partial Regex IsolatedNumberRegex();
 
+    [GeneratedRegex(@"[\[{][^\[\]{}]*[\]}]")]
+    private static partial Regex BracketTagRegex();
+
+    [GeneratedRegex(@"\(\s*(\d+)\s*tomes?\s*\)", RegexOptions.IgnoreCase)]
+    private static partial Regex TomesCountRegex();
+
+    [GeneratedRegex(@"\(\s*(\d{4})\s*\)")]
+    private static partial Regex YearParenRegex();
+    #endregion
+
+    public record ParsedVolumeName(string Title, int? Year, int? MinTomes, int? IssueNumber, List<string>? metadata);
+
+    private static readonly HashSet<string> NoiseWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CBR", "CBZ", "PDF", "Ebook", "epub", "NoTag", "NoTAG", "NOTAG",
+        "FR", "FRENCH", "EN", "ENGLISH", "VF", "VO",
+        "BD", "INTEGRALE", "COLLECTION", "HS", "MANGA",
+    };
+    private static readonly HashSet<string> SplitString = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "-", ".", "+", ","
+    };
+
+    private static string StripNoiseWords(IEnumerable<string> noiseWords, string input)
+    {
+        var pattern = $@"\b({string.Join("|", noiseWords.Select(Regex.Escape))})\b";
+        var result = Regex.Replace(input, pattern, " ", RegexOptions.IgnoreCase);
+        return string.Join(" ", result.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    public static List<ParsedVolumeName> ExtractVolumeCandidates(string input)
+    {
+        var result = new List<ParsedVolumeName>();
+        var s = input.Trim();
+        // 1. Strip bracket tags: [BD], [cbr], [aATAa], {CBR & CBZ], etc.
+        s = BracketTagRegex().Replace(s, " ");
+
+        s = StripNoiseWords(NoiseWords, s);
+
+
+
+        //s = StripNoiseWords2(s);
+
+        // 2. Extract (N Tomes) → minTomes
+        int? minTomes = null;
+        var tomesMatch = TomesCountRegex().Match(s);
+        if (tomesMatch.Success && int.TryParse(tomesMatch.Groups[1].Value, out var tc))
+        {
+            minTomes = tc;
+            s = s.Remove(tomesMatch.Index, tomesMatch.Length);
+        }
+
+        // 3. Extract standalone (YYYY) → year
+        int? year = null;
+        var yearMatch = YearParenRegex().Match(s);
+        if (yearMatch.Success && int.TryParse(yearMatch.Groups[1].Value, out var y))
+        {
+            year = y;
+            s = s.Remove(yearMatch.Index, yearMatch.Length);
+        }
+
+
+        // Clean split carateres
+
+        var charClass = "[" + string.Concat(SplitString.Select(Regex.Escape)) + "]";
+
+        s = Regex.Replace(s, $@"({charClass}\s*){{2,}}", "");  // consécutifs
+        s = Regex.Replace(s, $@"{charClass}\s*$", "");           // en fin
+        s = Regex.Replace(s, $@"^\s*{charClass}", "");           // en début
+
+        // s = Regex.Replace(s, @"(\.\s*){2}", "");
+        // s = Regex.Replace(s, @"(\.\s*)$", "");
+        // s = Regex.Replace(s, @"(^\s*\.)", "");
+
+        // s = Regex.Replace(s, @"(\-\s*){2}", "");
+        // s = Regex.Replace(s, @"(\-\s*)$", "");
+        // s = Regex.Replace(s, @"(^\s*\- )", "");
+
+        // s = Regex.Replace(s, @"(\+\s*){2}", "");
+        // s = Regex.Replace(s, @"(\+\s*)$", "");
+        // s = Regex.Replace(s, @"(^\+\s*)", "");
+
+        result.Add(new ParsedVolumeName(s.Trim(), year, minTomes, 0, null));
+
+        // Find split character
+        foreach (var t in SplitString)
+        {
+
+
+            var segment = s.Split(t);
+            if (segment != null && segment.Count() > 1)
+            {
+                var titles = new List<string>();
+                foreach (var seg in segment)
+                {
+                    if (!string.IsNullOrEmpty(seg.Trim()))
+                    {
+                        var tomematch = TomeNumberRegex().Match(seg);
+                        var yearmatch = YearRegex().Match(seg);
+                        if (tomematch.Success && int.TryParse(tomematch.Groups[1].Value, out var tomeNumber))
+                        {
+                            minTomes = minTomes == null ? tomeNumber : minTomes > tomeNumber ? minTomes : tomeNumber;
+                        }
+                        else if (yearmatch.Success && int.TryParse(yearmatch.Groups[1].Value, out var tomyear))
+                        {
+                            year = year == null ? tomyear : (year < tomyear) ? year : tomyear;
+                        }
+                        else
+                        {
+                            titles.Add(seg);
+                        }
+                    }
+
+                }
+                foreach (var title in titles)
+                {
+                    result.Add(new ParsedVolumeName(title, year, minTomes, 0, titles));
+                }
+            }
+        }
+        return result;
+    }
     private static (string Title, int? Year) ParseFolderName(string folder)
     {
         var match = FolderYearRegex().Match(folder.Trim());
@@ -378,7 +558,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     }
 
     private static double ScoreVolume(CvVolume candidate, string normalizedQuery,
-        int? year, int? issueNum, string countryCode)
+        int? year, int? issueNum, string countryCode, List<string>? metadata = null)
     {
         double score = 0;
 
@@ -438,11 +618,11 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         for (var j = 0; j <= b.Length; j++) d[0, j] = j;
 
         for (var i = 1; i <= a.Length; i++)
-        for (var j = 1; j <= b.Length; j++)
-        {
-            var cost = a[i - 1] == b[j - 1] ? 0 : 1;
-            d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
-        }
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
+            }
 
         return d[a.Length, b.Length];
     }
