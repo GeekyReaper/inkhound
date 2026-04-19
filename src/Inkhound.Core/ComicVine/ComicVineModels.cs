@@ -43,30 +43,30 @@ public record CvImage(
 );
 public record CvVolumeRef(int Id, string Name, string ApiDetailUrl);
 
-// Generic credit (team, character, concept, location, object)
-public record CvCredit(int Id, string Name, string ApiDetailUrl);
+// Lightweight issue reference — returned inside a volume's `issues` field
+public record CvIssueRef(int Id, string Name, string ApiDetailUrl);
 
 // Person credit — same as CvCredit but with a role field ("writer", "penciller", "inker", etc.)
-public record CvPersonCredit(int Id, string Name, string Role);
+public record CvPersonCredit(int Id, string Name, string? Role);
 
-// Volume — returned by list search and detail endpoint
+// Lightweight volume — returned by /search with field_list=id,name
+public record CvVolumeStub(int Id, string Name);
+
+// Volume — returned by detail endpoint (fields match VolumeDetailFieldList)
 public record CvVolume(
     int Id,
     string Name,
-    string? StartYear,                                  // string in API, may be null for ongoing series
+    string? StartYear,
     int CountOfIssues,
     CvPublisher? Publisher,
     CvImage? Image,
-    string? Deck,                                       // short tagline
-    string? Description,                               // full HTML description
-    string ApiDetailUrl,
+    string? Deck,
+    string? Description,
     string SiteDetailUrl,
-    IReadOnlyList<CvPersonCredit>? PersonCredits,
-    IReadOnlyList<CvCredit>? TeamCredits,
-    IReadOnlyList<CvCredit>? CharacterCredits,
-    IReadOnlyList<CvCredit>? ConceptCredits,
-    IReadOnlyList<CvCredit>? LocationCredits,
-    IReadOnlyList<CvCredit>? ObjectCredits
+    DateTime? DateAdded,
+    DateTime? DateLastUpdated,
+    IReadOnlyList<CvIssueRef>? Issues,
+    IReadOnlyList<CvPersonCredit>? People
 );
 
 // Publisher — returned by list search and detail endpoint
