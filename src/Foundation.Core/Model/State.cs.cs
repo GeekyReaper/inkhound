@@ -10,7 +10,7 @@ public class StateService
 
     public string ServiceName { get; set; } = "unknow";
 
-    public readonly List<string> Infos = new();
+    public List<string> Infos { get; } = new();
 
     public void Refresh()
     {
@@ -20,7 +20,7 @@ public class StateService
 }
 public class StateServiceManager
 {
-    public readonly List<StateService> stateServices = new();
+    public List<StateService> stateServices { get; } = new();
     public DateTime Date { get; set; } = DateTime.UtcNow;
 
     public EState GlobalState { get; set; } = EState.NOTINIT;

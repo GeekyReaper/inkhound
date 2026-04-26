@@ -21,7 +21,7 @@ public abstract class BaseServiceManager
 
     public BaseServiceManager()
     {
-
+        StartGlobalMonitoring();
     }
 
     public T GetService<T, K>() where K : IOptionList, new() where T : BaseService<K>, new()
@@ -57,41 +57,35 @@ public abstract class BaseServiceManager
 
     private async Task MonitoringLoopAsync(TimeSpan delay, CancellationToken ct)
     {
-        // Création d'un timer de 30 secondes
         using PeriodicTimer timer = new(delay);
 
         try
         {
-            while (await timer.WaitForNextTickAsync(ct))
+            do
             {
-                // On boucle sur une copie des valeurs pour éviter les erreurs 
-                // si le dictionnaire est modifié pendant l'itération
-
                 CurrentState.Init();
 
                 foreach (var key in Services.Keys)
                 {
                     try
                     {
-                        // Récupération de l'état (votre méthode d'interface)
                         CurrentState.stateServices.Add(await Services[key].GetState());
                     }
                     catch (Exception ex)
                     {
-                        // On log l'erreur mais on continue pour les autres services
                         Console.WriteLine($"Erreur lors du check de {key}: {ex.Message}");
                     }
                 }
 
+                CalculateGlobalState();
+                OnHealthcheck?.Invoke(CurrentState);
             }
+            while (await timer.WaitForNextTickAsync(ct));
         }
         catch (OperationCanceledException)
         {
             // Arrêt propre
         }
-
-        CalculateGlobalState();
-        OnHealthcheck?.Invoke(CurrentState);
     }
 
     protected virtual void CalculateGlobalState()

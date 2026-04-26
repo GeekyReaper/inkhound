@@ -13,13 +13,13 @@ public class InkhoundManagerInitializer(
         await manager.AutomaticLoadServices();
 
         manager.OnJobUpdated = ctx =>
-            _ = hub.Clients.All.SendAsync("ManagerJobChanged", ctx, ct);
+            _ = hub.Clients.All.SendAsync("ManagerJobChanged", ctx);
 
         manager.OnTrace = trace =>
-            _ = hub.Clients.All.SendAsync("ManagerTrace", trace, ct);
+            _ = hub.Clients.All.SendAsync("ManagerTrace", trace);
 
         manager.OnHealthcheck = health =>
-            _ = hub.Clients.All.SendAsync("ManagerHealthcheck", health, ct);
+            _ = hub.Clients.All.SendAsync("ManagerHealthcheck", health);
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;

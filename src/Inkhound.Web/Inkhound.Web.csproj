@@ -15,4 +15,9 @@
     <ProjectReference Include="..\Inkhound.Core\Inkhound.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="data\import\" />
+    <Folder Include="data\working\" />
+  </ItemGroup>
+
 </Project>

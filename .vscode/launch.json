@@ -42,7 +42,7 @@
       "request": "launch",
       "preLaunchTask": "serve-angular",
       "url": "http://localhost:4200",
-      "userDataDir": false,
+      "userDataDir": true,
       "webRoot": "${workspaceFolder}/src/Inkhound.Client/src",
       "sourceMapPathOverrides": {
         "webpack:/*": "${webRoot}/*",
