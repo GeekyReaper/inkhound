@@ -14,7 +14,7 @@
       "serverReadyAction": {
         "action": "openExternally",
         "pattern": "Now listening on: http://[^:]+:(\\d+)",
-        "uriFormat": "http://localhost:%s"
+        "uriFormat": "http://localhost:%s/swagger"
       },
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
@@ -42,6 +42,7 @@
       "request": "launch",
       "preLaunchTask": "serve-angular",
       "url": "http://localhost:4200",
+      "userDataDir": false,
       "webRoot": "${workspaceFolder}/src/Inkhound.Client/src",
       "sourceMapPathOverrides": {
         "webpack:/*": "${webRoot}/*",

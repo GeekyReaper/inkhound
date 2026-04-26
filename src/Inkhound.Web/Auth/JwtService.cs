@@ -1,37 +1,31 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Inkhound.Web.Auth;
 
-public class JwtService(IConfiguration config)
+public class JwtService(SymmetricSecurityKey signingKey, IConfiguration config)
 {
-    private string Secret  => config["Auth:JwtSecret"] ?? throw new InvalidOperationException("JWT secret not configured.");
-    private int    Minutes => int.TryParse(config["Auth:JwtExpiryMinutes"], out var m) ? m : 480;
+    private int Minutes => int.TryParse(config["Auth:JwtExpiryMinutes"], out var m) ? m : 480;
 
     public (string Token, DateTime ExpiresAt) Generate(UserRecord user)
     {
-        var key       = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret));
-        var creds     = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expiresAt = DateTime.UtcNow.AddMinutes(Minutes);
-
-        var claims = new[]
+        var descriptor = new SecurityTokenDescriptor
         {
-            new Claim(JwtRegisteredClaimNames.Sub,  user.Id),
-            new Claim(JwtRegisteredClaimNames.Name, user.Login),
-            new Claim(ClaimTypes.Role,              user.Role),
-            new Claim(JwtRegisteredClaimNames.Jti,  Guid.NewGuid().ToString())
+            Issuer             = "Inkhound",
+            Audience           = "Inkhound",
+            Expires            = expiresAt,
+            SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256),
+            Subject            = new ClaimsIdentity(new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub,  user.Id),
+                new Claim(JwtRegisteredClaimNames.Name, user.Login),
+                new Claim("role",                        user.Role),
+                new Claim(JwtRegisteredClaimNames.Jti,  Guid.NewGuid().ToString())
+            })
         };
-
-        var token = new JwtSecurityToken(
-            issuer:             "Inkhound",
-            audience:           "Inkhound",
-            claims:             claims,
-            expires:            expiresAt,
-            signingCredentials: creds
-        );
-
-        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+        var handler = new JwtSecurityTokenHandler();
+        return (handler.WriteToken(handler.CreateToken(descriptor)), expiresAt);
     }
 }

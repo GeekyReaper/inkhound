@@ -8,6 +8,7 @@ namespace Inkhound.Web.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+
 public class AuthController(IUserStore users, JwtService jwt) : ControllerBase
 {
     public record LoginRequest(string Login, string Password);
@@ -29,8 +30,8 @@ public class AuthController(IUserStore users, JwtService jwt) : ControllerBase
     [Authorize]
     public IActionResult Me() => Ok(new
     {
-        Id    = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value,
+        Id = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value,
         Login = User.Identity?.Name,
-        Role  = User.FindFirst(ClaimTypes.Role)?.Value
+        Role = User.FindFirst(ClaimTypes.Role)?.Value
     });
 }

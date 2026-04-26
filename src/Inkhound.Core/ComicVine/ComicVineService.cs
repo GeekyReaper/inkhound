@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Inkhound.Core.Models;
 using Foundation.Core;
@@ -9,6 +10,9 @@ using Foundation.Core.Interface;
 using Foundation.Core.Model;
 using System.Runtime.CompilerServices;
 using System.Resources;
+using System.Net;
+using System.Data;
+using System.Diagnostics;
 
 namespace Inkhound.Core.ComicVine;
 
@@ -18,22 +22,36 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     private const string IssuePrefix = "4000";
     private const int MaxPageSize = 100;
 
-    private static readonly string VolumeFieldList =
-        "id,name,start_year,count_of_issues,publisher,image,deck,description,api_detail_url,site_detail_url,person_credits,team_credits,character_credits,concept_credits,location_credits,object_credits";
+    private static readonly string VolumeSearchFieldList = "id,name";
+
+    private static readonly string VolumeDetailFieldList =
+        "id,name,count_of_issues,date_added,date_last_updated,deck,description,image,issues,people,publisher,site_detail_url,start_year";
 
     private static readonly string IssueListFieldList =
         "id,name,issue_number,volume,cover_date,store_date,image,api_detail_url,site_detail_url";
 
     private static readonly string IssueDetailFieldList =
         "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
-
+    private static readonly string PublisherFieldList =
+        "id,name,image,deck,description,location_city,location_state,api_detail_url,site_detail_url";
     private HttpClient _http;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new ComicVineDateTimeConverter() }
     };
+
+    // ComicVine returns dates as "yyyy-MM-dd HH:mm:ss" (space, not T)
+    private sealed class ComicVineDateTimeConverter : JsonConverter<DateTime>
+    {
+        private const string Format = "yyyy-MM-dd HH:mm:ss";
+        public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => DateTime.ParseExact(reader.GetString()!, Format, CultureInfo.InvariantCulture);
+        public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+            => writer.WriteStringValue(value.ToString(Format));
+    }
 
 
 
@@ -92,18 +110,9 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     private const string PublisherPrefix = "4010";
 
-    private static readonly string PublisherFieldList =
-        "id,name,image,deck,description,location_city,location_state,api_detail_url,site_detail_url";
 
-    // Mapping from enum to ComicVine API field names
-    private static readonly Dictionary<VolumeSortField, string> VolumeSortFieldNames = new()
-    {
-        [VolumeSortField.Name] = "name",
-        [VolumeSortField.StartYear] = "start_year",
-        [VolumeSortField.CountOfIssues] = "count_of_issues",
-        [VolumeSortField.DateAdded] = "date_added",
-        [VolumeSortField.DateLastUpdated] = "date_last_updated"
-    };
+
+    #region API Mapping
 
     private static readonly Dictionary<PublisherSortField, string> PublisherSortFieldNames = new()
     {
@@ -112,25 +121,16 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         [PublisherSortField.DateLastUpdated] = "date_last_updated"
     };
 
-    // Search volumes by name (paged), with optional sort
-    public Task<CvPagedResponse<CvVolume>> SearchVolumesAsync(
+    // Search volumes by name (paged) via /search endpoint
+    public Task<CvPagedResponse<CvVolumeStub>> AutomaticSearchVolumesAsync(
         string query,
         int page = 1,
         int? limit = null,
-        VolumeSortField? sortField = null,
-        SortDirection sortDir = SortDirection.Asc,
         CancellationToken ct = default)
     {
-        string? sort = sortField.HasValue
-            ? $"{VolumeSortFieldNames[sortField.Value]}:{(sortDir == SortDirection.Asc ? "asc" : "desc")}"
-            : null;
-
-
         var offset = (page - 1) * (limit ?? Options.PageSize);
-
-        var url = ListUrl("volumes", VolumeFieldList, limit ?? Options.PageSize, offset,
-            $"name:{Uri.EscapeDataString(query)}", sort);
-        return GetPagedAsync<CvVolume>(url, ct);
+        var url = SearchUrl(query, "volume", VolumeSearchFieldList, limit ?? Options.PageSize, offset);
+        return GetPagedAsync<CvVolumeStub>(url, ct);
     }
 
     // Search publishers by name (paged), with optional sort
@@ -203,10 +203,12 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     // Get single volume detail by ComicVine numeric ID
     public async Task<CvVolume?> GetVolumeAsync(int comicVineId, CancellationToken ct = default)
     {
-        var url = DetailUrl("volume", VolumePrefix, comicVineId, VolumeFieldList);
+        var url = DetailUrl("volume", VolumePrefix, comicVineId, VolumeDetailFieldList);
         var r = await GetAsync<CvDetailResponse<CvVolume>>(url, ct);
         return r?.Results;
     }
+
+
 
     // Get ALL issues for a volume — auto-paginates and merges all pages
     public async Task<IReadOnlyList<CvIssue>> GetAllIssuesForVolumeAsync(
@@ -247,6 +249,12 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
+    #endregion
+
+    private string SearchUrl(string query, string resources, string fields, int limit, int offset) =>
+        $"search/?api_key={Options.ApiKey}&format=json&query={Uri.EscapeDataString(query)}" +
+        $"&resources={resources}&field_list={fields}&limit={Math.Clamp(limit, 1, MaxPageSize)}&offset={offset}";
+
     private string ListUrl(string resource, string fields, int limit, int offset,
         string? filter = null, string? sort = null)
     {
@@ -279,40 +287,41 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         var json = await response.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<T>(json, JsonOpts);
     }
-
-    public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode,
+    private record CvLinkCandidateVolume(CvVolume volume, List<ParsedVolumeName> candidates);
+    public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode, CvVolume? cvVolume = null,
         CancellationToken ct = default)
     {
         var parts = issueFilename.Replace('\\', '/').Split('/', 2);
         var folderName = parts.Length == 2 ? parts[0] : Path.GetFileNameWithoutExtension(parts[0]);
         var fileName = parts.Length == 2 ? Path.GetFileNameWithoutExtension(parts[1]) : folderName;
 
-        var (title, year) = ParseFolderName(folderName);
         var issueNum = ParseIssueNumber(fileName);
-        var normalizedTitle = NormalizeForSearch(title);
+        var normalizedTitle = NormalizeForSearch(folderName);
 
-        var searchResult = await SearchVolumesAsync(title, limit: 20, ct: ct);
-        if (searchResult.Results.Count == 0)
-            return new CvFindResult(null, null);
-
-        var bestVolume = searchResult.Results
-            .Select(v => (Volume: v, Score: ScoreVolume(v, normalizedTitle, year, issueNum, favoriteCountryCode)))
-            .MaxBy(x => x.Score)
-            .Volume;
+        if (cvVolume == null)
+        {
+            cvVolume = await AutomaticSearchVolume(folderName, favoriteCountryCode, ct: ct);
+            if (cvVolume == null)
+                return new CvFindResult(null, null);
+        }
 
         if (issueNum is null)
-            return new CvFindResult(bestVolume, null);
+            return new CvFindResult(cvVolume, null);
 
         // Find the matching issue — paginate if needed
         var page = 1;
         while (true)
         {
-            var issuePage = await GetIssuesPageAsync(bestVolume.Id, page, MaxPageSize, ct);
+            var issuePage = await GetIssuesPageAsync(cvVolume.Id, page, MaxPageSize, ct);
             var match = issuePage.Results.FirstOrDefault(
                 i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
 
             if (match is not null)
-                return new CvFindResult(bestVolume, match);
+            {
+                // Get dIssues DEtails
+                var issue = await GetIssueAsync(match.Id, ct);
+                return new CvFindResult(cvVolume, issue);
+            }
 
             if (issuePage.Results.Count + issuePage.Offset >= issuePage.NumberOfTotalResults)
                 break;
@@ -321,61 +330,79 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             await Task.Delay(250, ct);
         }
 
-        return new CvFindResult(bestVolume, null);
+        return new CvFindResult(cvVolume, null);
     }
 
     // ── FindVolumeByName ──────────────────────────────────────────────────────
-    public async Task<CvVolume?> FindVolumeByName(string volumeName, string favoriteCountryCode,
+    public async Task<CvVolume?> AutomaticSearchVolume(string volumeName, string favoriteCountryCode, ProgressionCallback? progression = null,
         CancellationToken ct = default)
     {
-        var candidates = ExtractVolumeCandidates(volumeName)
-            .Where(c => !string.IsNullOrWhiteSpace(c.Title))
-            .ToList();
 
+
+        // Calculate all candidates
+        var candidates = ExtractVolumeNameCandidates(volumeName);
+        SendTrace($"Volume name canditates {candidates.Count}", ETraceLevel.DEBUG);
         if (candidates.Count == 0)
             return null;
 
-        // 1. Search in parallel — one query per candidate
-        var searchTasks = candidates.Select(c => SearchVolumesAsync(c.Title.Trim(), limit: 20, ct: ct));
-        var searchResults = await Task.WhenAll(searchTasks);
-
-        // 2. Deduplicate by volume ID — for volumes found by multiple candidates,
-        //    keep the candidate whose title best matches the volume name
-        var bestCandidatePerVolume = candidates
-            .Zip(searchResults, (candidate, result) => (candidate, result.Results))
-            .SelectMany(x => x.Results.Select(v => (Volume: v, Candidate: x.candidate)))
-            .GroupBy(x => x.Volume.Id)
-            .Select(g => g.MaxBy(x =>
-                NormalizeForSearch(x.Volume.Name).Contains(NormalizeForSearch(x.Candidate.Title)) ? 1 : 0))
-            .ToList();
-
-        // 3. Fetch full details sequentially to respect ComicVine rate limit (250ms between calls)
-        var detailedVolumes = new List<(CvVolume Volume, ParsedVolumeName Candidate)>();
-        for (var i = 0; i < bestCandidatePerVolume.Count; i++)
+        // 2. Search and get Volume details
+        var result = new Dictionary<int, CvLinkCandidateVolume>();
+        foreach (var candidate in candidates)
         {
-            var item = bestCandidatePerVolume[i];
-            var detail = await GetVolumeAsync(item.Volume.Id, ct);
-            if (detail is not null)
-                detailedVolumes.Add((detail, item.Candidate));
-            if (i < bestCandidatePerVolume.Count - 1)
-                await Task.Delay(250, ct);
+            var resultpage = await AutomaticSearchVolumesAsync(candidate.Title, limit: 20, ct: ct); // Take only first page
+
+            SendTrace($"Search for {candidate.Title}  and found {resultpage.Results.Count} results", ETraceLevel.DEBUG);
+            await Task.Delay(250, ct);
+            foreach (var item in resultpage.Results)
+            {
+                if (result.ContainsKey(item.Id))
+                {
+                    result[item.Id].candidates.Add(candidate);
+                }
+                else
+                {
+                    var v = await GetVolumeAsync(item.Id, ct);
+                    await Task.Delay(250, ct);
+                    if (v != null)
+                    {
+                        result.Add(item.Id, new CvLinkCandidateVolume(v, candidates = [candidate]));
+                    }
+                }
+            }
         }
 
-        if (detailedVolumes.Count == 0)
+        SendTrace($"{result.Count} volumes could be candidate", ETraceLevel.DEBUG);
+
+        if (result.Count == 0)
             return null;
 
-        // 4. Score each detailed volume against its best candidate
-        return detailedVolumes
-            .Select(x =>
+        if (result.Count == 1)
+            return result.First().Value.volume;
+
+
+        double bestScore = 0;
+        double maxScore = 100;
+        CvVolume? BestVolume = null;
+        // 3. Calculate scoring
+        foreach (var item in result)
+        {
+            foreach (var candidate in item.Value.candidates)
             {
-                var normalizedTitle = NormalizeForSearch(x.Candidate.Title);
-                var minCount = Math.Max(x.Candidate.MinTomes ?? 0, x.Candidate.IssueNumber ?? 0);
-                var score = ScoreVolume(x.Volume, normalizedTitle, x.Candidate.Year, minCount,
-                    favoriteCountryCode, x.Candidate.metadata);
-                return (x.Volume, score);
-            })
-            .MaxBy(x => x.score)
-            .Volume;
+                var score = ScoreVolume(item.Value.volume, candidate, favoriteCountryCode);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    BestVolume = item.Value.volume;
+                    SendTrace($"Update best score {bestScore} for volume {item.Value.volume.Name}", ETraceLevel.DEBUG);
+                }
+            }
+            if (bestScore > maxScore)
+            {
+                return BestVolume;
+            }
+        }
+        return BestVolume;
+
     }
 
     // ── FindVolume helpers ─────────────────────────────────────────────────────
@@ -389,8 +416,6 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         };
 
     #region REGEX
-    [GeneratedRegex(@"^(.+?)\s*\((\d{4})\)\s*$")]
-    private static partial Regex FolderYearRegex();
     [GeneratedRegex(@"\s*(\d{4})\s*")]
     private static partial Regex YearRegex();
 
@@ -400,8 +425,9 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     [GeneratedRegex(@"^0*(\d+)")]
     private static partial Regex LeadingNumberRegex();
 
-    [GeneratedRegex(@"[-–]\s*0*(\d{1,4})\s*[-–]")]
+    [GeneratedRegex(@"[-–_]\s*0*(\d{1,4})\s*[-–_]")]
     private static partial Regex DashEnclosedNumberRegex();
+
 
     [GeneratedRegex(@"\b0*(\d{1,4})\b")]
     private static partial Regex IsolatedNumberRegex();
@@ -436,7 +462,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         return string.Join(" ", result.Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
-    public static List<ParsedVolumeName> ExtractVolumeCandidates(string input)
+    public static List<ParsedVolumeName> ExtractVolumeNameCandidates(string input)
     {
         var result = new List<ParsedVolumeName>();
         var s = input.Trim();
@@ -476,47 +502,33 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         s = Regex.Replace(s, $@"{charClass}\s*$", "");           // en fin
         s = Regex.Replace(s, $@"^\s*{charClass}", "");           // en début
 
-        // s = Regex.Replace(s, @"(\.\s*){2}", "");
-        // s = Regex.Replace(s, @"(\.\s*)$", "");
-        // s = Regex.Replace(s, @"(^\s*\.)", "");
+        s = s.Trim();
 
-        // s = Regex.Replace(s, @"(\-\s*){2}", "");
-        // s = Regex.Replace(s, @"(\-\s*)$", "");
-        // s = Regex.Replace(s, @"(^\s*\- )", "");
-
-        // s = Regex.Replace(s, @"(\+\s*){2}", "");
-        // s = Regex.Replace(s, @"(\+\s*)$", "");
-        // s = Regex.Replace(s, @"(^\+\s*)", "");
-
-        result.Add(new ParsedVolumeName(s.Trim(), year, minTomes, 0, null));
+        var alltitles = new List<string>();
 
         // Find split character
         foreach (var t in SplitString)
         {
-
-
-            var segment = s.Split(t);
+            var segment = s.Split(t, StringSplitOptions.RemoveEmptyEntries & StringSplitOptions.TrimEntries);
             if (segment != null && segment.Count() > 1)
             {
                 var titles = new List<string>();
                 foreach (var seg in segment)
                 {
-                    if (!string.IsNullOrEmpty(seg.Trim()))
+
+                    var tomematch = TomeNumberRegex().Match(seg);
+                    var yearmatch = YearRegex().Match(seg);
+                    if (tomematch.Success && int.TryParse(tomematch.Groups[1].Value, out var tomeNumber))
                     {
-                        var tomematch = TomeNumberRegex().Match(seg);
-                        var yearmatch = YearRegex().Match(seg);
-                        if (tomematch.Success && int.TryParse(tomematch.Groups[1].Value, out var tomeNumber))
-                        {
-                            minTomes = minTomes == null ? tomeNumber : minTomes > tomeNumber ? minTomes : tomeNumber;
-                        }
-                        else if (yearmatch.Success && int.TryParse(yearmatch.Groups[1].Value, out var tomyear))
-                        {
-                            year = year == null ? tomyear : (year < tomyear) ? year : tomyear;
-                        }
-                        else
-                        {
-                            titles.Add(seg);
-                        }
+                        minTomes = minTomes == null ? tomeNumber : minTomes > tomeNumber ? minTomes : tomeNumber;
+                    }
+                    else if (yearmatch.Success && int.TryParse(yearmatch.Groups[1].Value, out var tomyear))
+                    {
+                        year = year == null ? tomyear : (year < tomyear) ? year : tomyear;
+                    }
+                    else
+                    {
+                        titles.Add(seg);
                     }
 
                 }
@@ -524,17 +536,17 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
                 {
                     result.Add(new ParsedVolumeName(title, year, minTomes, 0, titles));
                 }
+
+                result.Add(new ParsedVolumeName(string.Join(" ", titles), year, minTomes, 0, null));
             }
+        }
+        if (result.Count == 0)
+        {
+            result.Add(new ParsedVolumeName(s, year, minTomes, 0, null));
         }
         return result;
     }
-    private static (string Title, int? Year) ParseFolderName(string folder)
-    {
-        var match = FolderYearRegex().Match(folder.Trim());
-        if (match.Success && int.TryParse(match.Groups[2].Value, out var year))
-            return (match.Groups[1].Value.Trim(), year);
-        return (folder.Trim(), null);
-    }
+
 
     private static int? ParseIssueNumber(string filename)
     {
@@ -557,45 +569,69 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         return null;
     }
 
-    private static double ScoreVolume(CvVolume candidate, string normalizedQuery,
-        int? year, int? issueNum, string countryCode, List<string>? metadata = null)
+    private static double ScoreVolume(CvVolume volume, ParsedVolumeName candidate, string countryCode)
     {
         double score = 0;
 
         // Title similarity (0–60)
-        var candidateNorm = NormalizeForSearch(candidate.Name);
-        if (candidateNorm == normalizedQuery)
+        var volumeNameNorm = NormalizeForSearch(volume.Name);
+        var candidateNameNorm = NormalizeForSearch(candidate.Title);
+
+        if (volumeNameNorm == candidateNameNorm)
             score += 60;
-        else if (candidateNorm.Contains(normalizedQuery) || normalizedQuery.Contains(candidateNorm))
+        else if (volumeNameNorm.Contains(candidateNameNorm) || candidateNameNorm.Contains(volumeNameNorm))
             score += 40;
         else
-            score += Math.Max(0, 30 - LevenshteinDistance(candidateNorm, normalizedQuery));
+            score += Math.Max(0, 30 - LevenshteinDistance(volumeNameNorm, candidateNameNorm));
 
         // Year match (0–15)
-        if (year.HasValue && candidate.StartYear == year.Value.ToString())
+        if (candidate.Year.HasValue && volume.StartYear == candidate.Year.Value.ToString())
             score += 15;
 
         // Issue count coverage (−20 to +15)
-        if (issueNum.HasValue)
+        if (candidate.IssueNumber.HasValue)
         {
-            if (candidate.CountOfIssues >= issueNum.Value)
+            if (volume.CountOfIssues >= candidate.IssueNumber.Value)
                 score += 15;
             else
                 score -= 20;
         }
 
         // Publisher country (0–10)
-        if (!string.IsNullOrEmpty(candidate.Publisher?.Name)
+        if (!string.IsNullOrEmpty(volume.Publisher?.Name)
             && PublisherCountryHints.TryGetValue(countryCode, out var hints))
         {
-            var pub = candidate.Publisher.Name.ToLowerInvariant();
+            var pub = volume.Publisher.Name.ToLowerInvariant();
             if (hints.Any(pub.Contains))
                 score += 10;
         }
 
+        if (candidate.metadata != null && candidate.metadata.Count > 0)
+        {
+            foreach (var meta in candidate.metadata)
+            {
+                var m = NormalizeForSearch(meta);
+                var publisher = volume.Publisher == null ? "" : NormalizeForSearch(volume.Publisher.Name);
+                if (!string.IsNullOrEmpty(publisher) && (m.Contains(publisher) || publisher.Contains(m)))
+                    score += 15;
+                if (volume.People != null)
+                {
+                    foreach (var p in volume.People?.Select(p => p.Name))
+                    {
+                        if (!string.IsNullOrEmpty(p))
+                        {
+                            var pnorm = NormalizeForSearch(p);
+                            if (pnorm.Contains(m) || m.Contains(pnorm))
+                                score += 5;
+                        }
+                    }
+                }
+            }
+        }
+
+
         return score;
     }
-
     private static string NormalizeForSearch(string input)
     {
         var normalized = input.Normalize(NormalizationForm.FormD);

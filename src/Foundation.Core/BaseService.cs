@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
@@ -34,6 +35,11 @@ public abstract class BaseService<T> : IService where T : IOptionList, new()
     protected virtual void SendTrace(string message, TraceDefinition? trace = null)
     {
         SendTrace(new List<string> { message }, trace);
+    }
+
+    protected virtual void SendTrace(string message, ETraceLevel level)
+    {
+        SendTrace(new List<string> { message }, new TraceDefinition() { Level = level });
     }
 
     protected virtual void SendTrace(List<string> messages, TraceDefinition? trace = null)

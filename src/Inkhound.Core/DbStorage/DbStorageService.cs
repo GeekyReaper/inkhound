@@ -62,4 +62,21 @@ public class DbStorageService : BaseService<DbStorageOption>
         return Database.GetOptionsForService(serviceName);
     }
 
+    public bool SetOptionsForService(List<OptionDefinition> optionDefinitions)
+    {
+        if (CurrentState.State != EState.OK || Database == null)
+            return false;
+
+        try
+        {
+            foreach (var group in optionDefinitions.GroupBy(o => o.ServiceName))
+                Database.SetOptionsForService([.. group], group.Key);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
 }

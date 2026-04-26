@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
 using Inkhound.Core.DbStorage;
 using Inkhound.Core.ComicArchiveGenerator;
+using Microsoft.EntityFrameworkCore.ValueGeneration;
+using SharpCompress.Compressors.ZStandard.Unsafe;
 
 namespace Inkhound.Core;
 
@@ -30,6 +32,37 @@ public class InkhoundManager : BaseServiceManager
     // Checks if the SQLite database exists and creates it if needed, then sets the Database property
 
 
+
+    public StateServiceManager GetCurrentState() => CurrentState;
+
+    public List<string> GetServiceNames()
+        => [.. Services.Values.Select(s => s.GetServiceName())];
+
+    public List<OptionDefinition> GetOptionsForService(string serviceName)
+    {
+        var db = GetService<DbStorageService, DbStorageOption>();
+        return db.GetOptionsForService(serviceName);
+    }
+
+    public async Task<bool> UpdateOptionsForService(string serviceName, Dictionary<string, string> updates)
+    {
+        var db = GetService<DbStorageService, DbStorageOption>();
+        var existing = db.GetOptionsForService(serviceName);
+
+        foreach (var option in existing)
+        {
+            if (updates.TryGetValue(option.Name, out var value))
+                option.Value = value;
+        }
+
+        if (!db.SetOptionsForService(existing)) return false;
+
+        var service = Services.Values.FirstOrDefault(s => s.GetServiceName() == serviceName);
+        if (service is not null)
+            await service.LoadOptions(existing);
+
+        return true;
+    }
 
     public async Task AutomaticLoadServices()
     {
@@ -73,6 +106,8 @@ public class InkhoundManager : BaseServiceManager
 
     }
 
+
+
     public async Task ManuelLoadServiceDbStorage(DbStorageOption options)
     {
         var database = GetService<DbStorageService, DbStorageOption>();
@@ -81,7 +116,7 @@ public class InkhoundManager : BaseServiceManager
     }
 
     // Search volumes by name via ComicVine and map results to a Page<Volume>
-    public async Task<Page<Volume>> SearchVolumeAsync(
+    public async Task<Page<Volume>> AutomaticSearchVolumeAsync(
         string name,
         int pageNumber = 1,
         int? pageSize = null,
@@ -94,17 +129,13 @@ public class InkhoundManager : BaseServiceManager
         }
 
 
-        var response = await comicVine.SearchVolumesAsync(name, pageNumber, pageSize, ct: ct);
+        var response = await comicVine.AutomaticSearchVolumesAsync(name, pageNumber, pageSize, ct: ct);
 
         var items = response.Results.Select(cv => new Volume
         {
             SourceId = cv.Id.ToString(),
             SourceType = "ComicVine",
             Title = cv.Name,
-            Year = cv.StartYear != null && int.TryParse(cv.StartYear, out var y) ? y : null,
-            Description = cv.Description,
-            ImageUrl = cv.Image?.MediumUrl,
-            Publisher = cv.Publisher?.Name,
         });
 
         return new Page<Volume>
@@ -116,29 +147,131 @@ public class InkhoundManager : BaseServiceManager
         };
     }
 
-    public async Task<List<FileInfo>?> LaunchJobConvertPdfToImage(ArchiveConverterPdfJobParameters parameters)
+    public static Volume Map(CvVolume cvVolume)
+    {
+        return new Volume
+        {
+            SourceId = cvVolume.Id.ToString(),
+            SourceType = "ComicVine",
+            Title = cvVolume.Name,
+            Year = cvVolume.StartYear != null && int.TryParse(cvVolume.StartYear, out var y) ? y : null,
+            Description = cvVolume.Description,
+            Image = cvVolume.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
+            Publisher = cvVolume.Publisher?.Name,
+            Authors = cvVolume.People?
+                .Select(p => new VolumeAuthor(p.Name, p.Role))
+                .ToList() ?? [],
+            Issues = cvVolume.Issues?.Select(c => c.Name).ToList()
+        };
+    }
+
+    public static Issue Map(CvIssue cvIssue)
+    {
+        return new Issue
+        {
+            ComicVineId = cvIssue.Id.ToString(),
+            IssueNumber = cvIssue.IssueNumber,
+            Title = cvIssue.Name,
+            Year = cvIssue.CoverDate != null && DateTime.TryParse(cvIssue.CoverDate, out var d) ? d.Year : null,
+            Description = cvIssue.Description,
+            Image = cvIssue.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
+            Authors = cvIssue.PersonCredits?
+                .Select(p => new VolumeAuthor(p.Name, p.Role))
+                .ToList() ?? [],
+        };
+    }
+
+    public async Task<FileInfo?> LaunchJobImportArchive(ArchiveConverterPdfJobParameters parameters)
     {
         var archiveService = GetService<ArchiveService, ArchiveOption>();
+
         if (archiveService.CurrentState.State != EState.OK)
         {
             throw new InvalidOperationException("ArchiveService is not available");
         }
-        var job = StartJob<ArchiveConverterPdfJobParameters>($"PDF to Image - File {parameters.SourcePath}", parameters);
 
+        var job = StartJob($"Transform {parameters.SourceFile} to archive", parameters);
         job.SetState(JobState.RUNNING);
 
-        // STEP 1 : Convert from PDF
-        var result = await archiveService.ConvertPdfToImage(parameters.SourcePath, parameters.WorkingPath, job.CallbackHandler);
-        if (result == null)
+        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : archiveService.getFileFromImportPath(parameters.SourceFile);
+        if (sourcefile == null)
         {
             EndJob(false);
-            return result;
+            return null;
+        }
+
+        // STEP 1 : Get pages from file
+        List<FileInfo>? pageFiles = null;
+        switch (await archiveService.GetArchiveType(sourcefile.FullName))
+        {
+            case EArchiveType.PDF:
+                pageFiles = await archiveService.ConvertPdfToImage(sourcefile, parameters.WorkingPath, job.CallbackHandler);
+                break;
+            case EArchiveType.CBR:
+                pageFiles = await archiveService.ConvertCbrToImage(sourcefile, parameters.WorkingPath, job.CallbackHandler);
+                break;
+            case EArchiveType.CBZ:
+                pageFiles = await archiveService.ConvertCbzToImage(sourcefile, parameters.WorkingPath, job.CallbackHandler);
+                break;
+            default:
+                EndJob(false);
+                return null;
+
+        }
+
+        if (pageFiles == null)
+        {
+            EndJob(false);
+            return null;
         }
 
         // STEP 2 : Add ComicsInfo
+        var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
+
+        // STEP 3 : Generage CBZ
+        var archive = await archiveService.CreateCbzFile(parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
+
+        // STEP 4 : Delete files
+        comicsInfo.Delete();
+        pageFiles.ForEach(c => c.Delete());
 
         EndJob(job.Progress.Error < job.Progress.Total);
 
-        return result;
+        return archive;
+
+
+
     }
+
+    // public async Task<FileInfo?> LaunchJobConvertPdfToImage(ArchiveConverterPdfJobParameters parameters)
+    // {
+    //     var archiveService = GetService<ArchiveService, ArchiveOption>();
+
+    //     if (archiveService.CurrentState.State != EState.OK)
+    //     {
+    //         throw new InvalidOperationException("ArchiveService is not available");
+    //     }
+    //     var job = StartJob<ArchiveConverterPdfJobParameters>($"PDF to Image - File {parameters.SourceFile}", parameters);
+
+    //     job.SetState(JobState.RUNNING);
+
+    //     // STEP 1 : Convert from PDF
+    //     var pageFiles = await archiveService.ConvertPdfToImage(parameters.SourceFile, parameters.WorkingPath, job.CallbackHandler);
+    //     if (pageFiles == null)
+    //     {
+    //         EndJob(false);
+    //         return null;
+    //     }
+
+    //     // STEP 2 : Add ComicsInfo
+    //     var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
+
+    //     // STEP 3 : Generage CBZ
+    //     var archive = await archiveService.CreateCbzFile(parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
+
+
+    //     EndJob(job.Progress.Error < job.Progress.Total);
+
+    //     return archive;
+    // }
 }

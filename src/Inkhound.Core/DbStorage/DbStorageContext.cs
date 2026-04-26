@@ -43,6 +43,27 @@ public class DbStorageContext : DbContext
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                 v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>());
+
+        // Volume.Image serialized as JSON column
+        modelBuilder.Entity<Volume>()
+            .Property(v => v.Image)
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<VolumeImage>(v, (JsonSerializerOptions?)null));
+
+        // Issue.Image serialized as JSON column
+        modelBuilder.Entity<Issue>()
+            .Property(i => i.Image)
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<VolumeImage>(v, (JsonSerializerOptions?)null));
+
+        // Issue.Authors serialized as JSON column
+        modelBuilder.Entity<Issue>()
+            .Property(i => i.Authors)
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<VolumeAuthor>>(v, (JsonSerializerOptions?)null) ?? new List<VolumeAuthor>());
     }
 
     #region Option Management

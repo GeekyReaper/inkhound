@@ -1,13 +1,29 @@
+using System.Security.Cryptography;
 using System.Text;
+using Inkhound.Core;
 using Inkhound.Web.Auth;
 using Inkhound.Web.Hubs;
-using Inkhound.Web.Jobs;
 using Inkhound.Web.Middleware;
-using Inkhound.Web.State;
+using Inkhound.Web.Startup;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── JWT key — load from JSON file, generate on first run ──────────────────────
+const string JwtKeyFile = "data/system/jwt-key.json";
+builder.Configuration.AddJsonFile(JwtKeyFile, optional: true, reloadOnChange: false);
+if (string.IsNullOrEmpty(builder.Configuration["Auth:JwtSecret"]))
+{
+    var newKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    Directory.CreateDirectory(Path.GetDirectoryName(JwtKeyFile)!);
+    File.WriteAllText(JwtKeyFile,
+        System.Text.Json.JsonSerializer.Serialize(new { Auth = new { JwtSecret = newKey } }));
+    builder.Configuration["Auth:JwtSecret"] = newKey;
+}
+
+var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Auth:JwtSecret"]!));
 
 // ── Port ──────────────────────────────────────────────────────────────────────
 var port = Environment.GetEnvironmentVariable("APP_PORT") ?? "5000";
@@ -17,8 +33,35 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Services.AddControllersWithViews();
 builder.Services.AddSignalR();
 
-// ── Auth — order matters: initializer before JwtService ───────────────────────
-builder.Services.AddHostedService<JwtKeyInitializer>();
+// ── Swagger ───────────────────────────────────────────────────────────────────
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Inkhound API", Version = "v1" });
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name         = "Authorization",
+        Type         = SecuritySchemeType.Http,
+        Scheme       = "bearer",
+        BearerFormat = "JWT",
+        In           = ParameterLocation.Header,
+        Description  = "Paste your JWT token (without 'Bearer ' prefix)"
+    });
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+builder.Services.AddSingleton(signingKey);
 builder.Services.AddSingleton<IUserStore, FileUserStore>();
 builder.Services.AddSingleton<JwtService>();
 
@@ -33,15 +76,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer              = "Inkhound",
             ValidAudience            = "Inkhound",
-            IssuerSigningKeyResolver = (_, _, _, _) =>
-            {
-                var secret = builder.Configuration["Auth:JwtSecret"] ?? string.Empty;
-                return [new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret))];
-            },
-            ClockSkew = TimeSpan.Zero
+            IssuerSigningKey         = signingKey,
+            ClockSkew                = TimeSpan.Zero
         };
 
-        // JWT passed via query string for SignalR connections
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = ctx =>
@@ -57,11 +95,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// ── State + Jobs ───────────────────────────────────────────────────────────────
-builder.Services.AddSingleton<PlatformStateService>();
-builder.Services.AddSingleton<JobRunner>();
+// ── Inkhound Manager ───────────────────────────────────────────────────────────
+builder.Services.AddSingleton<InkhoundManager>(_ => new InkhoundManager("data/inkhound.db"));
+builder.Services.AddHostedService<InkhoundManagerInitializer>();
 
-// ── CORS (dev: allows Angular dev server on 4200) ──────────────────────────────
+// ── CORS ──────────────────────────────────────────────────────────────────────
 builder.Services.AddCors(opts => opts.AddDefaultPolicy(p =>
     p.WithOrigins("http://localhost:4200")
      .AllowAnyHeader()
@@ -72,7 +110,10 @@ builder.Services.AddCors(opts => opts.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
-app.UseMiddleware<ExceptionMiddleware>();   // must be first in the pipeline
+app.UseMiddleware<ExceptionMiddleware>();
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

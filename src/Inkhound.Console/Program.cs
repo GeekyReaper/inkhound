@@ -28,6 +28,8 @@ manager.OnJobUpdated = (job) =>
     Console.WriteLine($"Job update: {job.Title} - {job.State} ({job.Progress.Percentage}%)  Duration: {job.Duration.TotalSeconds}s Progression: {job.Progress.Completed}/{job.Progress.Total} Errors: {job.Progress.Error}");
 };
 await manager.AutomaticLoadServices();
+
+var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
 var stop = false;
 while (!stop)
 {
@@ -38,7 +40,33 @@ while (!stop)
 
     if (!stop)
     {
-        var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolumeByName(volumename, "FR");
+        var result = await comicvineService.AutomaticSearchVolume(volumename, "FR");
+        if (result != null)
+        {
+            Console.WriteLine($"Volume Indentified \r\n{result}");
+            Console.Write("ImportPath : ");
+            var importfile = Console.ReadLine();
+
+            var findissue = await comicvineService.FindVolume(importfile, "FR", result);
+            if (findissue.Issue != null && findissue.Volume != null)
+            {
+                Console.Write("WorkingPath : ");
+                var workingpath = Console.ReadLine();
+                var param = new ArchiveConverterPdfJobParameters() { Issue = InkhoundManager.Map(findissue.Issue), Volume = InkhoundManager.Map(findissue.Volume), SourceFile = importfile, WorkingPath = workingpath };
+                var archive = manager.GetService<ArchiveService, ArchiveOption>();
+                var f = await manager.LaunchJobImportArchive(param);
+                if (f != null)
+                {
+                    Console.WriteLine($"{f.FullName} - size : {f.Length}");
+                }
+
+            }
+
+
+
+
+        }
+
         Console.WriteLine($"{result}");
         //ComicVineService.ExtractVolumeCandidates(volumename); //
         //Console.WriteLine($"{result.Count}");

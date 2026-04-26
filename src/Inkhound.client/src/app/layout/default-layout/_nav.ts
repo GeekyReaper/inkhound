@@ -420,6 +420,15 @@ export const navItems: INavData[] = [
   },
   {
     title: true,
+    name: 'Inkhound'
+  },
+  {
+    name: 'Settings',
+    url: '/settings',
+    iconComponent: { name: 'cil-settings' }
+  },
+  {
+    title: true,
     name: 'Links',
     class: 'mt-auto'
   },
