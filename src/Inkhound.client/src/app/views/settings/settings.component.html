@@ -1,22 +1,100 @@
 <div class="container-lg px-4">
   <div class="row">
-    <div class="col-12">      
-      <c-nav variant="tabs" class="mb-3">
-        @for (name of services(); track name) {
-          <c-nav-item>
-            <button cNavLink [active]="activeTab() === name" (click)="activeTab.set(name)">
+    <div class="col-12">
+      <c-tabs [activeItemKey]="activeIndex()">
+        <c-tabs-list variant="tabs">
+          @for (name of services(); track name; let i = $index) {
+            <button cTab [itemKey]="i" (click)="activeTab.set(name)">
               {{ name }}
+              <c-badge [color]="getBadgeColor(getServiceState(name))" class="ms-2">
+                {{ getServiceState(name) }}
+              </c-badge>
             </button>
-          </c-nav-item>
-        }
-      </c-nav>
+          }
+        </c-tabs-list>
 
-      @for (name of services(); track name) {
-        @if (activeTab() === name) {
-          <div class="tab-pane active">
-          </div>
-        }
-      }
+        <div class="border border-top-0 rounded-bottom bg-white">
+        <c-tabs-content>
+          @for (name of services(); track name; let i = $index) {
+            <c-tab-panel class="p-3" [itemKey]="i">
+              @if (activeTab() === name) {
+
+                @if (loading()) {
+                  <div class="d-flex justify-content-center py-4">
+                    <c-spinner color="primary" />
+                  </div>
+                } @else if (noOptions()) {
+                  <p class="text-muted fst-italic py-3">No options available for this service.</p>
+                } @else {
+                  <form cForm [formGroup]="form()" (ngSubmit)="saveOptions()" novalidate>
+
+                    @for (def of options(); track def.id) {
+                      <div class="mb-3">
+
+                        @if (def.valueType !== 'BOOL') {
+                          <label cLabel [for]="def.id">
+                            {{ def.name }}
+                            @if (def.mandatory) { <span class="text-danger">*</span> }
+                          </label>
+                        }
+
+                        @if (def.valueType === 'TEXT') {
+                          <textarea cFormControl [id]="def.id" [formControlName]="def.name" rows="4"
+                                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                          </textarea>
+                        } @else if (def.valueType === 'BOOL') {
+                          <c-form-check>
+                            <input cFormCheckInput type="checkbox" [id]="def.id" [formControlName]="def.name" />
+                            <label cFormCheckLabel [for]="def.id">
+                              {{ def.name }}
+                              @if (def.mandatory) { <span class="text-danger">*</span> }
+                            </label>
+                          </c-form-check>
+                        } @else {
+                          <input cFormControl [id]="def.id" [formControlName]="def.name"
+                                 [type]="getInputType(def.valueType)"
+                                 [attr.step]="def.valueType === 'DOUBLE' ? 'any' : null"
+                                 [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                        }
+
+                        @if (def.description) {
+                          <div class="form-text text-muted">{{ def.description }}</div>
+                        }
+
+                        @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
+                          <c-form-feedback [valid]="false">
+                            @if (form().get(def.name)?.hasError('required')) { This field is required. }
+                            @else if (form().get(def.name)?.hasError('pattern')) { Invalid format. }
+                          </c-form-feedback>
+                        }
+
+                      </div>
+                    }
+
+                    @if (saveStatus() === 'success') {
+                      <c-alert color="success" class="mb-3">Settings saved.</c-alert>
+                    } @else if (saveStatus() === 'error') {
+                      <c-alert color="danger" class="mb-3">Failed to save settings.</c-alert>
+                    }
+
+                    <button cButton color="primary" type="submit" [disabled]="form().invalid || saving()">
+                      @if (saving()) {
+                        <c-spinner size="sm" class="me-2" />
+                        Saving…
+                      } @else {
+                        Save
+                      }
+                    </button>
+
+                  </form>
+                }
+
+              }
+            </c-tab-panel>
+          }
+        </c-tabs-content>
+        </div>
+      </c-tabs>
     </div>
   </div>
 </div>

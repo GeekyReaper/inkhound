@@ -30,8 +30,13 @@ var port = Environment.GetEnvironmentVariable("APP_PORT") ?? "5000";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 // ── Controllers + SignalR ──────────────────────────────────────────────────────
-builder.Services.AddControllersWithViews();
-builder.Services.AddSignalR();
+var enumConverter = new System.Text.Json.Serialization.JsonStringEnumConverter();
+
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(enumConverter));
+
+builder.Services.AddSignalR()
+    .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(enumConverter));
 
 // ── Swagger ───────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
