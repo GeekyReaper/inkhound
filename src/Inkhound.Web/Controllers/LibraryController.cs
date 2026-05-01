@@ -1,0 +1,78 @@
+using Inkhound.Core;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Inkhound.Web.Controllers;
+
+[ApiController]
+[Route("api/libraries")]
+[Authorize(Roles = "admin")]
+public class LibraryController(InkhoundManager manager) : ControllerBase
+{
+    private record LibraryDto(Guid Id, string Name, string Path, string KavitaFolder, DateTime CreatedAt);
+    public record CreateLibraryRequest(string Name, string Path, string KavitaFolder);
+    public record UpdateLibraryRequest(string Name, string Path, string KavitaFolder);
+
+    private static LibraryDto ToDto(Inkhound.Core.Models.Library l)
+        => new(l.Id, l.Name, l.Path, l.KavitaFolder, l.CreatedAt);
+
+    // GET /api/libraries
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+        try
+        {
+            var libraries = await manager.GetLibrariesAsync();
+            return Ok(libraries.Select(ToDto));
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // GET /api/libraries/{id}
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        try
+        {
+            var library = await manager.GetLibraryAsync(id);
+            return library is null ? NotFound() : Ok(ToDto(library));
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // POST /api/libraries
+    [HttpPost]
+    public async Task<IActionResult> Create([FromBody] CreateLibraryRequest request)
+    {
+        try
+        {
+            var library = await manager.CreateLibraryAsync(request.Name, request.Path, request.KavitaFolder);
+            return CreatedAtAction(nameof(GetById), new { id = library.Id }, ToDto(library));
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // PUT /api/libraries/{id}
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateLibraryRequest request)
+    {
+        try
+        {
+            var library = await manager.UpdateLibraryAsync(id, request.Name, request.Path, request.KavitaFolder);
+            return library is null ? NotFound() : Ok(ToDto(library));
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // DELETE /api/libraries/{id}
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        try
+        {
+            var deleted = await manager.DeleteLibraryAsync(id);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+}

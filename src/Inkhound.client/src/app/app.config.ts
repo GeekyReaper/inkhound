@@ -2,6 +2,7 @@ import { ApplicationConfig } from '@angular/core';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { authErrorInterceptor } from './core/interceptors/auth-error.interceptor';
+import { connectionInterceptor } from './core/interceptors/connection.interceptor';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import {
   provideRouter,
@@ -28,7 +29,7 @@ export const appConfig: ApplicationConfig = {
       withViewTransitions(),
       withHashLocation()
     ),
-    provideHttpClient(withInterceptors([authInterceptor, authErrorInterceptor])),
+    provideHttpClient(withInterceptors([authInterceptor, connectionInterceptor, authErrorInterceptor])),
     IconSetService,
     provideAnimationsAsync()
   ]

@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Folder Include="Blob\" />
     <Folder Include="Models\" />
   </ItemGroup>
 
@@ -14,6 +15,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.*" />
     <PackageReference Include="PDFtoImage" Version="4.*" />
     <PackageReference Include="SharpCompress" Version="0.*" />
+    <PackageReference Include="Storage.Net" Version="9.3.0" />
   </ItemGroup>
 
   <ItemGroup>

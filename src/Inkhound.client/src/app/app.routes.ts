@@ -58,6 +58,11 @@ export const routes: Routes = [
       {
         path: 'settings',
         loadChildren: () => import('./views/settings/routes').then((m) => m.routes)
+      },
+      {
+        path: 'libraries',
+        loadComponent: () => import('./views/library-management/library-management.component').then(m => m.LibraryManagementComponent),
+        data: { title: 'Libraries' }
       }
     ]
   },

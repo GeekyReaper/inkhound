@@ -115,6 +115,68 @@ public class InkhoundManager : BaseServiceManager
 
     }
 
+    #region Library CRUD
+
+    private DbStorageContext GetDb()
+    {
+        var db = GetService<DbStorageService, DbStorageOption>();
+        if (db.Database is null)
+            throw new InvalidOperationException("Database is not initialized.");
+        return db.Database;
+    }
+
+    public async Task<List<Library>> GetLibrariesAsync()
+    {
+        return await GetDb().Libraries.ToListAsync();
+    }
+
+    public async Task<Library?> GetLibraryAsync(Guid id)
+    {
+        return await GetDb().Libraries.FindAsync(id);
+    }
+
+    public async Task<Library> CreateLibraryAsync(string name, string path, string kavitaFolder)
+    {
+        var ctx = GetDb();
+        var library = new Library
+        {
+            Id           = Guid.NewGuid(),
+            Name         = name,
+            Path         = path,
+            KavitaFolder = kavitaFolder,
+            CreatedAt    = DateTime.UtcNow
+        };
+        ctx.Libraries.Add(library);
+        await ctx.SaveChangesAsync();
+        return library;
+    }
+
+    public async Task<Library?> UpdateLibraryAsync(Guid id, string name, string path, string kavitaFolder)
+    {
+        var ctx = GetDb();
+        var library = await ctx.Libraries.FindAsync(id);
+        if (library is null) return null;
+
+        library.Name         = name;
+        library.Path         = path;
+        library.KavitaFolder = kavitaFolder;
+        await ctx.SaveChangesAsync();
+        return library;
+    }
+
+    public async Task<bool> DeleteLibraryAsync(Guid id)
+    {
+        var ctx = GetDb();
+        var library = await ctx.Libraries.FindAsync(id);
+        if (library is null) return false;
+
+        ctx.Libraries.Remove(library);
+        await ctx.SaveChangesAsync();
+        return true;
+    }
+
+    #endregion
+
     // Search volumes by name via ComicVine and map results to a Page<Volume>
     public async Task<Page<Volume>> AutomaticSearchVolumeAsync(
         string name,
@@ -243,35 +305,27 @@ public class InkhoundManager : BaseServiceManager
 
     }
 
-    // public async Task<FileInfo?> LaunchJobConvertPdfToImage(ArchiveConverterPdfJobParameters parameters)
-    // {
-    //     var archiveService = GetService<ArchiveService, ArchiveOption>();
+    public async Task<List<DirectoryInfo>> GetDirectories(string path)
+    {
+        return await Task.Run(() =>
+        {
+            var dir = new DirectoryInfo(path);
+            return dir.Exists
+                ? new List<DirectoryInfo>(dir.GetDirectories())
+                : new List<DirectoryInfo>();
+        });
+    }
 
-    //     if (archiveService.CurrentState.State != EState.OK)
-    //     {
-    //         throw new InvalidOperationException("ArchiveService is not available");
-    //     }
-    //     var job = StartJob<ArchiveConverterPdfJobParameters>($"PDF to Image - File {parameters.SourceFile}", parameters);
-
-    //     job.SetState(JobState.RUNNING);
-
-    //     // STEP 1 : Convert from PDF
-    //     var pageFiles = await archiveService.ConvertPdfToImage(parameters.SourceFile, parameters.WorkingPath, job.CallbackHandler);
-    //     if (pageFiles == null)
-    //     {
-    //         EndJob(false);
-    //         return null;
-    //     }
-
-    //     // STEP 2 : Add ComicsInfo
-    //     var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
-
-    //     // STEP 3 : Generage CBZ
-    //     var archive = await archiveService.CreateCbzFile(parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
+    public async Task<List<FileInfo>> GetFiles(string path, string filter = "*")
+    {
+        return await Task.Run(() =>
+        {
+            var dir = new DirectoryInfo(path);
+            return dir.Exists
+                ? new List<FileInfo>(dir.GetFiles(filter))
+                : new List<FileInfo>();
+        });
+    }
 
 
-    //     EndJob(job.Progress.Error < job.Progress.Total);
-
-    //     return archive;
-    // }
 }

@@ -1,0 +1,169 @@
+<c-container class="py-4">
+
+  <!-- ── LIST MODE ─────────────────────────────────────────── -->
+  @if (mode() === 'list') {
+    <c-row class="mb-3 align-items-center">
+      <c-col>
+        <h2 class="mb-0">Libraries</h2>
+      </c-col>
+      <c-col xs="auto">
+        <button cButton color="primary" (click)="showAddForm()">
+          Add Library
+        </button>
+      </c-col>
+    </c-row>
+
+    @if (loadingList()) {
+      <c-row>
+        <c-col class="d-flex justify-content-center py-5">
+          <c-spinner color="primary"></c-spinner>
+        </c-col>
+      </c-row>
+    } @else if (listError()) {
+      <c-row>
+        <c-col>
+          <c-alert color="danger">{{ listError() }}</c-alert>
+        </c-col>
+      </c-row>
+    } @else if (libraries().length === 0) {
+      <c-row>
+        <c-col>
+          <p class="text-muted">No libraries yet. Click "Add Library" to create one.</p>
+        </c-col>
+      </c-row>
+    } @else {
+      <c-row>
+        <c-col>
+          <table cTable [hover]="true" [responsive]="true">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Path</th>
+                <th>Kavita Folder</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (lib of libraries(); track lib.id) {
+                <tr>
+                  <td>{{ lib.name }}</td>
+                  <td><code>{{ lib.path }}</code></td>
+                  <td><code>{{ lib.kavitaFolder }}</code></td>
+                  <td>{{ lib.createdAt | date:'short' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </c-col>
+      </c-row>
+    }
+  }
+
+  <!-- ── ADD MODE ──────────────────────────────────────────── -->
+  @if (mode() === 'add') {
+    <c-row class="mb-3 align-items-center">
+      <c-col>
+        <h2 class="mb-0">Add Library</h2>
+      </c-col>
+    </c-row>
+
+    <c-row>
+      <c-col md="8" lg="6">
+        <c-card>
+          <c-card-body>
+            <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+
+              <!-- Name -->
+              <div class="mb-3">
+                <label cLabel for="name">Name <span class="text-danger">*</span></label>
+                <input
+                  cFormControl
+                  id="name"
+                  formControlName="name"
+                  type="text"
+                  placeholder="My Manga Library"
+                  [class.is-invalid]="form.controls.name.invalid && form.controls.name.touched"
+                />
+              </div>
+
+              <!-- Path -->
+              <div class="mb-3">
+                <label cLabel for="path">Path <span class="text-danger">*</span></label>
+                <c-input-group>
+                  <input
+                    cFormControl
+                    id="path"
+                    formControlName="path"
+                    type="text"
+                    placeholder="Select a directory..."
+                    readonly
+                    [class.is-invalid]="pathCtrl.invalid && pathCtrl.touched"
+                  />
+                  <button cButton color="secondary" type="button" (click)="pathPickerVisible.set(true)">
+                    <svg cIcon name="cilFolder"></svg>
+                  </button>
+                </c-input-group>
+              </div>
+
+              <!-- Kavita Folder -->
+              <div class="mb-4">
+                <label cLabel for="kavitaFolder">Kavita Folder <span class="text-danger">*</span></label>
+                <c-input-group>
+                  <input
+                    cFormControl
+                    id="kavitaFolder"
+                    formControlName="kavitaFolder"
+                    type="text"
+                    placeholder="Select Kavita output directory..."
+                    readonly
+                    [class.is-invalid]="kavitaFolderCtrl.invalid && kavitaFolderCtrl.touched"
+                  />
+                  <button cButton color="secondary" type="button" (click)="kavitaPickerVisible.set(true)">
+                    <svg cIcon name="cilFolder"></svg>
+                  </button>
+                </c-input-group>
+              </div>
+
+              <!-- Error -->
+              @if (saveStatus() === 'error') {
+                <c-alert color="danger" class="mb-3">{{ saveError() }}</c-alert>
+              }
+
+              <!-- Actions -->
+              <div class="d-flex gap-2">
+                <button cButton color="secondary" type="button" (click)="cancelAdd()">
+                  Cancel
+                </button>
+                <button cButton color="primary" type="submit" [disabled]="saving()">
+                  @if (saving()) {
+                    <c-spinner size="sm" class="me-2"></c-spinner>
+                    Saving…
+                  } @else {
+                    Save
+                  }
+                </button>
+              </div>
+
+            </form>
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+  }
+
+</c-container>
+
+<!-- SelectPath modals -->
+<app-select-path
+  mode="directory"
+  [(visible)]="pathPickerVisible"
+  [initialPath]="pathCtrl.value"
+  (pathSelected)="onPathSelected($event)"
+/>
+
+<app-select-path
+  mode="directory"
+  [(visible)]="kavitaPickerVisible"
+  [initialPath]="kavitaFolderCtrl.value"
+  (pathSelected)="onKavitaFolderSelected($event)"
+/>

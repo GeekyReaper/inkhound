@@ -425,7 +425,19 @@ export const navItems: INavData[] = [
   {
     name: 'Settings',
     url: '/settings',
-    iconComponent: { name: 'cil-settings' }
+    iconComponent: { name: 'cil-settings' },
+    children: [
+      {
+        name: 'General',
+        url: '/settings',
+        icon: 'nav-icon-bullet'
+      },
+      {
+        name: 'Libraries',
+        url: '/libraries',
+        icon: 'nav-icon-bullet'
+      }
+    ]
   },
   {
     title: true,

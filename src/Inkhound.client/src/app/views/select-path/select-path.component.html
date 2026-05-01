@@ -1,0 +1,109 @@
+<c-modal
+  [visible]="visible()"
+  (visibleChange)="visible.set($event)"
+  size="lg"
+  backdrop="static"
+>
+  <c-modal-header>
+    <h5 cModalTitle>
+      {{ mode() === 'file' ? 'Select File' : 'Select Directory' }}
+    </h5>
+    <button cButtonClose (click)="cancel()"></button>
+  </c-modal-header>
+
+  <c-modal-body class="p-0">
+    <!-- Current path bar -->
+    <div class="px-3 py-2 border-bottom d-flex align-items-center gap-2 bg-light">
+      <svg cIcon name="cilHome" size="sm" class="text-muted flex-shrink-0"></svg>
+      <span class="small font-monospace text-truncate text-muted">{{ currentPath() }}</span>
+    </div>
+
+    <!-- Content area -->
+    <div style="height: 380px; overflow-y: auto;">
+      @if (loading()) {
+        <div class="d-flex justify-content-center align-items-center h-100">
+          <c-spinner color="primary"></c-spinner>
+        </div>
+      } @else {
+        <div class="list-group list-group-flush">
+
+          <!-- Up (..) -->
+          @if (history().length > 1) {
+            <button
+              type="button"
+              class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2"
+              (click)="navigateUp()"
+            >
+              <svg cIcon name="cilChevronLeft" size="sm" class="text-muted"></svg>
+              <span class="text-muted">..</span>
+            </button>
+          }
+
+          <!-- Directories -->
+          @for (dir of directories(); track dir.fullPath) {
+            <button
+              type="button"
+              class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2"
+              [class.active]="selectedPath() === dir.fullPath"
+              (click)="onDirectoryClick(dir)"
+              (dblclick)="onDirectoryDblClick(dir)"
+            >
+              <svg cIcon name="cilFolder" size="sm" class="flex-shrink-0"
+                   [class.text-warning]="selectedPath() !== dir.fullPath"
+                   [class.text-white]="selectedPath() === dir.fullPath">
+              </svg>
+              <span class="text-truncate">{{ dir.name }}</span>
+            </button>
+          }
+
+          <!-- Files (mode file uniquement) -->
+          @if (mode() === 'file') {
+            @for (file of files(); track file.fullPath) {
+              <button
+                type="button"
+                class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2"
+                [class.active]="selectedPath() === file.fullPath"
+                (click)="onFileClick(file)"
+                (dblclick)="onFileDblClick(file)"
+              >
+                <svg cIcon name="cilFile" size="sm" class="flex-shrink-0 text-muted"
+                     [class.text-white]="selectedPath() === file.fullPath">
+                </svg>
+                <span class="text-truncate flex-grow-1">{{ file.name }}</span>
+                <small class="text-muted flex-shrink-0"
+                       [class.text-white]="selectedPath() === file.fullPath">
+                  {{ formatSize(file.sizeBytes) }}
+                </small>
+              </button>
+            }
+          }
+
+          <!-- Empty state -->
+          @if (directories().length === 0 && (mode() !== 'file' || files().length === 0)) {
+            <div class="d-flex justify-content-center align-items-center py-5 text-muted">
+              <small>Empty directory</small>
+            </div>
+          }
+
+        </div>
+      }
+    </div>
+
+    <!-- Error -->
+    @if (error()) {
+      <div class="px-3 pb-2">
+        <c-alert color="danger" class="mb-0 mt-2 py-2 small">{{ error() }}</c-alert>
+      </div>
+    }
+  </c-modal-body>
+
+  <c-modal-footer class="d-flex align-items-center gap-2">
+    <span class="font-monospace small text-muted text-truncate flex-grow-1">
+      {{ selectedPath() || 'Nothing selected' }}
+    </span>
+    <button cButton color="secondary" (click)="cancel()">Cancel</button>
+    <button cButton color="primary" [disabled]="!selectedPath()" (click)="confirm()">
+      Select
+    </button>
+  </c-modal-footer>
+</c-modal>

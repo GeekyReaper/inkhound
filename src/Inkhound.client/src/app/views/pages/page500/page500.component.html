@@ -4,18 +4,15 @@
       <c-col md="6">
         <span class="clearfix">
           <h1 class="float-start display-3 me-4">500</h1>
-          <h4 class="pt-3">Houston, we have a problem!</h4>
+          <h4 class="pt-3">API Unreachable</h4>
           <p class="text-body-secondary float-start">
-            The page you are looking for is temporarily unavailable.
+            The Inkhound API is not responding. Attempting to reconnect...
           </p>
         </span>
-        <c-input-group class="input-prepend">
-          <span cInputGroupText>
-            <svg cIcon name="cilMagnifyingGlass"></svg>
-          </span>
-          <input cFormControl placeholder="What are you looking for?" type="text" />
-          <button cButton color="info">Search</button>
-        </c-input-group>
+        <div class="d-flex align-items-center gap-3 mt-4">
+          <c-spinner color="primary"></c-spinner>
+          <span class="text-body-secondary">Looking for the API...</span>
+        </div>
       </c-col>
     </c-row>
   </c-container>
