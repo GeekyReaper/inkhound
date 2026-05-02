@@ -98,9 +98,16 @@
   </c-modal-body>
 
   <c-modal-footer class="d-flex align-items-center gap-2">
-    <span class="font-monospace small text-muted text-truncate flex-grow-1">
-      {{ selectedPath() || 'Nothing selected' }}
-    </span>
+    <input
+      #pathInput
+      type="text"
+      class="form-control form-control-sm font-monospace flex-grow-1"
+      [class.is-invalid]="pathInputInvalid()"
+      [value]="selectedPath()"
+      placeholder="Nothing selected"
+      (keydown.enter)="onPathInputEnter(pathInput.value)"
+      (input)="pathInputInvalid.set(false)"
+    />
     <button cButton color="secondary" (click)="cancel()">Cancel</button>
     <button cButton color="primary" [disabled]="!selectedPath()" (click)="confirm()">
       Select

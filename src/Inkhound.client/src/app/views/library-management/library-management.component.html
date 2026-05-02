@@ -41,6 +41,7 @@
                 <th>Path</th>
                 <th>Kavita Library</th>
                 <th>Created</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -59,6 +60,14 @@
                     }
                   </td>
                   <td>{{ lib.createdAt | date:'short' }}</td>
+                  <td class="text-end text-nowrap">
+                    <button cButton color="ghost-secondary" size="sm" (click)="showEditForm(lib)" title="Edit">
+                      <svg cIcon name="cilPencil" size="sm"></svg>
+                    </button>
+                    <button cButton color="ghost-danger" size="sm" (click)="requestDelete(lib)" title="Delete">
+                      <svg cIcon name="cilTrash" size="sm"></svg>
+                    </button>
+                  </td>
                 </tr>
               }
             </tbody>
@@ -68,11 +77,11 @@
     }
   }
 
-  <!-- ── ADD MODE ──────────────────────────────────────────── -->
-  @if (mode() === 'add') {
+  <!-- ── ADD / EDIT MODE ──────────────────────────────────── -->
+  @if (mode() === 'add' || mode() === 'edit') {
     <c-row class="mb-3 align-items-center">
       <c-col>
-        <h2 class="mb-0">Add Library</h2>
+        <h2 class="mb-0">{{ mode() === 'edit' ? 'Edit Library' : 'Add Library' }}</h2>
       </c-col>
     </c-row>
 
@@ -162,7 +171,7 @@
                     <c-spinner size="sm" class="me-2"></c-spinner>
                     Saving…
                   } @else {
-                    Save
+                    {{ mode() === 'edit' ? 'Save Changes' : 'Save' }}
                   }
                 </button>
               </div>
@@ -176,7 +185,7 @@
 
 </c-container>
 
-<!-- SelectPath modals -->
+<!-- SelectPath modal -->
 <app-select-path
   mode="directory"
   [(visible)]="pathPickerVisible"
@@ -184,4 +193,33 @@
   (pathSelected)="onPathSelected($event)"
 />
 
-
+<!-- Delete confirmation modal -->
+<c-modal
+  [visible]="confirmDeleteVisible()"
+  (visibleChange)="confirmDeleteVisible.set($event)"
+  backdrop="static"
+>
+  <c-modal-header>
+    <h5 cModalTitle>Delete Library</h5>
+    <button cButtonClose [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p>Are you sure you want to delete <strong>{{ deleteTarget()?.name }}</strong>?</p>
+    <p class="text-muted small mb-0">This action cannot be undone.</p>
+    @if (deleteError()) {
+      <c-alert color="danger" class="mt-3 mb-0">{{ deleteError() }}</c-alert>
+    }
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)">
+      Cancel
+    </button>
+    <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+      @if (deleting()) {
+        <c-spinner size="sm" class="me-2"></c-spinner>Deleting…
+      } @else {
+        Delete
+      }
+    </button>
+  </c-modal-footer>
+</c-modal>

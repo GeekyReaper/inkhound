@@ -1,6 +1,6 @@
-import { Component, computed, DestroyRef, effect, inject, input, model, output, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, input, model, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, take } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import {
   AlertComponent,
@@ -38,9 +38,11 @@ export class SelectPathComponent {
   currentPath = computed(() => this.history().at(-1) ?? '.');
   directories = signal<DirectoryDto[]>([]);
   files       = signal<FileDto[]>([]);
-  selectedPath = signal('');
-  loading     = signal(false);
-  error       = signal<string | null>(null);
+  selectedPath      = signal('');
+  loading           = signal(false);
+  error             = signal<string | null>(null);
+  pathInputInvalid  = signal(false);
+  private pendingSelectPath = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -58,6 +60,8 @@ export class SelectPathComponent {
 
       this.loading.set(true);
       this.error.set(null);
+      this.pathInputInvalid.set(false);
+      const pending = untracked(() => this.pendingSelectPath());
       this.selectedPath.set('');
 
       const dirs$ = this.fs.getDirectories(path).pipe(catchError(() => of([])));
@@ -72,10 +76,15 @@ export class SelectPathComponent {
             this.directories.set(dirs as DirectoryDto[]);
             this.files.set(files as FileDto[]);
             this.loading.set(false);
+            if (pending) {
+              this.selectedPath.set(pending);
+              this.pendingSelectPath.set(null);
+            }
           },
           error: (err) => {
             this.error.set(err?.error?.message ?? 'Failed to load directory.');
             this.loading.set(false);
+            this.pendingSelectPath.set(null);
           }
         });
     });
@@ -118,6 +127,24 @@ export class SelectPathComponent {
   cancel() {
     this.pathSelected.emit('');
     this.visible.set(false);
+  }
+
+  onPathInputEnter(typedPath: string) {
+    const trimmed = typedPath.trim();
+    if (!trimmed) return;
+
+    this.fs.getDirectories(trimmed)
+      .pipe(take(1))
+      .subscribe({
+        next: () => {
+          this.pathInputInvalid.set(false);
+          this.pendingSelectPath.set(trimmed);
+          this.navigateInto(trimmed);
+        },
+        error: () => {
+          this.pathInputInvalid.set(true);
+        }
+      });
   }
 
   formatSize(bytes: number): string {

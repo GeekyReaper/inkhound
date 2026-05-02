@@ -15,6 +15,8 @@ export interface CreateLibraryRequest {
   kavitaLibraryId: number;
 }
 
+export type UpdateLibraryRequest = CreateLibraryRequest;
+
 @Injectable({ providedIn: 'root' })
 export class LibraryService {
   private http = inject(HttpClient);
@@ -25,6 +27,10 @@ export class LibraryService {
 
   create(request: CreateLibraryRequest) {
     return this.http.post<Library>('/api/libraries', request);
+  }
+
+  update(id: string, request: UpdateLibraryRequest) {
+    return this.http.put<Library>(`/api/libraries/${id}`, request);
   }
 
   delete(id: string) {
