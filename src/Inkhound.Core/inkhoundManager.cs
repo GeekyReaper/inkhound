@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using System.Threading.Tasks;
 using Inkhound.Core.DbStorage;
 using Inkhound.Core.ComicArchiveGenerator;
+using Inkhound.Core.Kavita;
+using Inkhound.Core.Kavita.Models;
 using Microsoft.EntityFrameworkCore.ValueGeneration;
 using SharpCompress.Compressors.ZStandard.Unsafe;
 
@@ -70,6 +72,7 @@ public class InkhoundManager : BaseServiceManager
         var databaseService = GetService<DbStorageService, DbStorageOption>();
         var comicVine = GetService<ComicVineService, ComicVineOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var kavitaService = GetService<KavitaService, KavitaOptions>();
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };
@@ -135,31 +138,31 @@ public class InkhoundManager : BaseServiceManager
         return await GetDb().Libraries.FindAsync(id);
     }
 
-    public async Task<Library> CreateLibraryAsync(string name, string path, string kavitaFolder)
+    public async Task<Library> CreateLibraryAsync(string name, string path, int kavitaLibraryId)
     {
         var ctx = GetDb();
         var library = new Library
         {
-            Id           = Guid.NewGuid(),
-            Name         = name,
-            Path         = path,
-            KavitaFolder = kavitaFolder,
-            CreatedAt    = DateTime.UtcNow
+            Id = Guid.NewGuid(),
+            Name = name,
+            Path = path,
+            KavitaLibraryId = kavitaLibraryId,
+            CreatedAt = DateTime.UtcNow
         };
         ctx.Libraries.Add(library);
         await ctx.SaveChangesAsync();
         return library;
     }
 
-    public async Task<Library?> UpdateLibraryAsync(Guid id, string name, string path, string kavitaFolder)
+    public async Task<Library?> UpdateLibraryAsync(Guid id, string name, string path, int kavitaLibraryId)
     {
         var ctx = GetDb();
         var library = await ctx.Libraries.FindAsync(id);
         if (library is null) return null;
 
-        library.Name         = name;
-        library.Path         = path;
-        library.KavitaFolder = kavitaFolder;
+        library.Name = name;
+        library.Path = path;
+        library.KavitaLibraryId = kavitaLibraryId;
         await ctx.SaveChangesAsync();
         return library;
     }
@@ -326,6 +329,28 @@ public class InkhoundManager : BaseServiceManager
                 : new List<FileInfo>();
         });
     }
+
+    #region Kavita
+
+    private List<KavitaLibrary>? _kavitaLibrariesCache;
+
+    public async Task<List<KavitaLibrary>> GetKavitaLibrariesAsync(bool forceRefresh = false)
+    {
+        if (!forceRefresh && _kavitaLibrariesCache is not null && _kavitaLibrariesCache.Count > 0)
+            return _kavitaLibrariesCache;
+
+        var kavita = GetService<KavitaService, KavitaOptions>();
+        _kavitaLibrariesCache = await kavita.GetLibrariesAsync();
+        return _kavitaLibrariesCache;
+    }
+
+    public async Task<bool> ScanKavitaLibraryAsync(int libraryId, bool force = false)
+    {
+        var kavita = GetService<KavitaService, KavitaOptions>();
+        return await kavita.ScanLibraryAsync(libraryId, force);
+    }
+
+    #endregion
 
 
 }

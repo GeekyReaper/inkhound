@@ -39,7 +39,7 @@
               <tr>
                 <th>Name</th>
                 <th>Path</th>
-                <th>Kavita Folder</th>
+                <th>Kavita Library</th>
                 <th>Created</th>
               </tr>
             </thead>
@@ -48,7 +48,16 @@
                 <tr>
                   <td>{{ lib.name }}</td>
                   <td><code>{{ lib.path }}</code></td>
-                  <td><code>{{ lib.kavitaFolder }}</code></td>
+                  <td>
+                    @if (lib.kavitaLibraryId === 0) {
+                      <span class="text-muted">None</span>
+                    } @else if (getKavitaLibrary(lib.kavitaLibraryId); as klib) {
+                      {{ klib.name }}
+                      <br><small class="text-muted">{{ klib.lastScanned | date:'short' }}</small>
+                    } @else {
+                      <span class="text-muted">#{{ lib.kavitaLibraryId }}</span>
+                    }
+                  </td>
                   <td>{{ lib.createdAt | date:'short' }}</td>
                 </tr>
               }
@@ -105,23 +114,37 @@
                 </c-input-group>
               </div>
 
-              <!-- Kavita Folder -->
+              <!-- Kavita Library -->
               <div class="mb-4">
-                <label cLabel for="kavitaFolder">Kavita Folder <span class="text-danger">*</span></label>
-                <c-input-group>
+                <label cLabel for="kavitaLibraryId">Kavita Library <span class="text-danger">*</span></label>
+                @if (kavitaServiceOk()) {
+                  @if (kavitaLoading()) {
+                    <c-spinner size="sm"></c-spinner>
+                  } @else {
+                    <select
+                      cSelect
+                      id="kavitaLibraryId"
+                      formControlName="kavitaLibraryId"
+                      [valid]="form.controls.kavitaLibraryId.valid || form.controls.kavitaLibraryId.untouched ? undefined : false"
+                    >
+                      <option value="" disabled>Select a Kavita library…</option>
+                      <option value="0">None</option>
+                      @for (klib of kavitaLibraries(); track klib.id) {
+                        <option [value]="klib.id">{{ klib.name }}</option>
+                      }
+                    </select>
+                  }
+                } @else {
                   <input
                     cFormControl
-                    id="kavitaFolder"
-                    formControlName="kavitaFolder"
-                    type="text"
-                    placeholder="Select Kavita output directory..."
-                    readonly
-                    [class.is-invalid]="kavitaFolderCtrl.invalid && kavitaFolderCtrl.touched"
+                    id="kavitaLibraryId"
+                    formControlName="kavitaLibraryId"
+                    type="number"
+                    placeholder="Kavita library ID…"
+                    [class.is-invalid]="form.controls.kavitaLibraryId.invalid && form.controls.kavitaLibraryId.touched"
                   />
-                  <button cButton color="secondary" type="button" (click)="kavitaPickerVisible.set(true)">
-                    <svg cIcon name="cilFolder"></svg>
-                  </button>
-                </c-input-group>
+                  <small class="text-muted">Kavita service unavailable — enter ID manually.</small>
+                }
               </div>
 
               <!-- Error -->
@@ -161,9 +184,4 @@
   (pathSelected)="onPathSelected($event)"
 />
 
-<app-select-path
-  mode="directory"
-  [(visible)]="kavitaPickerVisible"
-  [initialPath]="kavitaFolderCtrl.value"
-  (pathSelected)="onKavitaFolderSelected($event)"
-/>
+

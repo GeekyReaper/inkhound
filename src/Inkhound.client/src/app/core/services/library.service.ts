@@ -5,14 +5,14 @@ export interface Library {
   id: string;
   name: string;
   path: string;
-  kavitaFolder: string;
+  kavitaLibraryId: number;
   createdAt: string;
 }
 
 export interface CreateLibraryRequest {
   name: string;
   path: string;
-  kavitaFolder: string;
+  kavitaLibraryId: number;
 }
 
 @Injectable({ providedIn: 'root' })
