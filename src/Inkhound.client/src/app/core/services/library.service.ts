@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
+import { tap } from 'rxjs';
 
 export interface Library {
   id: string;
@@ -21,8 +22,19 @@ export type UpdateLibraryRequest = CreateLibraryRequest;
 export class LibraryService {
   private http = inject(HttpClient);
 
+  private _libraries = signal<Library[]>([]);
+  readonly libraries = this._libraries.asReadonly();
+
+  loadLibraries() {
+    return this.getAll().pipe(tap(libs => this._libraries.set(libs)));
+  }
+
   getAll() {
     return this.http.get<Library[]>('/api/libraries');
+  }
+
+  getById(id: string) {
+    return this.http.get<Library>(`/api/libraries/${id}`);
   }
 
   create(request: CreateLibraryRequest) {

@@ -65,7 +65,7 @@ export class LibraryManagementComponent implements OnInit {
 
   mode = signal<PageMode>('list');
 
-  libraries   = signal<Library[]>([]);
+  libraries   = this.libraryService.libraries;
   loadingList = signal(false);
   listError   = signal<string | null>(null);
 
@@ -99,18 +99,11 @@ export class LibraryManagementComponent implements OnInit {
   private loadLibraries() {
     this.loadingList.set(true);
     this.listError.set(null);
-
-    this.libraryService.getAll()
+    this.libraryService.loadLibraries()
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: (libs) => {
-          this.libraries.set(libs);
-          this.loadingList.set(false);
-        },
-        error: (err) => {
-          this.listError.set(err?.error?.message ?? 'Failed to load libraries.');
-          this.loadingList.set(false);
-        }
+        next:  () =>  this.loadingList.set(false),
+        error: err => { this.listError.set(err?.error?.message ?? 'Failed to load libraries.'); this.loadingList.set(false); }
       });
   }
 
@@ -160,7 +153,7 @@ export class LibraryManagementComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next: () => {
-          this.libraries.update(list => list.filter(l => l.id !== lib.id));
+          this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
           this.deleting.set(false);
           this.confirmDeleteVisible.set(false);
           this.deleteTarget.set(null);
@@ -192,8 +185,8 @@ export class LibraryManagementComponent implements OnInit {
       this.libraryService.update(lib.id, request as UpdateLibraryRequest)
         .pipe(takeUntilDestroyed(this.#destroyRef))
         .subscribe({
-          next: (updated) => {
-            this.libraries.update(list => list.map(l => l.id === updated.id ? updated : l));
+          next: () => {
+            this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
             this.saving.set(false);
             this.editingLibrary.set(null);
             this.mode.set('list');
@@ -208,8 +201,8 @@ export class LibraryManagementComponent implements OnInit {
       this.libraryService.create(request)
         .pipe(takeUntilDestroyed(this.#destroyRef))
         .subscribe({
-          next: (created) => {
-            this.libraries.update(list => [...list, created]);
+          next: () => {
+            this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
             this.saving.set(false);
             this.mode.set('list');
           },

@@ -58,6 +58,7 @@ import {
   cilJustifyCenter,
   cilLanguage,
   cilLayers,
+  cilLibrary,
   cilList,
   cilListNumbered,
   cilLocationPin,
@@ -161,6 +162,7 @@ export const iconSubset = {
   cilJustifyCenter,
   cilLanguage,
   cilLayers,
+  cilLibrary,
   cilList,
   cilListNumbered,
   cilLocationPin,
@@ -263,6 +265,7 @@ export enum IconSubset {
   cilJustifyCenter = 'cilJustifyCenter',
   cilLanguage = 'cilLanguage',
   cilLayers = 'cilLayers',
+  cilLibrary = 'cilLibrary',
   cilList = 'cilList',
   cilListNumbered = 'cilListNumbered',
   cilLocationPin = 'cilLocationPin',
@@ -304,4 +307,3 @@ export enum IconSubset {
   logo = 'logo',
   signet = 'signet'
 }
-

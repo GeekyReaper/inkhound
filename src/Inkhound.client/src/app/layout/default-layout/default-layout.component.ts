@@ -1,7 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { NgScrollbar } from 'ngx-scrollbar';
 
+import { INavData } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import {
   ContainerComponent,
@@ -16,7 +17,8 @@ import {
 } from '@coreui/angular';
 
 import { DefaultFooterComponent, DefaultHeaderComponent } from './';
-import { navItems } from './_nav';
+import { navItemsTop, navItemsBottom } from './_nav';
+import { LibraryService } from '../../core/services/library.service';
 
 function isOverflown(element: HTMLElement) {
   return (
@@ -48,5 +50,19 @@ function isOverflown(element: HTMLElement) {
   ]
 })
 export class DefaultLayoutComponent {
-  public navItems = [...navItems];
+  private libraryService = inject(LibraryService);
+
+  constructor() {
+    this.libraryService.loadLibraries().subscribe();
+  }
+
+  navItems = computed<INavData[]>(() => [
+    ...navItemsTop,
+    ...this.libraryService.libraries().map(lib => ({
+      name: lib.name,
+      url: `/library/${lib.id}`,
+      iconComponent: { name: 'cil-book' }
+    })),
+    ...navItemsBottom
+  ]);
 }

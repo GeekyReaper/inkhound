@@ -1,0 +1,42 @@
+<c-container class="py-4">
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (error()) {
+    <c-row>
+      <c-col>
+        <c-alert color="danger">{{ error() }}</c-alert>
+      </c-col>
+    </c-row>
+  } @else if (library()) {
+    <c-row class="mb-4">
+      <c-col>
+        <h2 class="mb-0">{{ library()!.name }}</h2>
+      </c-col>
+    </c-row>
+
+    <c-row>
+      <c-col md="8" lg="6">
+        <c-card>
+          <c-card-body>
+            <dl class="row mb-0">
+              <dt class="col-sm-4">Path</dt>
+              <dd class="col-sm-8"><code>{{ library()!.path }}</code></dd>
+
+              <dt class="col-sm-4">Kavita Library</dt>
+              <dd class="col-sm-8">{{ getKavitaLibraryName(library()!.kavitaLibraryId) }}</dd>
+
+              <dt class="col-sm-4">Created</dt>
+              <dd class="col-sm-8 mb-0">{{ library()!.createdAt | date:'medium' }}</dd>
+            </dl>
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+  }
+
+</c-container>

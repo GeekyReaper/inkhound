@@ -63,6 +63,11 @@ export const routes: Routes = [
         path: 'libraries',
         loadComponent: () => import('./views/library-management/library-management.component').then(m => m.LibraryManagementComponent),
         data: { title: 'Libraries' }
+      },
+      {
+        path: 'library/:id',
+        loadComponent: () => import('./views/library/library.component').then(m => m.LibraryComponent),
+        data: { title: 'Library' }
       }
     ]
   },
