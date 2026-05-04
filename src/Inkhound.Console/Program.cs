@@ -10,122 +10,177 @@ using Inkhound.Core.Blob;
 using System.Reflection.Metadata;
 
 
-Console.WriteLine("Connect Access");
-var access = new BlobAccess();
-Console.Write("Protocol : 1>LOCAL 2>SMB");
-var strprotocol = Console.ReadLine();
-switch (strprotocol)
-{
-    case "1":
-        access.Protocol = EBlobProtocol.LOCAL;
-        break;
-    case "2":
-        access.Protocol = EBlobProtocol.SMB;
-        break;
-    default:
-        access.Protocol = EBlobProtocol.LOCAL;
-        break;
-}
-
-Console.Write("Host : ");
-access.Host = Console.ReadLine();
-Console.Write("username : ");
-access.Username = Console.ReadLine();
-Console.Write("password : ");
-access.Password = Console.ReadLine();
-Console.Write("path : ");
-access.Path = Console.ReadLine();
-
-var blobservice = new BlobService(access);
-
-var t = await blobservice.Init();
-
-Console.WriteLine($"STATUS : {blobservice.Status} ({blobservice.StatusMessage})");
-
-var directory = await blobservice.GetDirectoriesAsync();
-Console.WriteLine("== Directory");
-foreach (var d in directory)
-{
-    Console.WriteLine($"{d.FullPath}");
-}
-
-var files = await blobservice.GetFilesAsync();
-Console.WriteLine("== Files");
-foreach (var f in files)
-{
-    Console.WriteLine($"{f.FullPath}");
-}
-
-
-
-
-
-
-//  var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
-
-// var manager = new InkhoundManager();
-// manager.OnHealthcheck = (state) =>
+// Console.WriteLine("Connect Access");
+// var access = new BlobAccess();
+// Console.Write("Protocol : 1>LOCAL 2>SMB");
+// var strprotocol = Console.ReadLine();
+// switch (strprotocol)
 // {
-//     Console.WriteLine($"Healthcheck: {state.GlobalState}");
-//     foreach (var service in state.stateServices)
-//     {
-//         Console.WriteLine($"- {service.ServiceName}: {service.State} (Last refresh: {service.LastRefresh})");
-//     }
-// };
-// manager.OnTrace = (message) =>
-// {
-//     Console.WriteLine(message.ToConsole());
-// };
-
-// manager.OnJobUpdated = (job) =>
-// {
-//     Console.WriteLine($"Job update: {job.Title} - {job.State} ({job.Progress.Percentage}%)  Duration: {job.Duration.TotalSeconds}s Progression: {job.Progress.Completed}/{job.Progress.Total} Errors: {job.Progress.Error}");
-// };
-// await manager.AutomaticLoadServices();
-
-// var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
-// var stop = false;
-// while (!stop)
-// {
-//     Console.Write("Volume name : ");
-//     var volumename = Console.ReadLine();
-
-//     stop = volumename == "q";
-
-//     if (!stop)
-//     {
-//         var result = await comicvineService.AutomaticSearchVolume(volumename, "FR");
-//         if (result != null)
-//         {
-//             Console.WriteLine($"Volume Indentified \r\n{result}");
-//             Console.Write("ImportPath : ");
-//             var importfile = Console.ReadLine();
-
-//             var findissue = await comicvineService.FindVolume(importfile, "FR", result);
-//             if (findissue.Issue != null && findissue.Volume != null)
-//             {
-//                 Console.Write("WorkingPath : ");
-//                 var workingpath = Console.ReadLine();
-//                 var param = new ArchiveConverterPdfJobParameters() { Issue = InkhoundManager.Map(findissue.Issue), Volume = InkhoundManager.Map(findissue.Volume), SourceFile = importfile, WorkingPath = workingpath };
-//                 var archive = manager.GetService<ArchiveService, ArchiveOption>();
-//                 var f = await manager.LaunchJobImportArchive(param);
-//                 if (f != null)
-//                 {
-//                     Console.WriteLine($"{f.FullName} - size : {f.Length}");
-//                 }
-
-//             }
-
-
-
-
-//         }
-
-//         Console.WriteLine($"{result}");
-
-//         Console.WriteLine("");
-//     }
+//     case "1":
+//         access.Protocol = EBlobProtocol.LOCAL;
+//         break;
+//     case "2":
+//         access.Protocol = EBlobProtocol.SMB;
+//         break;
+//     default:
+//         access.Protocol = EBlobProtocol.LOCAL;
+//         break;
 // }
+
+// Console.Write("Host : ");
+// access.Host = Console.ReadLine();
+// Console.Write("username : ");
+// access.Username = Console.ReadLine();
+// Console.Write("password : ");
+// access.Password = Console.ReadLine();
+// Console.Write("path : ");
+// access.Path = Console.ReadLine();
+
+// var blobservice = new BlobService(access);
+
+// var t = await blobservice.Init();
+
+// Console.WriteLine($"STATUS : {blobservice.Status} ({blobservice.StatusMessage})");
+
+// var directory = await blobservice.GetDirectoriesAsync();
+// Console.WriteLine("== Directory");
+// foreach (var d in directory)
+// {
+//     Console.WriteLine($"{d.FullPath}");
+// }
+
+// var files = await blobservice.GetFilesAsync();
+// Console.WriteLine("== Files");
+// foreach (var f in files)
+// {
+//     Console.WriteLine($"{f.FullPath}");
+// }
+
+
+
+var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
+
+var manager = new InkhoundManager();
+
+bool stop = false;
+while (!stop)
+{
+    Console.WriteLine("Connect Inkhound Manager");
+    Console.WriteLine("1. Automatic load services");
+    Console.WriteLine("2. Attach events");
+
+    Console.WriteLine("3. Search Volume");
+    Console.WriteLine("4. Search Volume and issue");
+    Console.WriteLine("0. Exit");
+    Console.Write("Choose an option : ");
+    var option = int.TryParse(Console.ReadLine(), out int result) ? result : 0;
+
+    if (option == 1)
+    {
+        await manager.AutomaticLoadServices();
+        Console.WriteLine("Services loaded.");
+    }
+
+    if (option == 2)
+    {
+        manager.OnHealthcheck = (state) =>
+        {
+            Console.WriteLine($"Healthcheck: {state.GlobalState}");
+            foreach (var service in state.stateServices)
+            {
+                Console.WriteLine($"- {service.ServiceName}: {service.State} (Last refresh: {service.LastRefresh})");
+            }
+        };
+        manager.OnTrace = (message) =>
+        {
+            Console.WriteLine(message.ToConsole());
+        };
+
+        manager.OnJobUpdated = (job) =>
+        {
+            Console.WriteLine($"Job update: {job.Title} - {job.State} ({job.Progress.Percentage}%)  Duration: {job.Duration.TotalSeconds}s Progression: {job.Progress.Completed}/{job.Progress.Total} Errors: {job.Progress.Error}");
+        };
+    }
+    if (option == 3)
+    {
+        var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
+        var stop2 = false;
+        while (!stop2)
+        {
+            Console.Write("Volume name : ");
+            var volumename = Console.ReadLine();
+
+            stop2 = volumename == "q";
+
+            if (!stop2)
+            {
+                var result2 = await comicvineService.AutomaticSearchVolume(volumename, "FR");
+                if (result2 != null)
+                {
+                    Console.WriteLine($"Volume Indentified \r\n{result2}");
+                    Console.Write("ImportPath : ");
+                    var importfile = Console.ReadLine();
+
+                    var findissue = await comicvineService.FindVolume(importfile, "FR", result2);
+                    if (findissue.Issue != null && findissue.Volume != null)
+                    {
+                        Console.Write("WorkingPath : ");
+                        var workingpath = Console.ReadLine();
+                        var param = new ArchiveConverterPdfJobParameters() { Issue = InkhoundManager.Map(findissue.Issue), Volume = InkhoundManager.Map(findissue.Volume), SourceFile = importfile, WorkingPath = workingpath };
+                        var archive = manager.GetService<ArchiveService, ArchiveOption>();
+                        var f = await manager.LaunchJobImportArchive(param);
+                        if (f != null)
+                        {
+                            Console.WriteLine($"{f.FullName} - size : {f.Length}");
+                        }
+
+                    }
+
+
+
+
+                }
+
+                Console.WriteLine($"{result2}");
+
+                Console.WriteLine("");
+            }
+        }
+
+
+
+    }
+    if (option == 0)
+    {
+        stop = true;
+    }
+    if (option == 4)
+    {
+        Console.Write("Issue file : ");
+        var issuefile = Console.ReadLine();
+
+        var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
+        var result2 = await comicvineService.FindVolume(issuefile, "FR");
+        if (result2.Volume != null)
+        {
+            Console.WriteLine($"Volume Indentified \r\n{result2.Volume}");
+            if (result2.Issue != null)
+            {
+                Console.WriteLine($"Issue Indentified \r\n{result2.Issue}");
+            }
+        }
+        else
+        {
+            Console.WriteLine("No volume found");
+        }
+
+    }
+
+}
+
+
+
+
 
 //var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
 //Console.WriteLine($"{result.Volume?.Name} ({result.Volume?.Publisher}) - {result.Volume?.StartYear}");
@@ -200,4 +255,3 @@ foreach (var f in files)
 // }
 
 
-Console.WriteLine("Hello, World!");

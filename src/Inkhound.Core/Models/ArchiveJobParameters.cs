@@ -1,9 +1,7 @@
 
-using System;
 using Foundation.Core.Interface;
-using Inkhound.Core.Models;
 
-namespace Inkhound.Core.ComicArchiveGenerator;
+namespace Inkhound.Core.Models;
 
 public class ArchiveConverterPdfJobParameters : IJobParameters
 {

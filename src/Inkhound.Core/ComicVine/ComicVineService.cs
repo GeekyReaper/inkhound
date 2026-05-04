@@ -410,7 +410,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         new(StringComparer.OrdinalIgnoreCase)
         {
             ["FR"] = ["dargaud", "dupuis", "casterman", "glenat", "soleil", "lombard",
-                      "delcourt", "ankama", "fluide", "bamboo", "vents d'ouest"],
+                      "delcourt", "ankama", "fluide", "bamboo", "vents d'ouest", "hachette"],
             ["US"] = ["marvel", "dc comics", "image", "dark horse", "idw", "dynamite", "boom", "archie"],
             ["JP"] = ["shueisha", "kodansha", "shogakukan", "viz"],
         };
@@ -548,7 +548,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     }
 
 
-    private static int? ParseIssueNumber(string filename)
+    internal static int? ParseIssueNumber(string filename)
     {
         // 1. French "Tome" format: T01, T 02
         var m = TomeNumberRegex().Match(filename);
@@ -603,8 +603,10 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         {
             var pub = volume.Publisher.Name.ToLowerInvariant();
             if (hints.Any(pub.Contains))
-                score += 10;
+                score += 40;
         }
+
+
 
         if (candidate.metadata != null && candidate.metadata.Count > 0)
         {

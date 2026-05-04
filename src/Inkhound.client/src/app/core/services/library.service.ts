@@ -48,4 +48,8 @@ export class LibraryService {
   delete(id: string) {
     return this.http.delete(`/api/libraries/${id}`);
   }
+
+  sync(id: string) {
+    return this.http.post<{ message: string }>(`/api/libraries/${id}/sync`, null);
+  }
 }

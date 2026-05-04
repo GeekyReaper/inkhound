@@ -352,5 +352,126 @@ public class InkhoundManager : BaseServiceManager
 
     #endregion
 
+    #region Library Management
 
+    public async Task<Library?> LaunchJobSynchronizeLibrary(SynchronizeLibraryJobParameters parameters)
+    {
+        var job = StartJob($"Synchronize library {parameters.LibraryId}", parameters);
+        job.SetState(JobState.RUNNING);
+
+        var ctx = GetDb();
+        var library = await ctx.Libraries.FindAsync(parameters.LibraryId);
+        if (library is null)
+        {
+            EndJob(false);
+            return null;
+        }
+
+        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        if  (comicVine.CurrentState.State != EState.OK)
+        {
+            EndJob(false);
+            return null;
+        }
+
+        // STEP 1. Scan directories in library path and match with ComicVine volumes
+         var directories = await GetDirectories(library.Path);
+
+        job.CallbackHandler.UpdateTotal(directories.Count);
+
+        var existingVolumes = await ctx.Volumes
+            .Where(v => v.LibraryId == parameters.LibraryId)
+            .ToDictionaryAsync(v => v.SourceId, v => v.Id);
+
+        foreach (var dir in directories)
+        {
+            var cvVolume = await comicVine.AutomaticSearchVolume(dir.Name, parameters.CountryCode, job.CallbackHandler);
+            if (cvVolume is null)
+            {
+                var trace = new TraceDefinition { Level = ETraceLevel.DEBUG };
+                trace.Message.Add($"[Sync] No ComicVine match for directory: {dir.Name}");
+                GlobalTraceHandler(trace);
+                job.Progress.Increment(false);
+                job.CallbackHandler.Callback(job.Progress);
+                continue;
+            }
+
+            // STEP 1 result: resolve or create the Volume entry
+            var sourceId = cvVolume.Id.ToString();
+            if (!existingVolumes.TryGetValue(sourceId, out var volumeId))
+            {
+                var volume = Map(cvVolume);
+                volume.Id = Guid.NewGuid();
+                volume.LibraryId = parameters.LibraryId;
+                ctx.Volumes.Add(volume);
+                volumeId = volume.Id;
+                existingVolumes[sourceId] = volumeId;
+            }
+
+            // STEP 2. Find CBZ files in volume directory and match to ComicVine issues
+            var cbzFiles = await GetFiles(dir.FullName, "*.cbz");
+            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(cvVolume.Id);
+
+            var existingIssueIds = await ctx.Issues
+                .Where(i => i.VolumeId == volumeId)
+                .Select(i => i.ComicVineId)
+                .ToListAsync();
+
+            var matchedCvIssueIds = new HashSet<int>();
+
+            foreach (var cbzFile in cbzFiles)
+            {
+                var issueNum = ComicVineService.ParseIssueNumber(cbzFile.Name);
+                if (issueNum is null)
+                    continue;
+
+                var cvIssueRef = cvIssues.FirstOrDefault(
+                    i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
+                if (cvIssueRef is null)
+                    continue;
+
+                matchedCvIssueIds.Add(cvIssueRef.Id);
+
+                if (existingIssueIds.Contains(cvIssueRef.Id.ToString()))
+                    continue;
+
+                var cvIssueFull = await comicVine.GetIssueAsync(cvIssueRef.Id);
+                if (cvIssueFull is null)
+                    continue;
+
+                var issue = Map(cvIssueFull);
+                issue.VolumeId = volumeId;
+                issue.FilePath = cbzFile.FullName;
+                issue.CbzFilename = cbzFile.Name;
+                issue.Status = IssueStatus.DOWNLOADED;
+                ctx.Issues.Add(issue);
+                existingIssueIds.Add(cvIssueRef.Id.ToString());
+            }
+
+            foreach (var cvIssueRef in cvIssues.Where(i => !matchedCvIssueIds.Contains(i.Id)))
+            {
+                if (existingIssueIds.Contains(cvIssueRef.Id.ToString()))
+                    continue;
+
+                var cvIssueFull = await comicVine.GetIssueAsync(cvIssueRef.Id);
+                if (cvIssueFull is null)
+                    continue;
+
+                var issue = Map(cvIssueFull);
+                issue.VolumeId = volumeId;
+                issue.Status = IssueStatus.MISSING;
+                ctx.Issues.Add(issue);
+                existingIssueIds.Add(cvIssueRef.Id.ToString());
+            }
+
+            job.Progress.Increment(true);
+            job.CallbackHandler.Callback(job.Progress);
+        }
+
+        await ctx.SaveChangesAsync();
+        EndJob(job.Progress.Error < directories.Count);
+        return library;
+    }
+
+    #endregion
 }

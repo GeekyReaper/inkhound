@@ -1,6 +1,6 @@
 namespace Inkhound.Core.Models;
 
-public enum IssueStatus { SEEKING, DOWNLOADING, DOWNLOADED }
+public enum IssueStatus { SEEKING, DOWNLOADING, DOWNLOADED, MISSING }
 
 public class Issue
 {

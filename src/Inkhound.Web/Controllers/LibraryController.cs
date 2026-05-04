@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,7 +14,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     public record CreateLibraryRequest(string Name, string Path, int KavitaLibraryId);
     public record UpdateLibraryRequest(string Name, string Path, int KavitaLibraryId);
 
-    private static LibraryDto ToDto(Inkhound.Core.Models.Library l)
+    private static LibraryDto ToDto(Library l)
         => new(l.Id, l.Name, l.Path, l.KavitaLibraryId, l.CreatedAt);
 
     // GET /api/libraries
@@ -74,5 +75,13 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
             return deleted ? NoContent() : NotFound();
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // POST /api/libraries/{id}/sync
+    [HttpPost("{id:guid}/sync")]
+    public IActionResult Synchronize(Guid id)
+    {
+        _ = manager.LaunchJobSynchronizeLibrary(new SynchronizeLibraryJobParameters { LibraryId = id });
+        return Accepted(new { message = $"Synchronization of library {id} started." });
     }
 }

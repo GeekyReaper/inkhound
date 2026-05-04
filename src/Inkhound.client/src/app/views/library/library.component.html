@@ -13,11 +13,30 @@
       </c-col>
     </c-row>
   } @else if (library()) {
-    <c-row class="mb-4">
+    <c-row class="mb-4 align-items-center">
       <c-col>
         <h2 class="mb-0">{{ library()!.name }}</h2>
       </c-col>
+      <c-col xs="auto">
+        <button cButton color="primary" [disabled]="syncing()" (click)="synchronize()">
+          @if (syncing()) {
+            <c-spinner size="sm" class="me-2"></c-spinner>Synchronizing…
+          } @else {
+            Synchronize
+          }
+        </button>
+      </c-col>
     </c-row>
+
+    @if (syncDone()) {
+      <c-row class="mb-3">
+        <c-col md="8" lg="6">
+          <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
+            {{ syncDone() }}
+          </c-alert>
+        </c-col>
+      </c-row>
+    }
 
     <c-row>
       <c-col md="8" lg="6">
