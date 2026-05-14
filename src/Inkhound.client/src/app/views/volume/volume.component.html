@@ -1,0 +1,139 @@
+<c-container class="py-4">
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (error()) {
+    <c-row>
+      <c-col>
+        <c-alert color="danger">{{ error() }}</c-alert>
+      </c-col>
+    </c-row>
+  } @else if (volume()) {
+
+    <!-- Volume detail -->
+    <c-row class="mb-4">
+      <c-col md="3" lg="2">
+        @if (volume()!.image?.smallUrl) {
+          <img
+            [src]="volume()!.image!.smallUrl"
+            [alt]="volume()!.title"
+            class="img-fluid rounded shadow-sm"
+            style="width: 100%; object-fit: cover;" />
+        } @else {
+          <div class="rounded bg-body-secondary d-flex align-items-center justify-content-center"
+               style="width: 100%; aspect-ratio: 2/3;">
+            <span class="text-body-tertiary small">No cover</span>
+          </div>
+        }
+      </c-col>
+
+      <c-col md="9" lg="10">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <h2 class="mb-0">{{ volume()!.title }}</h2>
+          <span [class]="volumeStatusBadgeClass(volume()!.status)">{{ volume()!.status }}</span>
+        </div>
+
+        <dl class="row mt-3 mb-0">
+          @if (volume()!.year) {
+            <dt class="col-sm-3 col-lg-2">Year</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.year }}</dd>
+          }
+          @if (volume()!.publisher) {
+            <dt class="col-sm-3 col-lg-2">Publisher</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.publisher }}</dd>
+          }
+          @if (volume()!.genres.length > 0) {
+            <dt class="col-sm-3 col-lg-2">Genres</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.genres.join(', ') }}</dd>
+          }
+          @if (volume()!.authors.length > 0) {
+            <dt class="col-sm-3 col-lg-2">Authors</dt>
+            <dd class="col-sm-9 col-lg-10">
+              @for (author of volume()!.authors; track author.name) {
+                <span>{{ author.name }}<span class="text-body-secondary"> ({{ author.role }})</span></span>
+                @if (!$last) { <span class="me-1">,</span> }
+              }
+            </dd>
+          }
+          @if (volume()!.description) {
+            <dt class="col-sm-3 col-lg-2">Description</dt>
+            <dd class="col-sm-9 col-lg-10" [innerHTML]="volume()!.description"></dd>
+          }
+        </dl>
+      </c-col>
+    </c-row>
+
+    <!-- Issues table -->
+    <c-row>
+      <c-col>
+        <c-card>
+          <c-card-body>
+            <h5 class="mb-3">
+              Issues
+              @if (!issuesLoading()) {
+                <span class="text-body-secondary fw-normal fs-6 ms-2">({{ issues().length }})</span>
+              }
+            </h5>
+
+            @if (issuesLoading()) {
+              <div class="d-flex justify-content-center py-4">
+                <c-spinner color="primary"></c-spinner>
+              </div>
+            } @else if (issues().length === 0) {
+              <p class="text-body-secondary mb-0">No issues found for this volume.</p>
+            } @else {
+              <table class="table table-hover align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 60px">#</th>
+                    <th style="width: 60px"></th>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Status</th>
+                    <th>File</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (issue of issues(); track issue.id) {
+                    <tr>
+                      <td class="text-body-secondary">{{ issue.issueNumber }}</td>
+                      <td>
+                        @if (issue.image?.thumbUrl) {
+                          <img
+                            [src]="issue.image!.thumbUrl"
+                            [alt]="issue.title ?? ''"
+                            style="width: 40px; height: 54px; object-fit: cover; border-radius: 3px;" />
+                        } @else {
+                          <div style="width: 40px; height: 54px; background: var(--cui-secondary-bg); border-radius: 3px;"></div>
+                        }
+                      </td>
+                      <td>{{ issue.title ?? '—' }}</td>
+                      <td class="text-nowrap">{{ issue.year ?? '—' }}</td>
+                      <td>
+                        <span [class]="issueStatusBadgeClass(issue.status)">{{ issue.status }}</span>
+                      </td>
+                      <td>
+                        @if (issue.cbzFilename) {
+                          <code class="small">{{ issue.cbzFilename }}</code>
+                        } @else {
+                          <span class="text-body-secondary">—</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
+  }
+
+</c-container>

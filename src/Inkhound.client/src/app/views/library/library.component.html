@@ -13,6 +13,7 @@
       </c-col>
     </c-row>
   } @else if (library()) {
+
     <c-row class="mb-4 align-items-center">
       <c-col>
         <h2 class="mb-0">{{ library()!.name }}</h2>
@@ -30,7 +31,7 @@
 
     @if (syncDone()) {
       <c-row class="mb-3">
-        <c-col md="8" lg="6">
+        <c-col>
           <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
             {{ syncDone() }}
           </c-alert>
@@ -38,7 +39,7 @@
       </c-row>
     }
 
-    <c-row>
+    <c-row class="mb-4">
       <c-col md="8" lg="6">
         <c-card>
           <c-card-body>
@@ -56,6 +57,73 @@
         </c-card>
       </c-col>
     </c-row>
+
+    <c-row>
+      <c-col>
+        <c-card>
+          <c-card-body>
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h5 class="mb-0">
+                Volumes
+                @if (!volumesLoading()) {
+                  <span class="text-body-secondary fw-normal fs-6 ms-2">({{ volumes().length }})</span>
+                }
+              </h5>
+              <button cButton color="primary" size="sm" [routerLink]="['add-volume']">+ Add</button>
+            </div>
+
+            @if (volumesLoading()) {
+              <div class="d-flex justify-content-center py-4">
+                <c-spinner color="primary"></c-spinner>
+              </div>
+            } @else if (volumes().length === 0) {
+              <p class="text-body-secondary mb-0">No volumes found in this library.</p>
+            } @else {
+              <table class="table table-hover align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 60px"></th>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Publisher</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (volume of volumes(); track volume.id) {
+                    <tr [routerLink]="['volume', volume.id]" style="cursor: pointer;">
+                      <td>
+                        @if (volume.image?.thumbUrl) {
+                          <img
+                            [src]="volume.image!.thumbUrl"
+                            [alt]="volume.title"
+                            style="width: 48px; height: 64px; object-fit: cover; border-radius: 4px;" />
+                        } @else {
+                          <div style="width: 48px; height: 64px; background: var(--cui-secondary-bg); border-radius: 4px;"></div>
+                        }
+                      </td>
+                      <td>
+                        <strong>{{ volume.title }}</strong>
+                        @if (volume.genres.length > 0) {
+                          <div class="small text-body-secondary mt-1">{{ volume.genres.join(', ') }}</div>
+                        }
+                      </td>
+                      <td class="text-nowrap">{{ volume.year ?? '—' }}</td>
+                      <td>{{ volume.publisher ?? '—' }}</td>
+                      <td>
+                        <span [class]="statusBadgeClass(volume.status)">{{ volume.status }}</span>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
   }
 
 </c-container>

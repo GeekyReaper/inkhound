@@ -49,8 +49,18 @@ public record CvIssueRef(int Id, string Name, string ApiDetailUrl);
 // Person credit — same as CvCredit but with a role field ("writer", "penciller", "inker", etc.)
 public record CvPersonCredit(int Id, string Name, string? Role);
 
-// Lightweight volume — returned by /search with field_list=id,name
-public record CvVolumeStub(int Id, string Name);
+// Lightweight volume — returned by /search
+public record CvVolumeStub(
+    int Id,
+    string Name,
+    string? StartYear,
+    int CountOfIssues,
+    string? Description,
+    CvPublisher? Publisher,
+    CvImage? Image,
+    CvIssueRef? FirstIssue,
+    CvIssueRef? LastIssue,
+    string? SiteDetailUrl);
 
 // Volume — returned by detail endpoint (fields match VolumeDetailFieldList)
 public record CvVolume(

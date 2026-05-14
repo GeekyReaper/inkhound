@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
+import { libraryTitleResolver } from './core/resolvers/library-title.resolver';
+import { volumeTitleResolver } from './core/resolvers/volume-title.resolver';
 
 export const routes: Routes = [
   {
@@ -66,8 +68,24 @@ export const routes: Routes = [
       },
       {
         path: 'library/:id',
-        loadComponent: () => import('./views/library/library.component').then(m => m.LibraryComponent),
-        data: { title: 'Library' }
+        loadComponent: () => import('./views/library/library-shell.component').then(m => m.LibraryShellComponent),
+        resolve: { title: libraryTitleResolver },
+        children: [
+          {
+            path: '',
+            loadComponent: () => import('./views/library/library.component').then(m => m.LibraryComponent)
+          },
+          {
+            path: 'volume/:volumeId',
+            resolve: { title: volumeTitleResolver },
+            loadComponent: () => import('./views/volume/volume.component').then(m => m.VolumeComponent)
+          },
+          {
+            path: 'add-volume',
+            data: { title: 'Add' },
+            loadComponent: () => import('./views/volume/volume-add.component').then(m => m.VolumeAddComponent)
+          }
+        ]
       }
     ]
   },

@@ -1,0 +1,190 @@
+<c-container class="py-4">
+
+  <!-- Search bar -->
+  <c-row class="mb-4">
+    <c-col md="8" lg="6">
+      <div class="input-group">
+        <input
+          type="text"
+          class="form-control"
+          placeholder="Search volumes…"
+          [(ngModel)]="query"
+          (keydown.enter)="search()"
+          [disabled]="loading()" />
+        <button cButton color="primary" (click)="search()" [disabled]="loading() || !query().trim()">
+          @if (loading()) {
+            <c-spinner size="sm"></c-spinner>
+          } @else {
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.099zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11"/>
+            </svg>
+          }
+        </button>
+      </div>
+    </c-col>
+  </c-row>
+
+  @if (error()) {
+    <c-row class="mb-3">
+      <c-col>
+        <c-alert color="danger">{{ error() }}</c-alert>
+      </c-col>
+    </c-row>
+  }
+
+  @if (results(); as page) {
+    @if (page.items.length === 0) {
+      <p class="text-body-secondary">No results found.</p>
+    } @else {
+
+      <!-- Results grid — max 6 per row -->
+      <c-row class="g-3 mb-4">
+        @for (volume of page.items; track volume.sourceId) {
+          <c-col [xs]="12" [sm]="6" [md]="4" [lg]="3" [xl]="2">
+            <c-card
+              class="h-100"
+              style="cursor: pointer;"
+              [ngClass]="{ 'border-primary': selectedSourceId() === volume.sourceId }"
+              (click)="selectedSourceId.set(volume.sourceId)">
+
+              <c-card-header class="py-2">
+                <div class="d-flex align-items-start gap-2">
+                  <input
+                    type="radio"
+                    class="form-check-input mt-1 flex-shrink-0"
+                    name="volumeSelect"
+                    [checked]="selectedSourceId() === volume.sourceId"
+                    (change)="selectedSourceId.set(volume.sourceId)"
+                    (click)="$event.stopPropagation()" />
+                  <div class="small lh-sm">
+                    <strong>{{ volume.title }}</strong>
+                  </div>
+                </div>
+              </c-card-header>
+
+              <c-card-body class="p-2 d-flex flex-column">
+                <div class="text-center mb-2">
+                  @if (volume.image?.thumbUrl) {
+                    <img
+                      [src]="volume.image!.thumbUrl"
+                      [alt]="volume.title"
+                      class="img-fluid rounded"
+                      style="max-height: 180px; object-fit: cover;" />
+                  } @else {
+                    <div class="bg-body-secondary rounded d-flex align-items-center justify-content-center"
+                         style="height: 180px;">
+                      <span class="text-body-tertiary small">No cover</span>
+                    </div>
+                  }
+                  @if (volume.year) {
+                    <div class="small text-body-secondary mt-1">{{ volume.year }}</div>
+                  }
+                </div>
+                @if (volume.publisher) {
+                  <div class="small text-body-secondary text-truncate mb-1">{{ volume.publisher }}</div>
+                }
+                @if (volume.description) {
+                  <div class="card-description text-body-secondary" [innerHTML]="volume.description"></div>
+                }
+              </c-card-body>
+
+              <c-card-footer class="d-flex justify-content-between align-items-center p-2">
+                <button
+                  cButton color="secondary" size="sm" variant="outline"
+                  title="Issues"
+                  (click)="showIssues(volume, $event)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M5 0h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2 2 2 0 0 1-2 2H3a2 2 0 0 1-2-2h1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1H1a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v9a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1H3a2 2 0 0 1 2-2z"/>
+                    <path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zm2 3h2a.5.5 0 0 0 0-1H5a.5.5 0 0 0 0 1zm0 2h4a.5.5 0 0 0 0-1H5a.5.5 0 0 0 0 1zm0 2h4a.5.5 0 0 0 0-1H5a.5.5 0 0 0 0 1z"/>
+                  </svg>
+                  Issues
+                  <span class="badge bg-secondary ms-1">{{ volume.countOfIssues }}</span>
+                </button>
+                @if (volume.siteDetailUrl) {
+                  <a
+                    [href]="volume.siteDetailUrl"
+                    target="_blank"
+                    rel="noopener"
+                    class="btn btn-outline-secondary btn-sm"
+                    title="View on ComicVine"
+                    (click)="$event.stopPropagation()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                      <path fill-rule="evenodd" d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5"/>
+                      <path fill-rule="evenodd" d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0z"/>
+                    </svg>
+                  </a>
+                }
+              </c-card-footer>
+
+            </c-card>
+          </c-col>
+        }
+      </c-row>
+
+      <!-- Pagination -->
+      @if (page.totalPages > 1) {
+        <c-row class="mb-4">
+          <c-col class="d-flex justify-content-center">
+            <c-pagination aria-label="Volume search pages">
+              <c-page-item [disabled]="!page.hasPrev">
+                <a cPageLink (click)="search(page.pageNumber - 1)">‹</a>
+              </c-page-item>
+              @for (p of visiblePages(); track p) {
+                <c-page-item [active]="p === page.pageNumber">
+                  <a cPageLink (click)="search(p)">{{ p }}</a>
+                </c-page-item>
+              }
+              <c-page-item [disabled]="!page.hasNext">
+                <a cPageLink (click)="search(page.pageNumber + 1)">›</a>
+              </c-page-item>
+            </c-pagination>
+          </c-col>
+        </c-row>
+      }
+
+      <!-- Add button -->
+      <c-row>
+        <c-col class="d-flex justify-content-end">
+          <button cButton color="primary" [disabled]="!selectedSourceId()" (click)="onAdd()">
+            Add to Library
+          </button>
+        </c-col>
+      </c-row>
+
+    }
+  }
+
+</c-container>
+
+<!-- Issues modal -->
+<c-modal
+  [visible]="issuesModalVolume() !== null"
+  (visibleChange)="!$event && issuesModalVolume.set(null)"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>
+      {{ issuesModalVolume()?.title }}
+      @if (issuesModalVolume()?.year) {
+        <span class="text-body-secondary fw-normal fs-6 ms-1">({{ issuesModalVolume()!.year }})</span>
+      }
+    </h5>
+    <button cButtonClose (click)="issuesModalVolume.set(null)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    @if (issuesModalVolume(); as v) {
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Publisher</dt>
+        <dd class="col-sm-8">{{ v.publisher ?? '—' }}</dd>
+
+        <dt class="col-sm-4">Total issues</dt>
+        <dd class="col-sm-8">{{ v.countOfIssues }}</dd>
+
+        <dt class="col-sm-4">First issue</dt>
+        <dd class="col-sm-8">{{ v.firstIssueName ?? '—' }}</dd>
+
+        <dt class="col-sm-4">Last issue</dt>
+        <dd class="col-sm-8">{{ v.lastIssueName ?? '—' }}</dd>
+      </dl>
+    }
+  </c-modal-body>
+</c-modal>

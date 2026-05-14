@@ -22,7 +22,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     private const string IssuePrefix = "4000";
     private const int MaxPageSize = 100;
 
-    private static readonly string VolumeSearchFieldList = "id,name";
+    private static readonly string VolumeSearchFieldList = "id,name,start_year,count_of_issues,description,publisher,image,first_issue,last_issue,site_detail_url";
 
     private static readonly string VolumeDetailFieldList =
         "id,name,count_of_issues,date_added,date_last_updated,deck,description,image,issues,people,publisher,site_detail_url,start_year";
@@ -122,14 +122,13 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     };
 
     // Search volumes by name (paged) via /search endpoint
-    public Task<CvPagedResponse<CvVolumeStub>> AutomaticSearchVolumesAsync(
+    public Task<CvPagedResponse<CvVolumeStub>> SearchVolumesByNameAsync(
         string query,
         int page = 1,
         int? limit = null,
         CancellationToken ct = default)
     {
-        var offset = (page - 1) * (limit ?? Options.PageSize);
-        var url = SearchUrl(query, "volume", VolumeSearchFieldList, limit ?? Options.PageSize, offset);
+        var url = SearchUrl(query, "volume", VolumeSearchFieldList, limit ?? Options.PageSize, page);
         return GetPagedAsync<CvVolumeStub>(url, ct);
     }
 
@@ -251,9 +250,9 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     #endregion
 
-    private string SearchUrl(string query, string resources, string fields, int limit, int offset) =>
+    private string SearchUrl(string query, string resources, string fields, int limit, int page) =>
         $"search/?api_key={Options.ApiKey}&format=json&query={Uri.EscapeDataString(query)}" +
-        $"&resources={resources}&field_list={fields}&limit={Math.Clamp(limit, 1, MaxPageSize)}&offset={offset}";
+        $"&resources={resources}&field_list={fields}&limit={Math.Clamp(limit, 1, MaxPageSize)}&page={page}";
 
     private string ListUrl(string resource, string fields, int limit, int offset,
         string? filter = null, string? sort = null)
@@ -349,7 +348,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         var result = new Dictionary<int, CvLinkCandidateVolume>();
         foreach (var candidate in candidates)
         {
-            var resultpage = await AutomaticSearchVolumesAsync(candidate.Title, limit: 20, ct: ct); // Take only first page
+            var resultpage = await SearchVolumesByNameAsync(candidate.Title, limit: 20, ct: ct); // Take only first page
 
             SendTrace($"Search for {candidate.Title}  and found {resultpage.Results.Count} results", ETraceLevel.DEBUG);
             await Task.Delay(250, ct);

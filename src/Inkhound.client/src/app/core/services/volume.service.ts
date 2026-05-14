@@ -1,0 +1,82 @@
+import { HttpClient } from '@angular/common/http';
+import { inject, Injectable } from '@angular/core';
+
+export interface VolumeImage {
+  iconUrl:        string | null;
+  mediumUrl:      string | null;
+  screenUrl:      string | null;
+  screenLargeUrl: string | null;
+  smallUrl:       string | null;
+  superUrl:       string | null;
+  thumbUrl:       string | null;
+  tinyUrl:        string | null;
+  originalUrl:    string | null;
+  imageTags:      string | null;
+}
+
+export interface VolumeAuthor {
+  name: string;
+  role: string;
+}
+
+export type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'FREEZE';
+
+export interface Volume {
+  id:          string;
+  libraryId:   string;
+  sourceId:    string;
+  sourceType:  string;
+  title:       string;
+  year:        number | null;
+  description: string | null;
+  publisher:   string | null;
+  status:      VolumeStatus;
+  genres:      string[];
+  authors:     VolumeAuthor[];
+  image:       VolumeImage | null;
+  createdAt:   string;
+  updatedAt:   string;
+}
+
+export interface VolumeSearchResult {
+  sourceId:       string;
+  sourceType:     string;
+  title:          string;
+  year:           number | null;
+  countOfIssues:  number;
+  description:    string | null;
+  publisher:      string | null;
+  image:          VolumeImage | null;
+  firstIssueName: string | null;
+  lastIssueName:  string | null;
+  siteDetailUrl:  string | null;
+}
+
+export interface PageResult<T> {
+  items:      T[];
+  pageNumber: number;
+  pageSize:   number;
+  totalItems: number;
+  totalPages: number;
+  hasNext:    boolean;
+  hasPrev:    boolean;
+}
+
+@Injectable({ providedIn: 'root' })
+export class VolumeService {
+  private http = inject(HttpClient);
+
+  getById(id: string) {
+    return this.http.get<Volume>(`/api/volumes/${id}`);
+  }
+
+  getByLibrary(libraryId: string) {
+    return this.http.get<Volume[]>(`/api/libraries/${libraryId}/volumes`);
+  }
+
+  search(name: string, page = 1, pageSize = 16) {
+    return this.http.get<PageResult<VolumeSearchResult>>(`/api/volumes/search`, {
+      params: { name, page, pageSize }
+    });
+  }
+}
