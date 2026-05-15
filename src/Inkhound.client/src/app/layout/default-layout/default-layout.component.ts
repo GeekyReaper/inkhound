@@ -61,7 +61,7 @@ export class DefaultLayoutComponent {
     ...this.libraryService.libraries().map(lib => ({
       name: lib.name,
       url: `/library/${lib.id}`,
-      iconComponent: { name: 'cil-book' }
+      iconComponent: { name: 'cil-library' }
     })),
     ...navItemsBottom
   ]);

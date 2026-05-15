@@ -11,6 +11,7 @@ using Inkhound.Core.Kavita;
 using Inkhound.Core.Kavita.Models;
 using Microsoft.EntityFrameworkCore.ValueGeneration;
 using SharpCompress.Compressors.ZStandard.Unsafe;
+using System.Text.RegularExpressions;
 
 namespace Inkhound.Core;
 
@@ -37,6 +38,7 @@ public class InkhoundManager : BaseServiceManager
 
     public StateServiceManager GetCurrentState() => CurrentState;
 
+    #region Internal Service Management
     public List<string> GetServiceNames()
         => [.. Services.Values.Select(s => s.GetServiceName())];
 
@@ -116,6 +118,44 @@ public class InkhoundManager : BaseServiceManager
         await database.LoadOptions(options.GetOptions());
 
     }
+
+    public static Volume Map(CvVolume cvVolume)
+    {
+        return new Volume
+        {
+            SourceId = cvVolume.Id.ToString(),
+            SourceType = "ComicVine",
+            Title = cvVolume.Name,
+            Year = cvVolume.StartYear != null && int.TryParse(cvVolume.StartYear, out var y) ? y : null,
+            Description = cvVolume.Description,
+            Image = cvVolume.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
+            Publisher = cvVolume.Publisher?.Name,
+            Authors = cvVolume.People?
+                .Select(p => new VolumeAuthor(p.Name, p.Role))
+                .ToList() ?? [],
+            Issues = cvVolume.Issues?.Select(c => c.Name).ToList()
+        };
+    }
+
+    public static Issue Map(CvIssue cvIssue)
+    {
+        int.TryParse(cvIssue.IssueNumber, out var issueNum);
+        return new Issue
+        {
+            ComicVineId = cvIssue.Id.ToString(),
+            IssueNumber = issueNum,
+            Title = cvIssue.Name,
+            Year = cvIssue.CoverDate != null && DateTime.TryParse(cvIssue.CoverDate, out var d) ? d.Year : null,
+            Description = cvIssue.Description,
+            Image = cvIssue.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
+            Authors = cvIssue.PersonCredits?
+                .Select(p => new VolumeAuthor(p.Name, p.Role))
+                .ToList() ?? [],
+        };
+    }
+
+
+    #endregion
 
     #region Library CRUD
 
@@ -226,47 +266,77 @@ public class InkhoundManager : BaseServiceManager
 
         return new Page<CvVolumeStub>
         {
-            Items      = response.Results,
+            Items = response.Results,
             PageNumber = pageNumber,
-            PageSize   = response.Limit,
+            PageSize = response.Limit,
             TotalItems = response.NumberOfTotalResults,
         };
     }
 
-    public static Volume Map(CvVolume cvVolume)
+    public async Task<Page<CvIssue>> GetIssuesByComicVineVolumeAsync(
+        int comicVineVolumeId, int page = 1, int pageSize = 10, CancellationToken ct = default)
     {
-        return new Volume
+        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        if (comicVine.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("ComicVine service is not available");
+
+        var response = await comicVine.GetIssuesPageAsync(comicVineVolumeId, page, pageSize, ct);
+
+        return new Page<CvIssue>
         {
-            SourceId = cvVolume.Id.ToString(),
-            SourceType = "ComicVine",
-            Title = cvVolume.Name,
-            Year = cvVolume.StartYear != null && int.TryParse(cvVolume.StartYear, out var y) ? y : null,
-            Description = cvVolume.Description,
-            Image = cvVolume.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
-            Publisher = cvVolume.Publisher?.Name,
-            Authors = cvVolume.People?
-                .Select(p => new VolumeAuthor(p.Name, p.Role))
-                .ToList() ?? [],
-            Issues = cvVolume.Issues?.Select(c => c.Name).ToList()
+            Items = response.Results,
+            PageNumber = page,
+            PageSize = response.Limit,
+            TotalItems = response.NumberOfTotalResults,
         };
     }
 
-    public static Issue Map(CvIssue cvIssue)
+    #region ComicVine Integration
+    public async Task<Volume> AddVolumeFromComicVineAsync(
+        Guid libraryId, int comicVineVolumeId, CancellationToken ct = default)
     {
-        int.TryParse(cvIssue.IssueNumber, out var issueNum);
-        return new Issue
+        var ctx = GetDb();
+
+        _ = await ctx.Libraries.FindAsync([libraryId], ct)
+            ?? throw new KeyNotFoundException($"Library {libraryId} not found.");
+
+        var duplicate = await ctx.Volumes.FirstOrDefaultAsync(
+            v => v.LibraryId == libraryId && v.SourceId == comicVineVolumeId.ToString(), ct);
+        if (duplicate is not null)
+            throw new InvalidOperationException($"Volume {comicVineVolumeId} already exists in this library.");
+
+        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        if (comicVine.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("ComicVine service is not available");
+
+        var cvVolume = await comicVine.GetVolumeAsync(comicVineVolumeId, ct)
+            ?? throw new KeyNotFoundException($"ComicVine volume {comicVineVolumeId} not found.");
+
+        var now = DateTime.UtcNow;
+        var volume = Map(cvVolume);
+        volume.Id = Guid.NewGuid();
+        volume.LibraryId = libraryId;
+        volume.Status = VolumeStatus.MONITORED;
+        volume.CreatedAt = now;
+        volume.UpdatedAt = now;
+        ctx.Volumes.Add(volume);
+        await ctx.SaveChangesAsync(ct);
+
+        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ct);
+        foreach (var cvIssue in cvIssues)
         {
-            ComicVineId = cvIssue.Id.ToString(),
-            IssueNumber = issueNum,
-            Title = cvIssue.Name,
-            Year = cvIssue.CoverDate != null && DateTime.TryParse(cvIssue.CoverDate, out var d) ? d.Year : null,
-            Description = cvIssue.Description,
-            Image = cvIssue.Image is { } img ? new VolumeImage(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl, img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags) : null,
-            Authors = cvIssue.PersonCredits?
-                .Select(p => new VolumeAuthor(p.Name, p.Role))
-                .ToList() ?? [],
-        };
+            var issue = Map(cvIssue);
+            issue.Id = Guid.NewGuid();
+            issue.Status = IssueStatus.MISSING;
+            issue.VolumeId = volume.Id;
+            ctx.Issues.Add(issue);
+        }
+        if (cvIssues.Count > 0)
+            await ctx.SaveChangesAsync(ct);
+
+        return volume;
     }
+
 
     public async Task<FileInfo?> LaunchJobImportArchive(ArchiveConverterPdfJobParameters parameters)
     {
@@ -330,6 +400,87 @@ public class InkhoundManager : BaseServiceManager
 
     }
 
+    private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];
+    private static readonly Regex _issueHashRegex = new(@"#\s*(\d+)", RegexOptions.Compiled);
+    private static readonly Regex _digitSeqRegex = new(@"\d+", RegexOptions.Compiled);
+
+    public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct)
+            ?? throw new KeyNotFoundException($"Volume {volumeId} not found.");
+        var library = await ctx.Libraries.FindAsync([volume.LibraryId], ct)
+            ?? throw new KeyNotFoundException($"Library {volume.LibraryId} not found.");
+        var issues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
+
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        if (archiveService.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("ArchiveService is not available");
+
+        var tempRelative = Guid.NewGuid().ToString("N");
+        var tempAbsolute = Path.Combine(archiveService.WorkingPath, tempRelative);
+        Directory.CreateDirectory(tempAbsolute);
+
+        try
+        {
+            var files = _archiveExtensions
+                .SelectMany(ext => Directory.GetFiles(importDirectory, ext))
+                .Select(f => new FileInfo(f))
+                .OrderBy(f => f.Name)
+                .ToList();
+
+            foreach (var file in files)
+            {
+                var issueNumber = ParseIssueNumber(file.Name);
+                if (issueNumber is null) continue;
+
+                var issue = issues.FirstOrDefault(i => i.IssueNumber == issueNumber);
+                if (issue is null) continue;
+
+                var subPath = Path.Combine(tempRelative, issueNumber.Value.ToString("D3"));
+                var parameters = new ArchiveConverterPdfJobParameters
+                {
+                    SourceFile = file.FullName,
+                    WorkingPath = subPath,
+                    Volume = volume,
+                    Issue = issue
+                };
+
+                var archive = await LaunchJobImportArchive(parameters);
+                if (archive is null) continue;
+
+                var volumeDir = GetVolumeDirectory(library.Path, volume);
+                volumeDir.Create();
+                var dest = Path.Combine(volumeDir.FullName, archive.Name);
+                File.Move(archive.FullName, dest, overwrite: true);
+
+                issue.CbzFilename = archive.Name;
+                issue.FilePath = dest;
+                issue.Status = IssueStatus.DOWNLOADED;
+                await ctx.SaveChangesAsync(ct);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempAbsolute))
+                Directory.Delete(tempAbsolute, recursive: true);
+        }
+    }
+
+    private static int? ParseIssueNumber(string filename)
+    {
+        var name = Path.GetFileNameWithoutExtension(filename);
+        var m = _issueHashRegex.Match(name);
+        if (m.Success) return int.Parse(m.Groups[1].Value);
+        var seqs = _digitSeqRegex.Matches(name)
+                                 .Cast<Match>()
+                                 .Select(x => int.Parse(x.Value))
+                                 .Where(n => !(n >= 1800 && n <= 2099))
+                                 .ToList();
+        return seqs.Count > 0 ? seqs[0] : null;
+    }
+
     public async Task<List<DirectoryInfo>> GetDirectories(string path)
     {
         return await Task.Run(() =>
@@ -351,6 +502,8 @@ public class InkhoundManager : BaseServiceManager
                 : new List<FileInfo>();
         });
     }
+
+    #endregion
 
     #region Kavita
 

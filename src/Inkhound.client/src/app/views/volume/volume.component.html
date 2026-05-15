@@ -67,7 +67,28 @@
       </c-col>
     </c-row>
 
-    <!-- Issues table -->
+    <!-- Action bar -->
+    <c-row class="mb-3">
+      <c-col class="d-flex gap-2">
+        <button cButton color="primary" size="sm"
+                [disabled]="importing()"
+                (click)="importVisible.set(true)">
+          @if (importing()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          } @else {
+            <svg cIcon name="cilFolderOpen" class="me-1"></svg>
+          }
+          Import
+        </button>
+        @if (importSuccess()) {
+          <c-alert color="success" class="mb-0 py-1 small">
+            Import started — processing in background.
+          </c-alert>
+        }
+      </c-col>
+    </c-row>
+
+    <!-- Issues -->
     <c-row>
       <c-col>
         <c-card>
@@ -86,47 +107,45 @@
             } @else if (issues().length === 0) {
               <p class="text-body-secondary mb-0">No issues found for this volume.</p>
             } @else {
-              <table class="table table-hover align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th style="width: 60px">#</th>
-                    <th style="width: 60px"></th>
-                    <th>Title</th>
-                    <th>Year</th>
-                    <th>Status</th>
-                    <th>File</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (issue of issues(); track issue.id) {
-                    <tr>
-                      <td class="text-body-secondary">{{ issue.issueNumber }}</td>
-                      <td>
+              <c-row class="g-3">
+                @for (issue of issues(); track issue.id) {
+                  <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
+                    <c-card class="h-100">
+                      <div class="position-relative">
                         @if (issue.image?.thumbUrl) {
                           <img
                             [src]="issue.image!.thumbUrl"
                             [alt]="issue.title ?? ''"
-                            style="width: 40px; height: 54px; object-fit: cover; border-radius: 3px;" />
+                            class="img-fluid rounded-top"
+                            style="width: 100%; aspect-ratio: 2/3; object-fit: cover;" />
                         } @else {
-                          <div style="width: 40px; height: 54px; background: var(--cui-secondary-bg); border-radius: 3px;"></div>
+                          <div class="bg-body-secondary rounded-top d-flex align-items-center justify-content-center"
+                               style="aspect-ratio: 2/3;">
+                            <span class="text-body-tertiary">#{{ issue.issueNumber }}</span>
+                          </div>
                         }
-                      </td>
-                      <td>{{ issue.title ?? '—' }}</td>
-                      <td class="text-nowrap">{{ issue.year ?? '—' }}</td>
-                      <td>
-                        <span [class]="issueStatusBadgeClass(issue.status)">{{ issue.status }}</span>
-                      </td>
-                      <td>
+                        <span class="position-absolute top-0 start-0 m-1 badge bg-dark bg-opacity-75"
+                              style="font-size: 0.65rem;">#{{ issue.issueNumber }}</span>
+                      </div>
+                      <c-card-body class="p-2">
+                        <div class="small fw-semibold lh-sm mb-1">
+                          {{ issue.title ?? ('Issue #' + issue.issueNumber) }}
+                        </div>
+                        @if (issue.year) {
+                          <div class="text-body-secondary" style="font-size: 0.7rem;">{{ issue.year }}</div>
+                        }
                         @if (issue.cbzFilename) {
-                          <code class="small">{{ issue.cbzFilename }}</code>
-                        } @else {
-                          <span class="text-body-secondary">—</span>
+                          <code class="d-block text-truncate mt-1" style="font-size: 0.65rem;"
+                                [title]="issue.cbzFilename">{{ issue.cbzFilename }}</code>
                         }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+                      </c-card-body>
+                      <c-card-footer class="p-2">
+                        <span [class]="issueStatusBadgeClass(issue.status)" style="font-size: 0.65rem;">{{ issue.status }}</span>
+                      </c-card-footer>
+                    </c-card>
+                  </c-col>
+                }
+              </c-row>
             }
 
           </c-card-body>
@@ -137,3 +156,8 @@
   }
 
 </c-container>
+
+<app-select-path
+  mode="directory"
+  [(visible)]="importVisible"
+  (pathSelected)="onImportSelected($event)" />

@@ -26,7 +26,7 @@ export const appConfig: ApplicationConfig = {
         anchorScrolling: 'enabled'
       }),
       withEnabledBlockingInitialNavigation(),
-      withViewTransitions(),
+      withViewTransitions({ skipInitialTransition: true }),
       withHashLocation()
     ),
     provideHttpClient(withInterceptors([authInterceptor, connectionInterceptor, authErrorInterceptor])),

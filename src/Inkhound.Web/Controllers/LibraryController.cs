@@ -77,6 +77,26 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
+    public record AddVolumeFromComicVineRequest(int ComicVineVolumeId);
+    private record AddedVolumeDto(Guid Id, Guid LibraryId, string SourceId, string Title, int? Year);
+
+    // POST /api/libraries/{id}/volumes
+    [HttpPost("{id:guid}/volumes")]
+    public async Task<IActionResult> AddVolumeFromComicVine(
+        Guid id, [FromBody] AddVolumeFromComicVineRequest request)
+    {
+        try
+        {
+            var volume = await manager.AddVolumeFromComicVineAsync(id, request.ComicVineVolumeId);
+            return CreatedAtAction(null, new AddedVolumeDto(
+                volume.Id, volume.LibraryId, volume.SourceId, volume.Title, volume.Year));
+        }
+        catch (KeyNotFoundException ex)      { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
+                                             { return Conflict(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
     // POST /api/libraries/{id}/sync
     [HttpPost("{id:guid}/sync")]
     public IActionResult Synchronize(Guid id)

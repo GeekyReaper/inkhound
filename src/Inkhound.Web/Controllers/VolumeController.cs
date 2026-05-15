@@ -81,6 +81,16 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
+    public record ImportFromDirectoryRequest(string ImportDirectory);
+
+    // POST /api/volumes/{volumeId}/import
+    [HttpPost("/api/volumes/{volumeId:guid}/import")]
+    public IActionResult ImportFromDirectory(Guid volumeId, [FromBody] ImportFromDirectoryRequest request)
+    {
+        _ = manager.ImportArchiveFromDirectoryAsync(volumeId, request.ImportDirectory);
+        return Accepted(new { message = $"Import started for volume {volumeId}." });
+    }
+
     // GET /api/libraries/{libraryId}/volumes
     [HttpGet]
     public async Task<IActionResult> GetByLibrary(Guid libraryId)

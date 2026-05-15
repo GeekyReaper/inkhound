@@ -7,7 +7,7 @@ public class Issue
     public Guid Id { get; set; }
     public string ComicVineId { get; set; } = string.Empty;
     public Guid VolumeId { get; set; }
-    public string IssueNumber { get; set; } = string.Empty;
+    public int IssueNumber { get; set; } = 0;
     public string? Title { get; set; }
     public int? Year { get; set; }
     public string? Description { get; set; }

@@ -1,8 +1,17 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { VolumeAuthor, VolumeImage } from './volume.service';
+import { VolumeAuthor, VolumeImage, PageResult } from './volume.service';
 
 export type IssueStatus = 'SEEKING' | 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
+
+export interface ComicVineIssue {
+  id:            string;
+  issueNumber:   string | null;
+  name:          string | null;
+  coverDate:     string | null;
+  thumbUrl:      string | null;
+  siteDetailUrl: string | null;
+}
 
 export interface Issue {
   id:          string;
@@ -25,5 +34,11 @@ export class IssueService {
 
   getByVolume(volumeId: string) {
     return this.http.get<Issue[]>(`/api/volumes/${volumeId}/issues`);
+  }
+
+  getByComicVineVolume(cvVolumeId: string, page = 1, pageSize = 10) {
+    return this.http.get<PageResult<ComicVineIssue>>(`/api/issues/comicvine`, {
+      params: { comicVineVolumeId: cvVolumeId, page, pageSize }
+    });
   }
 }

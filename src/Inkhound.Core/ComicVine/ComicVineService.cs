@@ -28,10 +28,13 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         "id,name,count_of_issues,date_added,date_last_updated,deck,description,image,issues,people,publisher,site_detail_url,start_year";
 
     private static readonly string IssueListFieldList =
-        "id,name,issue_number,volume,cover_date,store_date,image,api_detail_url,site_detail_url";
+        "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
 
     private static readonly string IssueDetailFieldList =
         "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
+
+    private const string IssueStubFieldList = "id";
+
     private static readonly string PublisherFieldList =
         "id,name,image,deck,description,location_city,location_state,api_detail_url,site_detail_url";
     private HttpClient _http;
@@ -209,19 +212,31 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
 
 
-    // Get ALL issues for a volume — auto-paginates and merges all pages
+    // Get ALL issues for a volume — paginates with minimal fields then fetches full detail per issue
     public async Task<IReadOnlyList<CvIssue>> GetAllIssuesForVolumeAsync(
         int comicVineVolumeId, CancellationToken ct = default)
     {
-        var all = new List<CvIssue>();
-        var currentPage = 1;
+        // Phase 1: collect all issue IDs with minimal fields to stay under rate limit
+        var ids = new List<int>();
+        var offset = 0;
         while (true)
         {
-            var response = await GetIssuesPageAsync(comicVineVolumeId, currentPage, MaxPageSize, ct);
-            all.AddRange(response.Results);
-            if (all.Count >= response.NumberOfTotalResults) break;
-            currentPage++;
-            await Task.Delay(250, ct); // stay within ComicVine rate limit (200 req/hour)
+            var url = ListUrl("issues", IssueStubFieldList, MaxPageSize, offset, $"volume:{comicVineVolumeId}");
+            var response = await GetPagedAsync<CvIssue>(url, ct);
+            ids.AddRange(response.Results.Select(i => i.Id));
+            if (ids.Count >= response.NumberOfTotalResults) break;
+            offset += response.Results.Count;
+            await Task.Delay(250, ct);
+        }
+
+        // Phase 2: fetch full detail (including person_credits) for each issue
+        var all = new List<CvIssue>(ids.Count);
+        foreach (var id in ids)
+        {
+            await Task.Delay(250, ct);
+            var issue = await GetIssueAsync(id, ct);
+            if (issue is not null)
+                all.Add(issue);
         }
         return all.AsReadOnly();
     }

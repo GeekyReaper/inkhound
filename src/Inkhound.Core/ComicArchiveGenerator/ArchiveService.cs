@@ -88,6 +88,8 @@ public class ArchiveService : BaseService<ArchiveOption>
 
     #endregion
 
+    public string WorkingPath => Options.WorkingPath;
+
     public FileInfo? getFileFromImportPath(string filepath)
     {
         var fullSourcePath = Path.Combine(Options.ImportPath, filepath);
@@ -397,11 +399,11 @@ public class ArchiveService : BaseService<ArchiveOption>
         return new FileInfo(cbzPath);
     }
 
-    private static string BuildCbzFilename(Volume volume, Issue issue)
+    public static string BuildCbzFilename(Volume volume, Issue issue)
     {
         var title = NormalizeTitle(volume.Title);
         var volumeYear = volume.Year.HasValue ? $" ({volume.Year})" : string.Empty;
-        var number = issue.IssueNumber;
+        var number = issue.IssueNumber.ToString("D3");
         var issueYear = issue.PublishedAt.HasValue ? $" ({issue.PublishedAt.Value.Year})" : string.Empty;
 
         var name = string.IsNullOrWhiteSpace(issue.Title)
@@ -410,6 +412,17 @@ public class ArchiveService : BaseService<ArchiveOption>
 
         return name + ".cbz";
     }
+
+    public static string GetVolumePath(Volume volume)
+    {
+        var title = NormalizeTitle(volume.Title);
+        var volumeYear = volume.Year.HasValue ? $" ({volume.Year})" : string.Empty;
+
+        var path = $"{title}{volumeYear}";
+
+        return path;
+    }
+
 
     public async Task<EArchiveType> GetArchiveType(string filepath)
     {

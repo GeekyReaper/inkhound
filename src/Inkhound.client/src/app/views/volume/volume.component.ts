@@ -4,23 +4,28 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { switchMap } from 'rxjs';
 import {
   AlertComponent,
+  ButtonDirective,
   CardBodyComponent,
   CardComponent,
+  CardFooterComponent,
   ColComponent,
   ContainerComponent,
   RowComponent,
   SpinnerComponent
 } from '@coreui/angular';
+import { IconDirective } from '@coreui/icons-angular';
 import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
+import { SelectPathComponent } from '../select-path/select-path.component';
 
 @Component({
   selector: 'app-volume',
   templateUrl: './volume.component.html',
   imports: [
     ContainerComponent, RowComponent, ColComponent,
-    CardComponent, CardBodyComponent,
-    SpinnerComponent, AlertComponent
+    CardComponent, CardBodyComponent, CardFooterComponent,
+    SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
+    SelectPathComponent
   ]
 })
 export class VolumeComponent {
@@ -34,6 +39,9 @@ export class VolumeComponent {
   error         = signal<string | null>(null);
   issues        = signal<Issue[]>([]);
   issuesLoading = signal(false);
+  importVisible = signal(false);
+  importing     = signal(false);
+  importSuccess = signal(false);
 
   constructor() {
     this.route.params
@@ -59,8 +67,28 @@ export class VolumeComponent {
     this.issueService.getByVolume(volumeId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  issues => { this.issues.set(issues); this.issuesLoading.set(false); },
+        next:  issues => { this.issues.set(issues.sort((a, b) => a.issueNumber - b.issueNumber)); this.issuesLoading.set(false); },
         error: ()     => { this.issuesLoading.set(false); }
+      });
+  }
+
+  onImportSelected(path: string): void {
+    console.log('Selected path for import:', path);
+    if (!path) return;
+    const volumeId = this.volume()?.id;
+    if (!volumeId) return;
+
+    console.log('Starting import for volume ID:', volumeId);
+
+    this.importing.set(true);
+    this.importSuccess.set(false);
+    this.error.set(null);
+    
+    this.volumeService.importFromDirectory(volumeId, path)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  () => { this.importing.set(false); this.importSuccess.set(true); },
+        error: err => { this.error.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
       });
   }
 

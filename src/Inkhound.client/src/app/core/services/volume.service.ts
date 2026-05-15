@@ -79,4 +79,18 @@ export class VolumeService {
       params: { name, page, pageSize }
     });
   }
+
+  importFromDirectory(volumeId: string, importDirectory: string) {
+    return this.http.post<{ message: string }>(
+      `/api/volumes/${volumeId}/import`,
+      { importDirectory }
+    );
+  }
+
+  addFromComicVine(libraryId: string, comicVineVolumeId: string) {
+    return this.http.post<{ id: string }>(
+      `/api/libraries/${libraryId}/volumes`,
+      { comicVineVolumeId: Number(comicVineVolumeId) }
+    );
+  }
 }

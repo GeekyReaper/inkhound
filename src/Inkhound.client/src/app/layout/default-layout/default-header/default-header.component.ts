@@ -1,6 +1,8 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject, input } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { filter, map, startWith } from 'rxjs';
 
 import {
   AvatarComponent,
@@ -33,6 +35,35 @@ export class DefaultHeaderComponent extends HeaderComponent {
 
   readonly #colorModeService = inject(ColorModeService);
   readonly colorMode = this.#colorModeService.colorMode;
+  readonly #router = inject(Router);
+  readonly #activatedRoute = inject(ActivatedRoute);
+
+  readonly breadcrumbs = toSignal(
+    this.#router.events.pipe(
+      filter(e => e instanceof NavigationEnd),
+      startWith(null),
+      map(() => this.#buildBreadcrumbs())
+    ),
+    { initialValue: [] as Array<{ label: string; url: string }> }
+  );
+
+  #buildBreadcrumbs(): Array<{ label: string; url: string }> {
+    const items: Array<{ label: string; url: string }> = [];
+    let route: ActivatedRoute | null = this.#activatedRoute.root;
+    let url = '';
+    while (route) {
+      const child: ActivatedRoute | undefined = route.children.find(c => c.outlet === 'primary');
+      if (!child) break;
+      const snapshot = child.snapshot;
+      if (!snapshot) { route = child; continue; }
+      const segment = snapshot.url?.map(s => s.path).join('/') ?? '';
+      if (segment) url += '/' + segment;
+      const label = (snapshot.data?.['title'] as string) ?? snapshot.title ?? '';
+      if (label) items.push({ label, url: url.endsWith('/') ? url : url + '/' });
+      route = child;
+    }
+    return items;
+  }
 
   readonly colorModes = [
     { name: 'light', text: 'Light', icon: 'cilSun' },

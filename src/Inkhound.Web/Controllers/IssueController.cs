@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -27,6 +28,34 @@ public class IssueController(InkhoundManager manager) : ControllerBase
     private static IssueDto ToDto(Issue i)
         => new(i.Id, i.VolumeId, i.ComicVineId, i.IssueNumber, i.Title, i.Year,
                i.Description, i.Status, i.Authors, i.Image, i.CbzFilename, i.PublishedAt);
+
+    private record CvIssueDto(
+        string Id, string? IssueNumber, string? Name,
+        string? CoverDate, string? ThumbUrl, string? SiteDetailUrl);
+
+    private record CvIssuePageDto(
+        IEnumerable<CvIssueDto> Items, int PageNumber, int PageSize,
+        int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
+
+    // GET /api/issues/comicvine?comicVineVolumeId=XXX&page=1&pageSize=10
+    [HttpGet("/api/issues/comicvine")]
+    public async Task<IActionResult> GetByComicVineVolumeId(
+        [FromQuery] int comicVineVolumeId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
+    {
+        try
+        {
+            var result = await manager.GetIssuesByComicVineVolumeAsync(comicVineVolumeId, page, pageSize);
+            return Ok(new CvIssuePageDto(
+                result.Items.Select(i => new CvIssueDto(
+                    i.Id.ToString(), i.IssueNumber, i.Name,
+                    i.CoverDate, i.Image?.ThumbUrl, i.SiteDetailUrl)),
+                result.PageNumber, result.PageSize, result.TotalItems,
+                result.TotalPages, result.HasNext, result.HasPrev));
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
 
     // GET /api/volumes/{volumeId}/issues
     [HttpGet]

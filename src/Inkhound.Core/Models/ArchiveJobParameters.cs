@@ -27,7 +27,7 @@ public class ArchiveConverterPdfJobParameters : IJobParameters
         {
             errors.Add($"Volume is empty.");
         }
-        if (string.IsNullOrEmpty(Issue.Title) || string.IsNullOrEmpty(Issue.IssueNumber))
+        if (string.IsNullOrEmpty(Issue.Title) || Issue.IssueNumber == 0)
         {
             errors.Add($"Issue is empty.");
         }
