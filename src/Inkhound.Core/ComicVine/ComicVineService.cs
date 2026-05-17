@@ -13,8 +13,12 @@ using System.Resources;
 using System.Net;
 using System.Data;
 using System.Diagnostics;
+using System.Threading.Channels;
 
 namespace Inkhound.Core.ComicVine;
+
+
+public enum ELevelDetail { ID, SUMMARY, FULL }
 
 public partial class ComicVineService : BaseService<ComicVineOptions>
 {
@@ -27,17 +31,20 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     private static readonly string VolumeDetailFieldList =
         "id,name,count_of_issues,date_added,date_last_updated,deck,description,image,issues,people,publisher,site_detail_url,start_year";
 
-    private static readonly string IssueListFieldList =
-        "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
 
-    private static readonly string IssueDetailFieldList =
-        "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits";
 
-    private const string IssueStubFieldList = "id";
+    private static readonly Dictionary<ELevelDetail, string> IssueFieldListByLevelDetail = new()
+    {
+        [ELevelDetail.ID] = "id, name,issue_number",
+        [ELevelDetail.SUMMARY] = "id,name,issue_number,cover_date,description,image,site_detail_url",
+        [ELevelDetail.FULL] = "id,name,issue_number,volume,cover_date,store_date,description,image,api_detail_url,site_detail_url,person_credits"
+    };
+
 
     private static readonly string PublisherFieldList =
         "id,name,image,deck,description,location_city,location_state,api_detail_url,site_detail_url";
     private HttpClient _http;
+    private ApiRateLimiter _rateLimiter = null!;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -61,6 +68,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     public ComicVineService()
     {
         _http = BuildHttpClient();
+        _rateLimiter = new ApiRateLimiter(Options.RateLimitMs);
     }
 
     #region Override BaseService
@@ -68,9 +76,11 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     public override string GetServiceName() => "ComicVine";
     public override async Task<bool> LoadOptions(List<OptionDefinition> optionList)
     {
-        // Rebuild _http before base.LoadOptions so CheckInternalState uses the updated options
         Options.LoadOptions(optionList, out _);
         _http = BuildHttpClient();
+        var old = _rateLimiter;
+        _rateLimiter = new ApiRateLimiter(Options.RateLimitMs);
+        old.Dispose();
         return await base.LoadOptions(optionList);
     }
 
@@ -79,12 +89,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         var url = $"volumes/?api_key={Options.ApiKey}&format=json&limit=1&field_list=id";
         try
         {
-            var response = await _http.GetAsync(url);
-
-            if (!response.IsSuccessStatusCode)
-                return (EState.ERROR);
-
-            var body = await response.Content.ReadFromJsonAsync<CvStatusResponse>(JsonOpts);
+            var body = await GetAsync<CvStatusResponse>(url, CancellationToken.None);
             if (body is null || body.StatusCode != 1)
                 return EState.ERROR;
         }
@@ -189,7 +194,6 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             all.AddRange(response.Results);
             if (all.Count >= response.NumberOfTotalResults) break;
             currentPage++;
-            await Task.Delay(250, ct); // stay within ComicVine rate limit (200 req/hour)
         }
         return all.AsReadOnly();
     }
@@ -214,26 +218,28 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     // Get ALL issues for a volume — paginates with minimal fields then fetches full detail per issue
     public async Task<IReadOnlyList<CvIssue>> GetAllIssuesForVolumeAsync(
-        int comicVineVolumeId, CancellationToken ct = default)
+        int comicVineVolumeId, ELevelDetail detail = ELevelDetail.ID, CancellationToken ct = default)
     {
         // Phase 1: collect all issue IDs with minimal fields to stay under rate limit
+
         var ids = new List<int>();
+        var all = new List<CvIssue>();
         var offset = 0;
         while (true)
         {
-            var url = ListUrl("issues", IssueStubFieldList, MaxPageSize, offset, $"volume:{comicVineVolumeId}");
+            var url = ListUrl("issues", IssueFieldListByLevelDetail[detail == ELevelDetail.FULL ? ELevelDetail.ID : detail], MaxPageSize, offset, $"volume:{comicVineVolumeId}");
             var response = await GetPagedAsync<CvIssue>(url, ct);
             ids.AddRange(response.Results.Select(i => i.Id));
+            all.AddRange(response.Results);
             if (ids.Count >= response.NumberOfTotalResults) break;
             offset += response.Results.Count;
-            await Task.Delay(250, ct);
         }
+        if (detail != ELevelDetail.FULL)
+            return all.AsReadOnly();
 
         // Phase 2: fetch full detail (including person_credits) for each issue
-        var all = new List<CvIssue>(ids.Count);
         foreach (var id in ids)
         {
-            await Task.Delay(250, ct);
             var issue = await GetIssueAsync(id, ct);
             if (issue is not null)
                 all.Add(issue);
@@ -243,12 +249,12 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     // Get a single page of issues (for explicit pagination control)
     public Task<CvPagedResponse<CvIssue>> GetIssuesPageAsync(
-        int comicVineVolumeId, int page = 1, int? limit = null, CancellationToken ct = default)
+        int comicVineVolumeId, int page = 1, int? limit = null, ELevelDetail detail = ELevelDetail.ID, CancellationToken ct = default)
     {
         var effectiveLimit = limit ?? Options.PageSize;
         var offset = (page - 1) * effectiveLimit;
 
-        var url = ListUrl("issues", IssueListFieldList, effectiveLimit, offset,
+        var url = ListUrl("issues", IssueFieldListByLevelDetail[detail], effectiveLimit, offset,
             $"volume:{comicVineVolumeId}");
         return GetPagedAsync<CvIssue>(url, ct);
     }
@@ -256,7 +262,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     // Get single issue detail — includes person_credits, excluded from list calls
     public async Task<CvIssue?> GetIssueAsync(int comicVineIssueId, CancellationToken ct = default)
     {
-        var url = DetailUrl("issue", IssuePrefix, comicVineIssueId, IssueDetailFieldList);
+        var url = DetailUrl("issue", IssuePrefix, comicVineIssueId, IssueFieldListByLevelDetail[ELevelDetail.FULL]);
         var r = await GetAsync<CvDetailResponse<CvIssue>>(url, ct);
         return r?.Results;
     }
@@ -296,12 +302,77 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     private async Task<T?> GetAsync<T>(string url, CancellationToken ct)
     {
-        var response = await _http.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
-        var json = await response.Content.ReadAsStringAsync(ct);
-        return JsonSerializer.Deserialize<T>(json, JsonOpts);
+        var task = _rateLimiter.EnqueueAsync<T>(_http, url);
+        return await task.WaitAsync(ct);
     }
     private record CvLinkCandidateVolume(CvVolume volume, List<ParsedVolumeName> candidates);
+
+    private sealed class ApiRateLimiter : IDisposable
+    {
+        private interface IWorkItem { Task ExecuteAsync(CancellationToken ct); }
+
+        private sealed class WorkItem<T>(HttpClient http, string url) : IWorkItem
+        {
+            private readonly TaskCompletionSource<T?> _tcs =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task<T?> Result => _tcs.Task;
+
+            public async Task ExecuteAsync(CancellationToken ct)
+            {
+                try
+                {
+                    var response = await http.GetAsync(url, ct);
+                    response.EnsureSuccessStatusCode();
+                    var json = await response.Content.ReadAsStringAsync(ct);
+                    _tcs.SetResult(JsonSerializer.Deserialize<T>(json, JsonOpts));
+                }
+                catch (Exception ex) { _tcs.SetException(ex); }
+            }
+        }
+
+        private readonly Channel<IWorkItem> _channel = Channel.CreateUnbounded<IWorkItem>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        private readonly int _rateLimitMs;
+        private readonly CancellationTokenSource _cts = new();
+
+        public ApiRateLimiter(int rateLimitMs)
+        {
+            _rateLimitMs = rateLimitMs;
+            _ = Task.Run(ConsumeAsync);
+        }
+
+        private async Task ConsumeAsync()
+        {
+            var sw = new Stopwatch();
+            var ct = _cts.Token;
+            await foreach (var item in _channel.Reader.ReadAllAsync(ct))
+            {
+                if (sw.IsRunning)
+                {
+                    var elapsed = sw.ElapsedMilliseconds;
+                    if (elapsed < _rateLimitMs)
+                        await Task.Delay((int)(_rateLimitMs - elapsed), ct);
+                }
+                sw.Restart();
+                await item.ExecuteAsync(ct);
+            }
+        }
+
+        public Task<T?> EnqueueAsync<T>(HttpClient http, string url)
+        {
+            var item = new WorkItem<T>(http, url);
+            _channel.Writer.TryWrite(item);
+            return item.Result;
+        }
+
+        public void Dispose()
+        {
+            _channel.Writer.TryComplete();
+            _cts.Cancel();
+            _cts.Dispose();
+        }
+    }
     public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode, CvVolume? cvVolume = null,
         CancellationToken ct = default)
     {
@@ -326,7 +397,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         var page = 1;
         while (true)
         {
-            var issuePage = await GetIssuesPageAsync(cvVolume.Id, page, MaxPageSize, ct);
+            var issuePage = await GetIssuesPageAsync(cvVolume.Id, page, MaxPageSize, ELevelDetail.SUMMARY, ct);
             var match = issuePage.Results.FirstOrDefault(
                 i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
 
@@ -341,7 +412,6 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
                 break;
 
             page++;
-            await Task.Delay(250, ct);
         }
 
         return new CvFindResult(cvVolume, null);
@@ -366,7 +436,6 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             var resultpage = await SearchVolumesByNameAsync(candidate.Title, limit: 20, ct: ct); // Take only first page
 
             SendTrace($"Search for {candidate.Title}  and found {resultpage.Results.Count} results", ETraceLevel.DEBUG);
-            await Task.Delay(250, ct);
             foreach (var item in resultpage.Results)
             {
                 if (result.ContainsKey(item.Id))
@@ -376,7 +445,6 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
                 else
                 {
                     var v = await GetVolumeAsync(item.Id, ct);
-                    await Task.Delay(250, ct);
                     if (v != null)
                     {
                         result.Add(item.Id, new CvLinkCandidateVolume(v, candidates = [candidate]));

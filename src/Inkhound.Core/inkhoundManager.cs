@@ -27,9 +27,6 @@ public class InkhoundManager : BaseServiceManager
     {
         _dbPath = dbPath;
 
-        //var options = new ComicVineOptions { ApiKey = "ff3e0b9ffa62b7c50563beee41c1075dc3616fbd" };
-        //comicVine = new ComicVineService(options);
-
     }
 
     // Checks if the SQLite database exists and creates it if needed, then sets the Database property
@@ -41,6 +38,16 @@ public class InkhoundManager : BaseServiceManager
     #region Internal Service Management
     public List<string> GetServiceNames()
         => [.. Services.Values.Select(s => s.GetServiceName())];
+
+
+    private DbStorageContext GetDb()
+    {
+        var db = GetService<DbStorageService, DbStorageOption>();
+        if (db.Database is null)
+            throw new InvalidOperationException("Database is not initialized.");
+        return db.Database;
+    }
+
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)
     {
@@ -157,16 +164,7 @@ public class InkhoundManager : BaseServiceManager
 
     #endregion
 
-    #region Library CRUD
-
-    private DbStorageContext GetDb()
-    {
-        var db = GetService<DbStorageService, DbStorageOption>();
-        if (db.Database is null)
-            throw new InvalidOperationException("Database is not initialized.");
-        return db.Database;
-    }
-
+    #region Library CRUD  
 
     public async Task<List<Library>> GetLibrariesAsync()
     {
@@ -217,7 +215,9 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync();
         return true;
     }
+    #endregion
 
+    #region Volume CRUD
     public async Task<Volume?> GetVolumeAsync(Guid id)
     {
         return await GetDb().Volumes.FindAsync(id);
@@ -241,18 +241,10 @@ public class InkhoundManager : BaseServiceManager
 
     #endregion
 
-    private DirectoryInfo GetVolumeDirectory(string libraryPath, Volume volume)
-    {
-        var dir = new DirectoryInfo(libraryPath);
-        if (!dir.Exists)
-            throw new DirectoryNotFoundException($"Library directory not found: {libraryPath}");
-
-        dir = new DirectoryInfo(Path.Combine(dir.FullName, ArchiveService.GetVolumePath(volume)));
-        return dir;
-    }
 
 
-    public async Task<Page<CvVolumeStub>> SearchVolumeByNameAsync(
+    #region ComicVine Search and Import
+    public async Task<Page<CvVolumeStub>> ComicVineSearchVolumeByNameAsync(
         string name,
         int pageNumber = 1,
         int? pageSize = null,
@@ -273,14 +265,14 @@ public class InkhoundManager : BaseServiceManager
         };
     }
 
-    public async Task<Page<CvIssue>> GetIssuesByComicVineVolumeAsync(
+    public async Task<Page<CvIssue>> ComicVineGetIssuesByVolumeAsync(
         int comicVineVolumeId, int page = 1, int pageSize = 10, CancellationToken ct = default)
     {
         var comicVine = GetService<ComicVineService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
             throw new InvalidOperationException("ComicVine service is not available");
 
-        var response = await comicVine.GetIssuesPageAsync(comicVineVolumeId, page, pageSize, ct);
+        var response = await comicVine.GetIssuesPageAsync(comicVineVolumeId, page, pageSize, ct: ct);
 
         return new Page<CvIssue>
         {
@@ -322,7 +314,7 @@ public class InkhoundManager : BaseServiceManager
         ctx.Volumes.Add(volume);
         await ctx.SaveChangesAsync(ct);
 
-        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ct);
+        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
         foreach (var cvIssue in cvIssues)
         {
             var issue = Map(cvIssue);
@@ -350,7 +342,7 @@ public class InkhoundManager : BaseServiceManager
         var job = StartJob($"Transform {parameters.SourceFile} to archive", parameters);
         job.SetState(JobState.RUNNING);
 
-        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : archiveService.getFileFromImportPath(parameters.SourceFile);
+        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
         if (sourcefile == null)
         {
             EndJob(false);
@@ -386,7 +378,7 @@ public class InkhoundManager : BaseServiceManager
         var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
 
         // STEP 3 : Generage CBZ
-        var archive = await archiveService.CreateCbzFile(parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
+        var archive = await archiveService.CreateCbzFile(parameters.Library, parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
 
         // STEP 4 : Delete files
         comicsInfo.Delete();
@@ -450,7 +442,7 @@ public class InkhoundManager : BaseServiceManager
                 var archive = await LaunchJobImportArchive(parameters);
                 if (archive is null) continue;
 
-                var volumeDir = GetVolumeDirectory(library.Path, volume);
+                var volumeDir = new DirectoryInfo(ArchiveService.GetPath(volume, library));
                 volumeDir.Create();
                 var dest = Path.Combine(volumeDir.FullName, archive.Name);
                 File.Move(archive.FullName, dest, overwrite: true);
@@ -502,6 +494,8 @@ public class InkhoundManager : BaseServiceManager
                 : new List<FileInfo>();
         });
     }
+
+    #endregion
 
     #endregion
 
@@ -563,10 +557,10 @@ public class InkhoundManager : BaseServiceManager
         {
 
             Volume volume;
-            if (existingVolumes.Values.Any(v => GetVolumeDirectory(libraryDir.FullName, v).FullName == dir.FullName))
+            if (existingVolumes.Values.Any(v => ArchiveService.GetPath(v, library) == dir.FullName))
             {
                 // This directory is already matched to an existing volume, skip it
-                volume = existingVolumes.Values.First(v => GetVolumeDirectory(libraryDir.FullName, v).FullName == dir.FullName);
+                volume = existingVolumes.Values.First(v => ArchiveService.GetPath(v, library) == dir.FullName);
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
 
@@ -592,7 +586,7 @@ public class InkhoundManager : BaseServiceManager
                 {
                     volume = existingVolumes[sourceId];
                     // This ComicVine volume is already in the database, but with the wrong path
-                    dir.MoveTo(GetVolumeDirectory(libraryDir.FullName, volume).FullName);
+                    dir.MoveTo(ArchiveService.GetPath(volume, library));
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
 
@@ -617,7 +611,7 @@ public class InkhoundManager : BaseServiceManager
             // STEP 2. Find CBZ files in volume directory and match to ComicVine issues
             var cbzFiles = await GetFiles(dir.FullName, "*.cbz");
             int.TryParse(volume.SourceId, out var sourceVolumeId);
-            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(sourceVolumeId);
+            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(sourceVolumeId, ELevelDetail.ID);
 
             var existingIssueIds = await ctx.Issues
                 .Where(i => i.VolumeId == volume.Id)
@@ -641,7 +635,7 @@ public class InkhoundManager : BaseServiceManager
                     {
                         var existingIssue = existingIssueIds.Values.First(v => v.IssueNumber == issueNum);
                         existingIssue.Status = IssueStatus.DOWNLOADED;
-                        var issuenumberfilename = ArchiveService.BuildCbzFilename(volume, existingIssue);
+                        var issuenumberfilename = ArchiveService.GetPath(existingIssue, volume);
                         if (string.IsNullOrEmpty(existingIssue.CbzFilename))
                         { // This issue was previously matched without a file, so just update the filename and path
                             if (cbzFile.Name != issuenumberfilename)
@@ -717,7 +711,7 @@ public class InkhoundManager : BaseServiceManager
                         continue;
 
                     var issue = Map(cvIssueFull);
-                    var issuefilename = ArchiveService.BuildCbzFilename(volume, issue);
+                    var issuefilename = ArchiveService.GetPath(issue, volume);
 
 
                     if (cbzFile.Name != issuefilename)

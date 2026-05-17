@@ -15,6 +15,8 @@ public class ComicVineOptions : IOptionList
 
     public int PageSize { get; set; } = 20;
 
+    public int RateLimitMs { get; set; } = 250;
+
     public bool IsValid(out List<string> errors)
     {
         errors = new List<string>();
@@ -30,6 +32,9 @@ public class ComicVineOptions : IOptionList
 
         if (PageSize <= 0 || PageSize > 100)
             errors.Add("PageSize must be between 1 and 100.");
+
+        if (RateLimitMs <= 0)
+            errors.Add("RateLimitMs must be greater than 0.");
 
         return errors.Count == 0;
     }
@@ -48,7 +53,8 @@ public class ComicVineOptions : IOptionList
             new OptionDefinition { Name = "UserAgent", ValueType = EValueType.STRING, Value = UserAgent, DefaultValue = "Inkhound/1.0", Mandatory = false },
             new OptionDefinition { Name = "BaseUrl", ValueType =EValueType.STRING, Value = BaseUrl, DefaultValue = "https://comicvine.gamespot.com/api/", RegexValidator = @"^https://.*$", Mandatory = true },
             new OptionDefinition { Name = "TimeoutSeconds", ValueType = EValueType.INT, Value = TimeoutSeconds.ToString(), DefaultValue = "30", Mandatory = false },
-            new OptionDefinition { Name = "PageSize", ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false }
+            new OptionDefinition { Name = "PageSize", ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false },
+            new OptionDefinition { Name = "RateLimitMs", ValueType = EValueType.INT, Value = RateLimitMs.ToString(), DefaultValue = "250", Mandatory = false }
         };
     }
 
@@ -78,6 +84,9 @@ public class ComicVineOptions : IOptionList
                         break;
                     case "PageSize":
                         PageSize = option.GetInt();
+                        break;
+                    case "RateLimitMs":
+                        RateLimitMs = option.GetInt();
                         break;
                 }
             }
