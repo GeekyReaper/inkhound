@@ -44,7 +44,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     private static readonly string PublisherFieldList =
         "id,name,image,deck,description,location_city,location_state,api_detail_url,site_detail_url";
     private HttpClient _http;
-    private ApiRateLimiter _rateLimiter = null!;
+    private RateLimiter _rateLimiter = null!;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -68,7 +68,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     public ComicVineService()
     {
         _http = BuildHttpClient();
-        _rateLimiter = new ApiRateLimiter(Options.RateLimitMs);
+        _rateLimiter = new RateLimiter(Options.RateLimitMs);
     }
 
     #region Override BaseService
@@ -79,7 +79,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         Options.LoadOptions(optionList, out _);
         _http = BuildHttpClient();
         var old = _rateLimiter;
-        _rateLimiter = new ApiRateLimiter(Options.RateLimitMs);
+        _rateLimiter = new RateLimiter(Options.RateLimitMs);
         old.Dispose();
         return await base.LoadOptions(optionList);
     }
@@ -302,77 +302,19 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
 
     private async Task<T?> GetAsync<T>(string url, CancellationToken ct)
     {
-        var task = _rateLimiter.EnqueueAsync<T>(_http, url);
+        var http = _http;
+        var task = _rateLimiter.EnqueueAsync(async consumerCt =>
+        {
+            var response = await http.GetAsync(url, consumerCt);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync(consumerCt);
+            return JsonSerializer.Deserialize<T>(json, JsonOpts);
+        });
         return await task.WaitAsync(ct);
     }
     private record CvLinkCandidateVolume(CvVolume volume, List<ParsedVolumeName> candidates);
 
-    private sealed class ApiRateLimiter : IDisposable
-    {
-        private interface IWorkItem { Task ExecuteAsync(CancellationToken ct); }
 
-        private sealed class WorkItem<T>(HttpClient http, string url) : IWorkItem
-        {
-            private readonly TaskCompletionSource<T?> _tcs =
-                new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            public Task<T?> Result => _tcs.Task;
-
-            public async Task ExecuteAsync(CancellationToken ct)
-            {
-                try
-                {
-                    var response = await http.GetAsync(url, ct);
-                    response.EnsureSuccessStatusCode();
-                    var json = await response.Content.ReadAsStringAsync(ct);
-                    _tcs.SetResult(JsonSerializer.Deserialize<T>(json, JsonOpts));
-                }
-                catch (Exception ex) { _tcs.SetException(ex); }
-            }
-        }
-
-        private readonly Channel<IWorkItem> _channel = Channel.CreateUnbounded<IWorkItem>(
-            new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
-        private readonly int _rateLimitMs;
-        private readonly CancellationTokenSource _cts = new();
-
-        public ApiRateLimiter(int rateLimitMs)
-        {
-            _rateLimitMs = rateLimitMs;
-            _ = Task.Run(ConsumeAsync);
-        }
-
-        private async Task ConsumeAsync()
-        {
-            var sw = new Stopwatch();
-            var ct = _cts.Token;
-            await foreach (var item in _channel.Reader.ReadAllAsync(ct))
-            {
-                if (sw.IsRunning)
-                {
-                    var elapsed = sw.ElapsedMilliseconds;
-                    if (elapsed < _rateLimitMs)
-                        await Task.Delay((int)(_rateLimitMs - elapsed), ct);
-                }
-                sw.Restart();
-                await item.ExecuteAsync(ct);
-            }
-        }
-
-        public Task<T?> EnqueueAsync<T>(HttpClient http, string url)
-        {
-            var item = new WorkItem<T>(http, url);
-            _channel.Writer.TryWrite(item);
-            return item.Result;
-        }
-
-        public void Dispose()
-        {
-            _channel.Writer.TryComplete();
-            _cts.Cancel();
-            _cts.Dispose();
-        }
-    }
     public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode, CvVolume? cvVolume = null,
         CancellationToken ct = default)
     {
