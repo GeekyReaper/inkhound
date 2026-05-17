@@ -46,7 +46,7 @@ public class IssueController(InkhoundManager manager) : ControllerBase
     {
         try
         {
-            var result = await manager.GetIssuesByComicVineVolumeAsync(comicVineVolumeId, page, pageSize);
+            var result = await manager.ComicVineGetIssuesByVolumeAsync(comicVineVolumeId, page, pageSize);
             return Ok(new CvIssuePageDto(
                 result.Items.Select(i => new CvIssueDto(
                     i.Id.ToString(), i.IssueNumber, i.Name,

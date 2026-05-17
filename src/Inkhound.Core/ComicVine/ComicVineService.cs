@@ -443,6 +443,9 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     [GeneratedRegex(@"\s*(\d{4})\s*")]
     private static partial Regex YearRegex();
 
+    [GeneratedRegex(@"#\s*0*(\d+)")]
+    private static partial Regex HashNumberRegex();
+
     [GeneratedRegex(@"\b[T,t,V,v][omevlu]*[\s\.\-_]*0*(\d+)\b", RegexOptions.IgnoreCase)]
     private static partial Regex TomeNumberRegex();
 
@@ -572,25 +575,30 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
     }
 
 
-    internal static int? ParseIssueNumber(string filename)
+    public static int? ParseIssueNumber(string filename)
     {
-        // 1. French "Tome" format: T01, T 02
-        var m = TomeNumberRegex().Match(filename);
+        var name = Path.GetFileNameWithoutExtension(filename);
+
+        // 1. Hash format: "Batman #012"
+        var m = HashNumberRegex().Match(name);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var n)) return n;
 
-        // 2. Starts with a number: "01 - ", "002 "
-        m = LeadingNumberRegex().Match(filename);
+        // 2. French "Tome" format: T01, T 02
+        m = TomeNumberRegex().Match(name);
         if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
 
-        // 3. Number enclosed in dashes: " - 012 - "
-        m = DashEnclosedNumberRegex().Match(filename);
+        // 3. Starts with a number: "01 - ", "002 "
+        m = LeadingNumberRegex().Match(name);
         if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
 
-        // 4. First isolated integer
-        m = IsolatedNumberRegex().Match(filename);
+        // 4. Number enclosed in dashes: " - 012 - "
+        m = DashEnclosedNumberRegex().Match(name);
         if (m.Success && int.TryParse(m.Groups[1].Value, out n)) return n;
 
-        return null;
+        // 5. First isolated integer, excluding years (1800–2099)
+        return IsolatedNumberRegex().Matches(name)
+            .Select(x => int.TryParse(x.Groups[1].Value, out var v) ? v : (int?)null)
+            .FirstOrDefault(v => v.HasValue && !(v >= 1800 && v <= 2099));
     }
 
     private static double ScoreVolume(CvVolume volume, ParsedVolumeName candidate, string countryCode)

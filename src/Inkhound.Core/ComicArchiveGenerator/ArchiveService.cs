@@ -90,22 +90,11 @@ public class ArchiveService : BaseService<ArchiveOption>
 
     public string WorkingPath => Options.WorkingPath;
 
-    public FileInfo? getFileFromImportPath(string filepath)
-    {
-        var fullSourcePath = Path.Combine(Options.ImportPath, filepath);
-        if (!File.Exists(fullSourcePath))
-        {
-            SendTrace($"file source not found: {fullSourcePath}", new TraceDefinition() { Level = ETraceLevel.ERROR });
-            return null;
-        }
-        return new FileInfo(fullSourcePath);
-    }
-
-
+    #region Conversion Methods
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     [System.Runtime.Versioning.SupportedOSPlatform("osx")]
-    public async Task<List<FileInfo>?> ConvertPdfToImage(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
+    public async Task<List<FileInfo>?> ConvertPdfToImages(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
     {
         if (source.Length == 0)
         {
@@ -151,7 +140,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         return imagePaths;
     }
 
-    public async Task<List<FileInfo>?> ConvertCbrToImage(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
+    public async Task<List<FileInfo>?> ConvertCbrToImages(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
     {
         if (source.Length == 0)
         {
@@ -202,7 +191,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         return imagePaths;
     }
 
-    public async Task<List<FileInfo>?> ConvertCbzToImage(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
+    public async Task<List<FileInfo>?> ConvertCbzToImages(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
     {
         if (source.Length == 0)
         {
@@ -253,6 +242,20 @@ public class ArchiveService : BaseService<ArchiveOption>
         return imagePaths;
     }
 
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    [System.Runtime.Versioning.SupportedOSPlatform("osx")]
+    public async Task<List<FileInfo>?> ConvertToImages(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
+    {
+        var archiveType = await GetArchiveType(source.FullName);
+        return archiveType switch
+        {
+            EArchiveType.PDF => await ConvertPdfToImages(source, destinationPath, progression),
+            EArchiveType.CBR => await ConvertCbrToImages(source, destinationPath, progression),
+            EArchiveType.CBZ => await ConvertCbzToImages(source, destinationPath, progression),
+            _ => null
+        };
+    }
     public async Task<FileInfo> CreateComicInfo(Volume volume, Issue issue, string destinationPath, ProgressionCallback? progression = null)
     {
 
@@ -371,13 +374,13 @@ public class ArchiveService : BaseService<ArchiveOption>
         return result;
     }
 
-    public async Task<FileInfo> CreateCbzFile(Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)
+    public async Task<FileInfo> CreateCbzFile(Library library, Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)
     {
         progression?.UpdateTotal(filepages.Count + 1);
         var progress = new Progression() { Total = filepages.Count + 1 };
 
-        var cbzName = BuildCbzFilename(volume, issue);
-        var cbzPath = Path.Combine(comicInfo.DirectoryName!, cbzName);
+        var cbzPath = GetPath(issue, volume, library);
+        //var cbzPath = Path.Combine(comicInfo.DirectoryName!, cbzName);
 
         await using var zipStream = File.Create(cbzPath);
         using var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false);
@@ -399,30 +402,60 @@ public class ArchiveService : BaseService<ArchiveOption>
         return new FileInfo(cbzPath);
     }
 
-    public static string BuildCbzFilename(Volume volume, Issue issue)
+    #endregion
+
+    #region Static methods to map volume/issue to file path
+
+    public static string GetPath(Issue issue, Volume volume, Library? library = null)
     {
         var title = NormalizeTitle(volume.Title);
-        var volumeYear = volume.Year.HasValue ? $" ({volume.Year})" : string.Empty;
         var number = issue.IssueNumber.ToString("D3");
         var issueYear = issue.PublishedAt.HasValue ? $" ({issue.PublishedAt.Value.Year})" : string.Empty;
 
         var name = string.IsNullOrWhiteSpace(issue.Title)
-            ? $"{title}{volumeYear} - {number}{issueYear}"
-            : $"{title}{volumeYear} - {number} - {NormalizeTitle(issue.Title)}{issueYear}";
+            ? $"{title} - {number}{issueYear}"
+            : $"{title} - {number} - {NormalizeTitle(issue.Title)}{issueYear}";
 
-        return name + ".cbz";
+        name = name + ".cbz";
+
+        if (library != null)
+        {
+            name = Path.Combine(GetPath(volume, library), name);
+        }
+
+        return name;
+
+
     }
 
-    public static string GetVolumePath(Volume volume)
+    public static string GetPath(Volume volume, Library? library = null)
     {
         var title = NormalizeTitle(volume.Title);
         var volumeYear = volume.Year.HasValue ? $" ({volume.Year})" : string.Empty;
 
         var path = $"{title}{volumeYear}";
 
+        if (library != null)
+        {
+            path = Path.Combine(library.Path, path);
+        }
+
         return path;
     }
 
+    public static Task<List<DirectoryInfo>> GetDirectoriesAsync(string path) =>
+        Task.Run(() =>
+        {
+            var dir = new DirectoryInfo(path);
+            return dir.Exists ? [.. dir.GetDirectories()] : (List<DirectoryInfo>)[];
+        });
+
+    public static Task<List<FileInfo>> GetFilesAsync(string path, string filter = "*") =>
+        Task.Run(() =>
+        {
+            var dir = new DirectoryInfo(path);
+            return dir.Exists ? [.. dir.GetFiles(filter)] : (List<FileInfo>)[];
+        });
 
     public async Task<EArchiveType> GetArchiveType(string filepath)
     {
@@ -458,4 +491,15 @@ public class ArchiveService : BaseService<ArchiveOption>
         }
         return sb.ToString().Trim();
     }
+
+
+    public DirectoryInfo GenerateTempDirectory()
+    {
+        var tempAbsolute = Path.Combine(WorkingPath, Guid.NewGuid().ToString("N"));
+        return Directory.CreateDirectory(tempAbsolute);
+    }
+
+    #endregion
+
+
 }

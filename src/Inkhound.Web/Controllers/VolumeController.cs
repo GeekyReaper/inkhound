@@ -39,7 +39,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         if (string.IsNullOrWhiteSpace(name)) return BadRequest(new { message = "name is required." });
         try
         {
-            var result = await manager.SearchVolumeByNameAsync(name, page, pageSize);
+            var result = await manager.ComicVineSearchVolumeByNameAsync(name, page, pageSize);
             return Ok(new VolumeSearchPageDto(
                 result.Items.Select(ToSearchDto),
                 result.PageNumber, result.PageSize, result.TotalItems,

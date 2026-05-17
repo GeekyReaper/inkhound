@@ -1,6 +1,6 @@
 namespace Inkhound.Core.Models;
 
-public enum VolumeStatus { MONITORED, COMPLETED, FREEZE }
+public enum VolumeStatus { MONITORED, COMPLETED, PAUSED }
 
 // Represents one author/contributor entry stored as JSON in the authors field
 public record VolumeAuthor(string Name, string Role);
@@ -37,4 +37,10 @@ public class Volume
     public List<string>? Issues { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    public int CountOfIssues { get; set; } = 0;
+    public int CountOfDownloadedIssues { get; set; } = 0;
+
+    public DateTime DateAdded { get; set; }
+
 }
