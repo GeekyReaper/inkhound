@@ -1,30 +1,85 @@
-# Inkhound
+# Inkhound — Contexte global
 
-## Contexte du projet
+Pipeline self-hosted de gestion de bibliothèque digitale BD, Comics et Manga.
+Automatise le cycle complet : déclaration d'intention → acquisition → normalisation → export vers Kavita.
 
-**Inkhound** est une application web self-hosted de gestion de bibliothèque digitale pour BD, Comics et Manga. Elle automatise l'ensemble du pipeline : de la découverte d'un titre jusqu'à une arborescence lisible par Kavita.
+## Architecture — 4 projets
 
-Le projet complet est décrit dans @docs/project.md.  
-L'architecture technique est définie dans @docs/architecture.md.
+```
+Inkhound.sln
+└── src/
+    ├── Foundation.Core      # Abstractions génériques réutilisables (BaseService, RateLimiter, modèles d'état)
+    ├── Inkhound.Core        # Domaine métier : ComicVine, Kavita, BlobStorage, ArchiveGenerator, modèles
+    ├── Inkhound.Web         # ASP.NET Core MVC + SignalR — API REST + Hub + Auth JWT + SPA host
+    ├── Inkhound.client      # Angular SPA — frontend (CoreUI)
+    └── Inkhound.Console     # Console runner (jobs manuels / debug)
+```
 
-## Instructions pour Claude
+**Dépendances entre projets :**
+- `Inkhound.Web` → `Inkhound.Core` → `Foundation.Core`
+- `Inkhound.client` consomme l'API de `Inkhound.Web`
+- `Foundation.Core` n'a aucune dépendance vers les autres projets
 
-### Conventions de code
-- Les commentaires dans le code sont en anglais
-- Les commits sont en anglais
-- Angular : composants standalone uniquement, pas de NgModule
-- Angular : privilégier les Signals plutôt que RxJS/BehaviorSubject quand c'est possible
-- Toujours cibler la dernière version d'Angular et d'ASP.NET Core
+## Stack technique
 
-### Terminologie — noms exacts à respecter
-- Utiliser `Volume`, `Issue`, `Library` — jamais `Comic`, `Chapter`, `Book` ou autre synonyme
-- Les statuts `MONITORED`, `COMPLETED`, `FREEZE` (Volume) et `SEEKING`, `DOWNLOADING`, `DOWNLOADED` (Issue) sont figés
+| Couche | Choix |
+|---|---|
+| Backend | ASP.NET Core 9, C# 12 |
+| Frontend | Angular (latest), CoreUI Free |
+| Temps réel | SignalR |
+| Auth | JWT (clé auto-générée, PBKDF2) |
+| Base de données | SQLite (EF Core via DbStorageContext) |
+| Métadonnées BD | ComicVine API |
+| Lecture | Kavita (instance locale) |
+| Déploiement | Docker single-unit |
 
-### Règles de travail
-- Ne jamais modifier la définition des entités `VOLUME`, `ISSUE` ou `LIBRARY` sans confirmation explicite
-- Ne jamais modifier la convention de nommage des CBZ (section 9.3 de project.md) sans confirmation
-- Demander confirmation avant de créer de nouveaux fichiers
-- Le code métier Inkhound va dans une library .NET séparée du projet backend
+## Lancement local (sans Docker)
 
-### Editeur
-- VS Code uniquement, veiller au bon fonctionnement des fichiers launch.json et tasks.json
+```bash
+# Backend (terminal 1) — port configurable via APP_PORT
+export APP_PORT=5000
+cd src/Inkhound.Web
+dotnet watch run
+
+# Frontend (terminal 2)
+cd src/Inkhound.client
+npm start
+# Angular sur http://localhost:4200, proxy vers http://localhost:5000
+```
+
+## Variables d'environnement
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `APP_PORT` | `5000` | Port Kestrel |
+| `ASPNETCORE_ENVIRONMENT` | `Production` | `Development` en local |
+
+## Docker
+
+```bash
+docker-compose up --build
+# Accès sur http://localhost:8080
+# Volume persistant : ./src/Inkhound.Web/data/system (jwt.key + users.json)
+```
+
+## Skills installés
+
+Les skills suivants sont actifs dans `.claude/skills/` et s'appliquent à tout le projet :
+
+- `angular-component` — conventions de génération de composants Angular
+- `angular-best-practices-material` — bonnes pratiques Angular
+- `dotnet-best-practices` — conventions .NET / C#
+
+> ⚠️ `aspnet-minimal-api-openapi` est installé mais **ne s'applique pas** — le backend utilise des controllers classiques `[ApiController]`, pas les Minimal APIs. Ignorer les suggestions de ce skill.
+
+## Conventions transversales
+
+- Langue du code : **anglais** (noms de classes, méthodes, variables)
+- Commentaires et documentation : **français**
+- Pas de secrets dans le code — tout passe par `appsettings.json` ou variables d'environnement
+- Un fichier = un type (C#), un composant = un dossier (Angular)
+
+## Documentation
+
+- `docs/architecture.md` — architecture détaillée, patterns SignalR, auth, jobs
+- `docs/project.md` — brief produit, modèle de données, flux métier

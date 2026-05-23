@@ -315,6 +315,7 @@ public class InkhoundManager : BaseServiceManager
         var libraryDir = new DirectoryInfo(library.Path);
         var directories = await ArchiveService.GetDirectoriesAsync(library.Path);
 
+
         job.CallbackHandler.UpdateTotal(directories.Count);
 
         var existingVolumes = await ctx.Volumes
@@ -367,7 +368,32 @@ public class InkhoundManager : BaseServiceManager
                     volume.LibraryId = parameters.LibraryId;
                     volume.Status = VolumeStatus.PAUSED;
                     ctx.Volumes.Add(volume);
-                    await ctx.SaveChangesAsync(); // Save here to get the Volume ID for issue linking                
+
+                    // ADD issue in MISSING status for all issues in this volume, will be updated to DOWNLOADED if a matching CBZ file is found in step 2
+                    var cvIssuesFull = await comicVine.GetAllIssuesForVolumeAsync(cvVolume.Id, ELevelDetail.FULL);
+                    List<VolumeAuthor> allIssueAuthors = [];
+                    foreach (var cvIssue in cvIssuesFull)
+                    {
+                        var issue = Mapper.Map(cvIssue);
+                        issue.Id = Guid.NewGuid();
+                        issue.VolumeId = volume.Id;
+                        issue.Status = IssueStatus.MISSING;
+                        ctx.Issues.Add(issue);
+                        allIssueAuthors.AddRange(issue.Authors);
+                    }
+
+                    var roleByName = allIssueAuthors
+                        .GroupBy(a => a.Name)
+                        .ToDictionary(g => g.Key, g => g.First().Role);
+
+                    volume.Authors = volume.Authors
+                        .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                            ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                            : a)
+                        .ToList();
+
+                    await ctx.SaveChangesAsync(); // Save here to get the Volume ID for issue linking
+
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
                 }
@@ -378,137 +404,97 @@ public class InkhoundManager : BaseServiceManager
 
             // STEP 2. Find CBZ files in volume directory and match to ComicVine issues
             var cbzFiles = await ArchiveService.GetFilesAsync(dir.FullName, "*.cbz");
+            job.CallbackHandler.UpdateTotal(cbzFiles.Count);
             int.TryParse(volume.SourceId, out var sourceVolumeId);
-            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(sourceVolumeId, ELevelDetail.ID);
 
-            var existingIssueIds = await ctx.Issues
-                .Where(i => i.VolumeId == volume.Id)
-                .ToDictionaryAsync(i => i.ComicVineId, i => i);
+            //var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(sourceVolumeId, ELevelDetail.SUMMARY);
 
-            var matchedCvIssueIds = new HashSet<int>();
+            var localIssues = await ctx.Issues
+                .Where(i => i.VolumeId == volume.Id).ToListAsync();
 
             foreach (var cbzFile in cbzFiles)
             {
-                if (existingIssueIds.Values.Any(v => v.CbzFilename == cbzFile.Name))
+                if (localIssues.Any(v => v.CbzFilename == cbzFile.Name))
                 {
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
                     continue; // This CBZ file is already matched to an existing issue, skip it
                 }
+
+
+
+                var issueNum = ComicVineService.ParseIssueNumber(cbzFile.Name);
+                if (issueNum is null)
                 {
+                    job.Progress.Increment(false);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue;
+                }
+                if (!localIssues.Any(v => v.IssueNumber == issueNum))
+                {
+                    job.Progress.Increment(false);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue; // No issue with this number in the database, skip it
+                }
 
-                    var issueNum = ComicVineService.ParseIssueNumber(cbzFile.Name);
-                    if (issueNum is null)
-                        continue;
+                var existingIssue = localIssues.First(v => v.IssueNumber == issueNum);
+                var issuenumberfilename = ArchiveService.GetPath(existingIssue, volume);
+                if (existingIssue.Status != IssueStatus.DOWNLOADED)
+                { // This issue was previously matched without a file, so just update the filename and path
 
-                    if (existingIssueIds.Values.Any(v => v.IssueNumber == issueNum))
+                    ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
+                    await ctx.SaveChangesAsync();
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue;
+                }
+                var issueExistFile = new FileInfo(ArchiveService.GetPath(existingIssue, volume, library));
+                if (issueExistFile.Exists)
+                {
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
+                    if (issueExistFile.Name != issuenumberfilename || issueExistFile.Length < cbzFile.Length)
                     {
-                        var existingIssue = existingIssueIds.Values.First(v => v.IssueNumber == issueNum);
-                        existingIssue.Status = IssueStatus.DOWNLOADED;
-                        var issuenumberfilename = ArchiveService.GetPath(existingIssue, volume);
-                        if (string.IsNullOrEmpty(existingIssue.CbzFilename))
-                        { // This issue was previously matched without a file, so just update the filename and path
-                            if (cbzFile.Name != issuenumberfilename)
-                            {
-                                var newPath = Path.Combine(cbzFile.DirectoryName ?? string.Empty, issuenumberfilename);
-                                cbzFile.MoveTo(newPath);
-                                existingIssue.FilePath = newPath;
-                            }
-                            existingIssue.CbzFilename = issuenumberfilename;
-                            existingIssue.Status = IssueStatus.DOWNLOADED;
-                            continue;
-                        }
-                        var issueExistFile = new FileInfo(Path.Combine(cbzFile.DirectoryName ?? string.Empty, existingIssue.CbzFilename ?? string.Empty));
-                        if (issueExistFile.Exists)
-                        {
-                            if (issueExistFile.Name != issuenumberfilename || issueExistFile.Length < cbzFile.Length)
-                            {
-                                issueExistFile.Delete();
-                                if (cbzFile.Name != issuenumberfilename)
-                                {
-                                    var newPath = Path.Combine(cbzFile.DirectoryName ?? string.Empty, issuenumberfilename);
-                                    cbzFile.MoveTo(newPath);
-                                    existingIssue.FilePath = newPath;
-                                    existingIssue.CbzFilename = issuenumberfilename;
-                                }
-                                else
-                                {
-                                    existingIssue.FilePath = cbzFile.FullName;
-                                    existingIssue.CbzFilename = cbzFile.Name;
-                                }
-                                continue;
-                            }
-                            // The existing file is correct, just update the path if needed and delete the new file
-                            if (cbzFile.Name != issuenumberfilename)
-                            {
-                                cbzFile.Delete();
-                            }
-                            var existingPath = Path.Combine(cbzFile.DirectoryName ?? string.Empty, existingIssue.CbzFilename ?? string.Empty);
-                            if (existingIssue.FilePath != existingPath)
-                            {
-                                existingIssue.FilePath = existingPath;
-                            }
-                            existingIssue.CbzFilename = issuenumberfilename;
-                            existingIssue.Status = IssueStatus.DOWNLOADED;
-                            continue;
+                        issueExistFile.Delete();
+                        ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
+                        await ctx.SaveChangesAsync();
+                        job.Progress.Increment(true);
+                        job.CallbackHandler.Callback(job.Progress);
 
-                        }
-
-
-
-
-                        if (cbzFile.Name != issuenumberfilename)
-                        {
-                            var newPath = Path.Combine(cbzFile.DirectoryName ?? string.Empty, issuenumberfilename);
-                            cbzFile.MoveTo(newPath);
-                            existingIssue.FilePath = newPath;
-                            existingIssue.CbzFilename = issuenumberfilename;
-                        }
                         continue;
                     }
-
-                    // Try to find a ComicVine issue match for this CBZ file based on issue number
-                    var cvIssueRef = cvIssues.FirstOrDefault(
-                        i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
-                    if (cvIssueRef is null)
-                        continue;
-
-                    matchedCvIssueIds.Add(cvIssueRef.Id);
-
-
-                    var cvIssueFull = await comicVine.GetIssueAsync(cvIssueRef.Id);
-                    if (cvIssueFull is null)
-                        continue;
-
-                    var issue = Mapper.Map(cvIssueFull);
-                    var issuefilename = ArchiveService.GetPath(issue, volume);
-
-
-                    if (cbzFile.Name != issuefilename)
+                    // The existing file is correct, just update the path if needed and delete the new file
+                    if (cbzFile.Name != issuenumberfilename)
                     {
-                        var newPath = Path.Combine(cbzFile.DirectoryName ?? string.Empty, issuefilename);
-                        cbzFile.MoveTo(newPath);
-                        issue.FilePath = newPath;
-                        issue.CbzFilename = issuefilename;
+                        cbzFile.Delete();
                     }
-                    else
-                    {
-                        issue.FilePath = cbzFile.FullName;
-                        issue.CbzFilename = cbzFile.Name;
-                    }
-                    issue.VolumeId = volume.Id;
-                    issue.Status = IssueStatus.DOWNLOADED;
-                    ctx.Issues.Add(issue);
+
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue;
 
                 }
 
+                ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
+                await ctx.SaveChangesAsync();
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
+
+
+
             }
 
             await ctx.SaveChangesAsync();
         }
+
+        library.UpdatedAt = DateTime.UtcNow;
+        ctx.SaveChanges();
+
         EndJob(job.Progress.Error < directories.Count);
         return library;
     }
+
+
 
 
     #endregion
@@ -659,7 +645,6 @@ public class InkhoundManager : BaseServiceManager
                 File.Move(archive.FullName, dest, overwrite: true);
 
                 issue.CbzFilename = archive.Name;
-                issue.FilePath = dest;
                 issue.Status = IssueStatus.DOWNLOADED;
                 await ctx.SaveChangesAsync(ct);
             }

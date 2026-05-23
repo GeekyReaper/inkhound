@@ -238,11 +238,15 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             return all.AsReadOnly();
 
         // Phase 2: fetch full detail (including person_credits) for each issue
+        all.Clear(); // Phase 1 stubs only had id — discard them
         foreach (var id in ids)
         {
+            Debug.WriteLine($"[ComicVine] Fetching issue id={id}");
             var issue = await GetIssueAsync(id, ct);
+            Debug.WriteLine($"[ComicVine] Fetching issue id={id} DONE");
             if (issue is not null)
                 all.Add(issue);
+            await Task.Delay(500, ct);
         }
         return all.AsReadOnly();
     }

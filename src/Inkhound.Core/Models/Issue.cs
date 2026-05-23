@@ -1,6 +1,6 @@
 namespace Inkhound.Core.Models;
 
-public enum IssueStatus { SEEKING, DOWNLOADING, DOWNLOADED, MISSING }
+public enum IssueStatus { DOWNLOADING, DOWNLOADED, MISSING }
 
 public class Issue
 {
@@ -13,8 +13,13 @@ public class Issue
     public string? Description { get; set; }
     public VolumeImage? Image { get; set; }
     public List<VolumeAuthor> Authors { get; set; } = [];
-    public string? FilePath { get; set; }
+
+
     public string? CbzFilename { get; set; }
+
+    public int FileSizeBytes { get; set; } = 0;
+
+    public DateTime DownloadedAt { get; set; }
     public DateTime? PublishedAt { get; set; }
-    public IssueStatus Status { get; set; } = IssueStatus.SEEKING;
+    public IssueStatus Status { get; set; } = IssueStatus.MISSING;
 }

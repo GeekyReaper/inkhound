@@ -492,7 +492,21 @@ public class ArchiveService : BaseService<ArchiveOption>
         return sb.ToString().Trim();
     }
 
+    public static void AttachFileToIssue(FileInfo cbzFile, Issue issue, Volume volume, Library library)
+    {
+        var issuenumberfilename = GetPath(issue, volume);
 
+        if (cbzFile.Name != issuenumberfilename)
+        {
+            var newPath = Path.Combine(Path.Combine(GetPath(volume, library), issuenumberfilename));
+            cbzFile.MoveTo(newPath);
+        }
+
+        issue.CbzFilename = cbzFile.Name;
+        issue.FileSizeBytes = (int)cbzFile.Length;
+        issue.DownloadedAt = DateTime.UtcNow;
+        issue.Status = IssueStatus.DOWNLOADED;
+    }
     public DirectoryInfo GenerateTempDirectory()
     {
         var tempAbsolute = Path.Combine(WorkingPath, Guid.NewGuid().ToString("N"));
