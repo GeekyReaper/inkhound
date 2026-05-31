@@ -1,0 +1,70 @@
+.job-console {
+  background: #1a1a1a;
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.78rem;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.trace-line {
+  display: flex;
+  gap: 0.5rem;
+  padding: 2px 4px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-wrap: wrap;
+  align-items: baseline;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.trace-ts {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.trace-svc {
+  color: #888;
+  flex-shrink: 0;
+  font-style: italic;
+}
+
+.trace-level {
+  flex-shrink: 0;
+  font-weight: 700;
+  width: 75px;
+}
+
+.trace-msg {
+  color: #d4d4d4;
+  word-break: break-word;
+}
+
+.trace-info {
+  .trace-level { color: #5bc0de; }
+  .trace-msg   { color: #d4d4d4; }
+}
+
+.trace-debug {
+  .trace-level { color: #777; }
+  .trace-msg   { color: #999; }
+}
+
+.trace-warning {
+  .trace-level { color: #f0ad4e; }
+  .trace-msg   { color: #f0ad4e; }
+}
+
+.trace-error {
+  .trace-level { color: #d9534f; }
+  .trace-msg   { color: #d9534f; }
+}
+
+.trace-critical {
+  background: rgba(255, 68, 68, 0.08);
+  .trace-level { color: #ff4444; }
+  .trace-msg   { color: #ff4444; font-weight: 700; }
+}

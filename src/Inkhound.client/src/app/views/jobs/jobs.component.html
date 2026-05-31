@@ -1,0 +1,103 @@
+<c-container class="py-4">
+  <c-row class="mb-3">
+    <c-col>
+      <h2 class="mb-0">Jobs</h2>
+    </c-col>
+  </c-row>
+
+  @if (jobs().length === 0) {
+    <c-alert color="info">
+      Aucun job depuis la connexion au hub. Lancez une synchronisation ou un import pour voir les jobs apparaître ici.
+    </c-alert>
+  } @else {
+    <c-card>
+      <c-card-body class="p-0">
+        <table cTable [hover]="true" [responsive]="true" class="mb-0">
+          <thead>
+            <tr>
+              <th>Titre</th>
+              <th>Statut</th>
+              <th style="min-width: 160px;">Progression</th>
+              <th>Durée</th>
+              <th>Démarré</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (job of jobs(); track job.jobId) {
+              <tr>
+                <td class="align-middle">{{ job.title }}</td>
+                <td class="align-middle">
+                  <c-badge [color]="statusColor(job.state)">{{ job.state }}</c-badge>
+                </td>
+                <td class="align-middle">
+                  <c-progress class="mb-1">
+                    <c-progress-bar
+                      [value]="job.progress.percentage"
+                      [color]="progressColor(job.state)"
+                      [animated]="job.state === 'RUNNING'"
+                    ></c-progress-bar>
+                  </c-progress>
+                  <small class="text-muted">
+                    {{ job.progress.completed }}/{{ job.progress.total }}
+                    @if (job.progress.error > 0) {
+                      <span class="text-danger ms-1">({{ job.progress.error }} err)</span>
+                    }
+                  </small>
+                </td>
+                <td class="align-middle text-nowrap">
+                  @if (job.endDate) {
+                    {{ job.duration }}
+                  } @else {
+                    <span class="text-muted">en cours…</span>
+                  }
+                </td>
+                <td class="align-middle text-nowrap">{{ job.startDate | date:'dd/MM HH:mm' }}</td>
+                <td class="align-middle">
+                  <button cButton color="ghost-secondary" size="sm" (click)="openTraces(job)" title="Voir les logs">
+                    <svg cIcon name="cilTask" size="sm"></svg>
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </c-card-body>
+    </c-card>
+  }
+</c-container>
+
+<c-modal
+  [visible]="modalVisible()"
+  (visibleChange)="modalVisible.set($event)"
+  size="xl"
+  [scrollable]="true"
+>
+  <c-modal-header>
+    <h5 cModalTitle>
+      Logs — {{ selectedJob()?.title ?? '' }}
+      <c-badge [color]="statusColor(selectedJob()?.state ?? '')" class="ms-2">
+        {{ selectedJob()?.state }}
+      </c-badge>
+    </h5>
+    <button cButtonClose (click)="closeModal()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    @if (selectedTraces().length === 0) {
+      <p class="text-muted mb-0">Aucune trace capturée pour ce job.</p>
+    } @else {
+      <div class="job-console">
+        @for (trace of selectedTraces(); track $index) {
+          <div [class]="'trace-line ' + traceLevelClass(trace.level)">
+            <span class="trace-ts">{{ trace.date | date:'HH:mm:ss' }}</span>
+            <span class="trace-level">[{{ trace.level }}]</span>
+            <span class="trace-svc">{{ trace.serviceName }}</span>
+            @for (msg of trace.message; track $index) {
+              <span class="trace-msg">{{ msg }}</span>
+            }
+          </div>
+        }
+      </div>
+    }
+  </c-modal-body>
+</c-modal>

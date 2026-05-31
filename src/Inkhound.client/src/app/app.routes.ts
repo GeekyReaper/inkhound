@@ -67,6 +67,11 @@ export const routes: Routes = [
         data: { title: 'Libraries' }
       },
       {
+        path: 'jobs',
+        loadComponent: () => import('./views/jobs/jobs.component').then(m => m.JobsComponent),
+        data: { title: 'Jobs' }
+      },
+      {
         path: 'library/:id',
         loadComponent: () => import('./views/library/library-shell.component').then(m => m.LibraryShellComponent),
         resolve: { title: libraryTitleResolver },

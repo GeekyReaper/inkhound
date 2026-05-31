@@ -59,8 +59,8 @@ public class OptionDefinition
 
 public class TraceDefinition
 {
-    public readonly List<string> Message = new List<string>();
-    public readonly DateTime Date = DateTime.UtcNow;
+    public List<string> Message { get; } = new List<string>();
+    public DateTime Date { get; } = DateTime.UtcNow;
     public string ServiceName { get; set; } = string.Empty;
 
     public Guid? JobId { get; set; } = null;

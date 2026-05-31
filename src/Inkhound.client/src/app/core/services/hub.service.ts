@@ -1,15 +1,21 @@
 import { effect, inject, Injectable, signal } from '@angular/core';
 import * as signalR from '@microsoft/signalr';
-import { JobContext, StateServiceManager, TraceDefinition } from '../models/hub.models';
+import { JobContext, StateServiceManager, TraceDefinition, UpdatedData } from '../models/hub.models';
 import { AuthService } from './auth.service';
 
 @Injectable({ providedIn: 'root' })
 export class HubService {
   private auth = inject(AuthService);
 
-  readonly managerState = signal<StateServiceManager | null>(null);
-  readonly currentJob   = signal<JobContext | null>(null);
-  readonly lastTrace    = signal<TraceDefinition | null>(null);
+  readonly managerState    = signal<StateServiceManager | null>(null);
+  readonly currentJob      = signal<JobContext | null>(null);
+  readonly lastTrace       = signal<TraceDefinition | null>(null);
+  readonly lastDataUpdated = signal<UpdatedData | null>(null);
+
+  private readonly _jobs      = signal<JobContext[]>([]);
+  private readonly _jobTraces = signal<Map<string, TraceDefinition[]>>(new Map());
+  readonly jobs      = this._jobs.asReadonly();
+  readonly jobTraces = this._jobTraces.asReadonly();
 
   private connection: signalR.HubConnection | null = null;
 
@@ -44,11 +50,29 @@ export class HubService {
     this.connection.on('ManagerJobChanged', (job: JobContext) => {
       console.log('[Hub] ManagerJobChanged', job);
       this.currentJob.set(job);
+      this._jobs.update(list => {
+        const idx = list.findIndex(j => j.jobId === job.jobId);
+        if (idx >= 0) { const copy = [...list]; copy[idx] = job; return copy; }
+        return [job, ...list];
+      });
     });
 
     this.connection.on('ManagerTrace', (trace: TraceDefinition) => {
       console.log('[Hub] ManagerTrace', trace);
       this.lastTrace.set(trace);
+      if (trace.jobId) {
+        this._jobTraces.update(map => {
+          const newMap = new Map(map);
+          const existing = newMap.get(trace.jobId!) ?? [];
+          newMap.set(trace.jobId!, [...existing, trace].slice(-100));
+          return newMap;
+        });
+      }
+    });
+
+    this.connection.on('ManagerDataUpdated', (data: UpdatedData) => {
+      console.log('[Hub] ManagerDataUpdated', data);
+      this.lastDataUpdated.set(data);
     });
 
     this.connection.start().catch(console.error);

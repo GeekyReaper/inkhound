@@ -149,6 +149,11 @@ export const navItemsBottom: INavData[] = [
     name: 'Inkhound'
   },
   {
+    name: 'Jobs',
+    url: '/jobs',
+    iconComponent: { name: 'cil-task' }
+  },
+  {
     name: 'General',
     url: '/settings',
     iconComponent: { name: 'cil-settings' }

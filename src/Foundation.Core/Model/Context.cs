@@ -1,7 +1,8 @@
-using System;
+
 namespace Foundation.Core.Model;
 
 using System;
+using System.Text.Json.Serialization;
 
 
 public enum JobState { INITIALIZING, RUNNING, SUCCESS, ERROR }
@@ -66,8 +67,10 @@ public class JobContext
     public DateTime StartDate { get; } = DateTime.UtcNow;
     public DateTime? EndDate { get; private set; } = null;
 
+    [JsonIgnore]
     public Action<JobContext>? OnUpdated { get; set; } = null;
 
+    [JsonIgnore]
     public ProgressionCallback CallbackHandler { get; }
 
     public JobContext(Guid? guid = null)
