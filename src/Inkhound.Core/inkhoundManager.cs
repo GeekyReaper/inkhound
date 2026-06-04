@@ -561,6 +561,7 @@ public class InkhoundManager : BaseServiceManager
         volume.Status = VolumeStatus.MONITORED;
         volume.CreatedAt = now;
         volume.UpdatedAt = now;
+        volume.CountOfIssues = 0;
         ctx.Volumes.Add(volume);
         await ctx.SaveChangesAsync(ct);
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
@@ -576,6 +577,8 @@ public class InkhoundManager : BaseServiceManager
         }
         if (cvIssues.Count > 0)
         {
+            volume.CountOfIssues = cvIssues.Count;
+            volume.UpdatedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync(ct);
             OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
         }
@@ -693,14 +696,18 @@ public class InkhoundManager : BaseServiceManager
 
                 issue.CbzFilename = archive.Name;
                 issue.Status = IssueStatus.DOWNLOADED;
+                volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED, ct);
+                volume.UpdatedAt = DateTime.UtcNow;
                 await ctx.SaveChangesAsync(ct);
                 OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
             }
         }
         finally
         {
             if (tempDir.Exists)
                 tempDir.Delete(recursive: true);
+
         }
     }
 

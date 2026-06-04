@@ -53,3 +53,9 @@ export interface TraceDefinition {
   jobId: string | null;
   level: ETraceLevel;
 }
+
+export interface UpdatedData {
+  dataType: string;
+  id: string;
+  updatedAt: string;
+}

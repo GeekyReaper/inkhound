@@ -20,6 +20,9 @@ public class InkhoundManagerInitializer(
 
         manager.OnHealthcheck = health =>
             _ = hub.Clients.All.SendAsync("ManagerHealthcheck", health);
+
+        manager.OnDataUpdated = data =>
+            _ = hub.Clients.All.SendAsync("ManagerDataUpdated", data);
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;

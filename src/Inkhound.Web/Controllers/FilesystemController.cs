@@ -52,7 +52,7 @@ public class FilesystemController(InkhoundManager manager) : ControllerBase
 
         try
         {
-            var dirs = await manager.GetDirectories(path);
+            var dirs = await manager.GetDirectoriesAsync(path);
             if (dirs.Count == 0 && !Directory.Exists(path))
                 return NotFound(new { message = $"Directory '{path}' does not exist." });
 
@@ -73,7 +73,7 @@ public class FilesystemController(InkhoundManager manager) : ControllerBase
 
         try
         {
-            var files = await manager.GetFiles(path, filter);
+            var files = await manager.GetFilesAsync(path, filter);
             if (files.Count == 0 && !Directory.Exists(path))
                 return NotFound(new { message = $"Directory '{path}' does not exist." });
 

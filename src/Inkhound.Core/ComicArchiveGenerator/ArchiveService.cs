@@ -374,13 +374,13 @@ public class ArchiveService : BaseService<ArchiveOption>
         return result;
     }
 
-    public async Task<FileInfo> CreateCbzFile(Library library, Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)
+    public async Task<FileInfo> CreateCbzFile(string workingPath, Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)
     {
         progression?.UpdateTotal(filepages.Count + 1);
         var progress = new Progression() { Total = filepages.Count + 1 };
 
-        var cbzPath = GetPath(issue, volume, library);
-        //var cbzPath = Path.Combine(comicInfo.DirectoryName!, cbzName);
+        var filecbzname = GetPath(issue, volume);
+        var cbzPath = Path.Combine(workingPath, filecbzname);
 
         await using var zipStream = File.Create(cbzPath);
         using var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false);
@@ -511,6 +511,17 @@ public class ArchiveService : BaseService<ArchiveOption>
     {
         var tempAbsolute = Path.Combine(WorkingPath, Guid.NewGuid().ToString("N"));
         return Directory.CreateDirectory(tempAbsolute);
+    }
+
+    public DirectoryInfo CreateVolumeDirectory(Volume volume, Library library)
+    {
+        var path = GetPath(volume, library);
+        if (Directory.Exists(path))
+        {
+            SendTrace($"Directory already exists for volume '{volume.Title}' at {path}", new TraceDefinition() { Level = ETraceLevel.WARNING });
+            return new DirectoryInfo(path);
+        }
+        return Directory.CreateDirectory(path);
     }
 
     #endregion

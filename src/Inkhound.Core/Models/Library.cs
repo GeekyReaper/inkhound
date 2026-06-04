@@ -7,4 +7,5 @@ public class Library
     public string Path { get; set; } = string.Empty;
     public int KavitaLibraryId { get; set; } = 0;
     public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }

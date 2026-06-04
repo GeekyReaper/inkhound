@@ -232,6 +232,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
             ids.AddRange(response.Results.Select(i => i.Id));
             all.AddRange(response.Results);
             if (ids.Count >= response.NumberOfTotalResults) break;
+            SendTrace($"Fetched {ids.Count}/{response.NumberOfTotalResults} issues for volume {comicVineVolumeId}", ETraceLevel.INFO);
             offset += response.Results.Count;
         }
         if (detail != ELevelDetail.FULL)
@@ -243,6 +244,7 @@ public partial class ComicVineService : BaseService<ComicVineOptions>
         {
             Debug.WriteLine($"[ComicVine] Fetching issue id={id}");
             var issue = await GetIssueAsync(id, ct);
+            SendTrace($"Fetched issue id={id}", ETraceLevel.INFO);
             Debug.WriteLine($"[ComicVine] Fetching issue id={id} DONE");
             if (issue is not null)
                 all.Add(issue);

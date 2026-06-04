@@ -1,7 +1,7 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { switchMap } from 'rxjs';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { filter, switchMap } from 'rxjs';
 import {
   AlertComponent,
   ButtonDirective,
@@ -17,6 +17,8 @@ import { IconDirective } from '@coreui/icons-angular';
 import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
+import { HubService } from '../../core/services/hub.service';
+import { UpdatedData } from '../../core/models/hub.models';
 
 @Component({
   selector: 'app-volume',
@@ -32,6 +34,7 @@ export class VolumeComponent {
   private route         = inject(ActivatedRoute);
   private volumeService = inject(VolumeService);
   private issueService  = inject(IssueService);
+  private hub           = inject(HubService);
   readonly #destroyRef  = inject(DestroyRef);
 
   volume        = signal<Volume | null>(null);
@@ -60,6 +63,26 @@ export class VolumeComponent {
           this.loading.set(false);
         }
       });
+
+    const dataUpdated$ = toObservable(this.hub.lastDataUpdated).pipe(
+      filter((d): d is UpdatedData => d !== null),
+      takeUntilDestroyed(this.#destroyRef)
+    );
+
+    dataUpdated$.pipe(
+      filter(d => d.dataType.endsWith('Volume') && d.id === this.volume()?.id)
+    ).subscribe(() =>
+      this.volumeService.getById(this.volume()!.id)
+        .pipe(takeUntilDestroyed(this.#destroyRef))
+        .subscribe(vol => this.volume.set(vol))
+    );
+
+    dataUpdated$.pipe(
+      filter(d => d.dataType.endsWith('Issue'))
+    ).subscribe(() => {
+      const vol = this.volume();
+      if (vol) this.loadIssues(vol.id);
+    });
   }
 
   private loadIssues(volumeId: string): void {
@@ -96,14 +119,13 @@ export class VolumeComponent {
     const map: Record<VolumeStatus, string> = {
       MONITORED: 'badge bg-primary',
       COMPLETED: 'badge bg-success',
-      FREEZE:    'badge bg-secondary'
+      PAUSED:    'badge bg-secondary'
     };
     return map[status];
   }
 
   issueStatusBadgeClass(status: IssueStatus): string {
     const map: Record<IssueStatus, string> = {
-      SEEKING:     'badge bg-warning text-dark',
       DOWNLOADING: 'badge bg-info text-dark',
       DOWNLOADED:  'badge bg-success',
       MISSING:     'badge bg-danger'

@@ -91,9 +91,9 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
             return CreatedAtAction(null, new AddedVolumeDto(
                 volume.Id, volume.LibraryId, volume.SourceId, volume.Title, volume.Year));
         }
-        catch (KeyNotFoundException ex)      { return NotFound(new { message = ex.Message }); }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
-                                             { return Conflict(new { message = ex.Message }); }
+        { return Conflict(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 

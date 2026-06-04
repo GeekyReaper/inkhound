@@ -1,21 +1,27 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { switchMap } from 'rxjs';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { filter, switchMap } from 'rxjs';
 import {
   AlertComponent,
+  BadgeComponent,
   ButtonDirective,
   CardBodyComponent,
   CardComponent,
   ColComponent,
   ContainerComponent,
+  ProgressBarComponent,
+  ProgressComponent,
   RowComponent,
-  SpinnerComponent
+  SpinnerComponent,
+  TooltipDirective
 } from '@coreui/angular';
 import { Library, LibraryService } from '../../core/services/library.service';
 import { KavitaService } from '../../core/services/kavita.service';
 import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
+import { HubService } from '../../core/services/hub.service';
+import { UpdatedData } from '../../core/models/hub.models';
 
 @Component({
   selector: 'app-library',
@@ -23,7 +29,8 @@ import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
-    SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink
+    SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink,
+    BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective
   ]
 })
 export class LibraryComponent {
@@ -31,6 +38,7 @@ export class LibraryComponent {
   private libraryService = inject(LibraryService);
   private kavitaService  = inject(KavitaService);
   private volumeService  = inject(VolumeService);
+  private hub            = inject(HubService);
   readonly #destroyRef   = inject(DestroyRef);
 
   library        = signal<Library | null>(null);
@@ -60,6 +68,26 @@ export class LibraryComponent {
           this.loading.set(false);
         }
       });
+
+    const dataUpdated$ = toObservable(this.hub.lastDataUpdated).pipe(
+      filter((d): d is UpdatedData => d !== null),
+      takeUntilDestroyed(this.#destroyRef)
+    );
+
+    dataUpdated$.pipe(
+      filter(d => d.dataType.endsWith('Library') && d.id === this.library()?.id)
+    ).subscribe(() =>
+      this.libraryService.getById(this.library()!.id)
+        .pipe(takeUntilDestroyed(this.#destroyRef))
+        .subscribe(lib => this.library.set(lib))
+    );
+
+    dataUpdated$.pipe(
+      filter(d => d.dataType.endsWith('Volume'))
+    ).subscribe(() => {
+      const lib = this.library();
+      if (lib) this.loadVolumes(lib.id);
+    });
   }
 
   private loadVolumes(libraryId: string): void {
@@ -77,13 +105,23 @@ export class LibraryComponent {
     return this.kavitaService.libraries().find(l => l.id === id)?.name ?? `#${id}`;
   }
 
-  statusBadgeClass(status: VolumeStatus): string {
+  statusBadgeColor(status: VolumeStatus): string {
     const map: Record<VolumeStatus, string> = {
-      MONITORED: 'badge bg-primary',
-      COMPLETED: 'badge bg-success',
-      FREEZE:    'badge bg-secondary'
+      MONITORED: 'primary',
+      COMPLETED: 'success',
+      PAUSED:    'secondary'
     };
     return map[status];
+  }
+
+  progressPercent(volume: Volume): number {
+    if (!volume.countOfIssues) return 0;
+    return Math.round((volume.countOfDownloadedIssues / volume.countOfIssues) * 100);
+  }
+
+  volumeSubtitle(volume: Volume): string {
+    const parts = [volume.year?.toString(), volume.publisher].filter((p): p is string => !!p);
+    return parts.length ? parts.join(' · ') : '—';
   }
 
   synchronize(): void {

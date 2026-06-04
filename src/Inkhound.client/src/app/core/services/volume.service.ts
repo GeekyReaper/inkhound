@@ -19,23 +19,25 @@ export interface VolumeAuthor {
   role: string;
 }
 
-export type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'FREEZE';
+export type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'PAUSED';
 
 export interface Volume {
-  id:          string;
-  libraryId:   string;
-  sourceId:    string;
-  sourceType:  string;
-  title:       string;
-  year:        number | null;
-  description: string | null;
-  publisher:   string | null;
-  status:      VolumeStatus;
-  genres:      string[];
-  authors:     VolumeAuthor[];
-  image:       VolumeImage | null;
-  createdAt:   string;
-  updatedAt:   string;
+  id:                       string;
+  libraryId:                string;
+  sourceId:                 string;
+  sourceType:               string;
+  title:                    string;
+  year:                     number | null;
+  description:              string | null;
+  publisher:                string | null;
+  status:                   VolumeStatus;
+  genres:                   string[];
+  authors:                  VolumeAuthor[];
+  image:                    VolumeImage | null;
+  countOfIssues:            number;
+  countOfDownloadedIssues:  number;
+  createdAt:                string;
+  updatedAt:                string;
 }
 
 export interface VolumeSearchResult {

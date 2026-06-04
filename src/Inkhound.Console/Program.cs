@@ -126,13 +126,13 @@ while (!stop)
                     {
                         Console.Write("WorkingPath : ");
                         var workingpath = Console.ReadLine();
-                        var param = new ArchiveConverterPdfJobParameters() { Issue = InkhoundManager.Map(findissue.Issue), Volume = InkhoundManager.Map(findissue.Volume), SourceFile = importfile, WorkingPath = workingpath };
-                        var archive = manager.GetService<ArchiveService, ArchiveOption>();
-                        var f = await manager.LaunchJobImportArchive(param);
-                        if (f != null)
-                        {
-                            Console.WriteLine($"{f.FullName} - size : {f.Length}");
-                        }
+                        // var param = new ArchiveConverterPdfJobParameters() { Issue = InkhoundManager.Map(findissue.Issue), Volume = InkhoundManager.Map(findissue.Volume), SourceFile = importfile, WorkingPath = workingpath };
+                        // var archive = manager.GetService<ArchiveService, ArchiveOption>();
+                        // var f = await manager.LaunchJobImportArchive(param);
+                        // if (f != null)
+                        // {
+                        //     Console.WriteLine($"{f.FullName} - size : {f.Length}");
+                        // }
 
                     }
 

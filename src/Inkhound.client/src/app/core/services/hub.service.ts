@@ -1,4 +1,6 @@
-import { effect, inject, Injectable, signal } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { distinctUntilChanged } from 'rxjs';
 import * as signalR from '@microsoft/signalr';
 import { JobContext, StateServiceManager, TraceDefinition, UpdatedData } from '../models/hub.models';
 import { AuthService } from './auth.service';
@@ -20,12 +22,10 @@ export class HubService {
   private connection: signalR.HubConnection | null = null;
 
   constructor() {
-    effect(() => {
-      if (this.auth.isAuthenticated()) {
-        this.connect();
-      } else {
-        this.disconnect();
-      }
+    toObservable(this.auth.isAuthenticated).pipe(
+      distinctUntilChanged()
+    ).subscribe(authenticated => {
+      authenticated ? this.connect() : this.disconnect();
     });
   }
 
@@ -81,5 +81,11 @@ export class HubService {
   disconnect(): void {
     this.connection?.stop();
     this.connection = null;
+    this.managerState.set(null);
+    this.currentJob.set(null);
+    this.lastTrace.set(null);
+    this.lastDataUpdated.set(null);
+    this._jobs.set([]);
+    this._jobTraces.set(new Map());
   }
 }

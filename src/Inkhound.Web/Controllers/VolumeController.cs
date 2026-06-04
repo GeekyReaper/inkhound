@@ -61,13 +61,16 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         List<string> Genres,
         List<VolumeAuthor> Authors,
         VolumeImage? Image,
+        int CountOfIssues,
+        int CountOfDownloadedIssues,
         DateTime CreatedAt,
         DateTime UpdatedAt);
 
     private static VolumeDto ToDto(Volume v)
         => new(v.Id, v.LibraryId, v.SourceId, v.SourceType, v.Title, v.Year,
                v.Description, v.Publisher, v.Status, v.Genres, v.Authors,
-               v.Image, v.CreatedAt, v.UpdatedAt);
+               v.Image, v.CountOfIssues, v.CountOfDownloadedIssues,
+               v.CreatedAt, v.UpdatedAt);
 
     // GET /api/volumes/{volumeId}
     [HttpGet("/api/volumes/{volumeId:guid}")]

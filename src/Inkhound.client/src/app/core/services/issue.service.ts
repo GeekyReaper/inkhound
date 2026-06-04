@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { VolumeAuthor, VolumeImage, PageResult } from './volume.service';
 
-export type IssueStatus = 'SEEKING' | 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
+export type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 
 export interface ComicVineIssue {
   id:            string;
