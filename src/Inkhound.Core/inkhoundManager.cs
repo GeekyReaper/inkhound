@@ -151,6 +151,7 @@ public class InkhoundManager : BaseServiceManager
         };
         ctx.Libraries.Add(library);
         await ctx.SaveChangesAsync();
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(library.Id));
         return library;
     }
 
@@ -164,6 +165,7 @@ public class InkhoundManager : BaseServiceManager
         library.Path = path;
         library.KavitaLibraryId = kavitaLibraryId;
         await ctx.SaveChangesAsync();
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(library.Id));
         return library;
     }
 
@@ -175,6 +177,7 @@ public class InkhoundManager : BaseServiceManager
 
         ctx.Libraries.Remove(library);
         await ctx.SaveChangesAsync();
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(id));
         return true;
     }
     #endregion
@@ -315,6 +318,7 @@ public class InkhoundManager : BaseServiceManager
         var libraryDir = new DirectoryInfo(library.Path);
         var directories = await ArchiveService.GetDirectoriesAsync(library.Path);
 
+        JobSendTrace("[Sync] Found " + directories.Count + " directories in library path");
 
         job.CallbackHandler.UpdateTotal(directories.Count);
 
@@ -322,12 +326,15 @@ public class InkhoundManager : BaseServiceManager
             .Where(v => v.LibraryId == parameters.LibraryId)
             .ToDictionaryAsync(v => v.SourceId, v => v);
 
+        JobSendTrace($"[Sync] Found {existingVolumes.Count} existing volumes in database for this library");
+
         foreach (var dir in directories)
         {
 
             Volume volume;
             if (existingVolumes.Values.Any(v => ArchiveService.GetPath(v, library) == dir.FullName))
             {
+                JobSendTrace($"[Sync] Directory {dir.FullName} is already matched to an existing volume, skipping");
                 // This directory is already matched to an existing volume, skip it
                 volume = existingVolumes.Values.First(v => ArchiveService.GetPath(v, library) == dir.FullName);
                 job.Progress.Increment(true);
@@ -337,12 +344,11 @@ public class InkhoundManager : BaseServiceManager
             else
             {
                 // Try to find a ComicVine volume match for this directory name
+                JobSendTrace($"[Sync] Searching for ComicVine volume for directory: {dir.Name}");
                 var cvVolume = await comicVine.AutomaticSearchVolume(dir.Name, parameters.CountryCode, job.CallbackHandler);
                 if (cvVolume is null)
                 {
-                    var trace = new TraceDefinition { Level = ETraceLevel.DEBUG };
-                    trace.Message.Add($"[Sync] No ComicVine match for directory: {dir.Name}");
-                    GlobalTraceHandler(trace);
+                    JobSendTrace($"[Sync] No ComicVine match for directory: {dir.Name}", ETraceLevel.DEBUG);
                     job.Progress.Increment(false);
                     job.CallbackHandler.Callback(job.Progress);
                     continue;
@@ -350,12 +356,13 @@ public class InkhoundManager : BaseServiceManager
 
 
                 var sourceId = cvVolume.Id.ToString();
-
+                JobSendTrace($"[Sync] Found ComicVine match for directory {dir.Name} : {cvVolume.Name} (sourceId={sourceId})");
                 if (existingVolumes.TryGetValue(sourceId, out var existingVolume))
                 {
                     volume = existingVolume;
                     // This ComicVine volume is already in the database, but with the wrong path
                     dir.MoveTo(ArchiveService.GetPath(volume, library));
+                    JobSendTrace($"[Sync] Updated path for existing volume {volume.Title} to {dir.FullName}");
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
 
@@ -368,8 +375,10 @@ public class InkhoundManager : BaseServiceManager
                     volume.LibraryId = parameters.LibraryId;
                     volume.Status = VolumeStatus.PAUSED;
                     ctx.Volumes.Add(volume);
+                    JobSendTrace($"[Sync] Added new volume {volume.Title} to database with path {dir.FullName}");
 
                     // ADD issue in MISSING status for all issues in this volume, will be updated to DOWNLOADED if a matching CBZ file is found in step 2
+                    JobSendTrace($"[Sync] Adding issues for volume {volume.Title}");
                     var cvIssuesFull = await comicVine.GetAllIssuesForVolumeAsync(cvVolume.Id, ELevelDetail.FULL);
                     List<VolumeAuthor> allIssueAuthors = [];
                     foreach (var cvIssue in cvIssuesFull)
@@ -391,19 +400,23 @@ public class InkhoundManager : BaseServiceManager
                             ? new VolumeAuthor(a.Name, role ?? string.Empty)
                             : a)
                         .ToList();
-
+                    JobSendTrace($"[Sync] Added {cvIssuesFull.Count} issues for volume {volume.Title} to database");
                     await ctx.SaveChangesAsync(); // Save here to get the Volume ID for issue linking
+                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
 
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
                 }
             }
 
+
+
             // Finish matching this volume to the directory (in case it was just created or had wrong path)
 
 
             // STEP 2. Find CBZ files in volume directory and match to ComicVine issues
             var cbzFiles = await ArchiveService.GetFilesAsync(dir.FullName, "*.cbz");
+            JobSendTrace($"[Sync] Found {cbzFiles.Count} CBZ files in directory {dir.FullName} for volume {volume.Title}");
             job.CallbackHandler.UpdateTotal(cbzFiles.Count);
             int.TryParse(volume.SourceId, out var sourceVolumeId);
 
@@ -411,11 +424,13 @@ public class InkhoundManager : BaseServiceManager
 
             var localIssues = await ctx.Issues
                 .Where(i => i.VolumeId == volume.Id).ToListAsync();
+            JobSendTrace($"[Sync] Found {localIssues.Count} issues in database for volume {volume.Title}");
 
             foreach (var cbzFile in cbzFiles)
             {
                 if (localIssues.Any(v => v.CbzFilename == cbzFile.Name))
                 {
+                    JobSendTrace($"[Sync] CBZ file {cbzFile.Name} is already matched to an existing issue, skipping");
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
                     continue; // This CBZ file is already matched to an existing issue, skip it
@@ -426,12 +441,14 @@ public class InkhoundManager : BaseServiceManager
                 var issueNum = ComicVineService.ParseIssueNumber(cbzFile.Name);
                 if (issueNum is null)
                 {
+                    JobSendTrace($"[Sync] Unable to parse issue number from CBZ file {cbzFile.Name}", ETraceLevel.WARNING);
                     job.Progress.Increment(false);
                     job.CallbackHandler.Callback(job.Progress);
                     continue;
                 }
                 if (!localIssues.Any(v => v.IssueNumber == issueNum))
                 {
+                    JobSendTrace($"[Sync] No issue with number {issueNum} found in database for volume {volume.Title}, skipping CBZ file {cbzFile.Name}", ETraceLevel.WARNING);
                     job.Progress.Increment(false);
                     job.CallbackHandler.Callback(job.Progress);
                     continue; // No issue with this number in the database, skip it
@@ -441,9 +458,10 @@ public class InkhoundManager : BaseServiceManager
                 var issuenumberfilename = ArchiveService.GetPath(existingIssue, volume);
                 if (existingIssue.Status != IssueStatus.DOWNLOADED)
                 { // This issue was previously matched without a file, so just update the filename and path
-
+                    JobSendTrace($"[Sync] Matching CBZ file {cbzFile.Name} to issue {existingIssue.Title} (issue number {existingIssue.IssueNumber})");
                     ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
                     await ctx.SaveChangesAsync();
+                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(existingIssue.Id));
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
                     continue;
@@ -451,6 +469,7 @@ public class InkhoundManager : BaseServiceManager
                 var issueExistFile = new FileInfo(ArchiveService.GetPath(existingIssue, volume, library));
                 if (issueExistFile.Exists)
                 {
+                    JobSendTrace($"[Sync] Existing file found for issue {existingIssue.Title} (issue number {existingIssue.IssueNumber})");
                     job.Progress.Increment(true);
                     job.CallbackHandler.Callback(job.Progress);
                     if (issueExistFile.Name != issuenumberfilename || issueExistFile.Length < cbzFile.Length)
@@ -458,6 +477,7 @@ public class InkhoundManager : BaseServiceManager
                         issueExistFile.Delete();
                         ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
                         await ctx.SaveChangesAsync();
+                        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(existingIssue.Id));
                         job.Progress.Increment(true);
                         job.CallbackHandler.Callback(job.Progress);
 
@@ -466,6 +486,7 @@ public class InkhoundManager : BaseServiceManager
                     // The existing file is correct, just update the path if needed and delete the new file
                     if (cbzFile.Name != issuenumberfilename)
                     {
+                        JobSendTrace($"[Sync] Updating path for existing issue {existingIssue.Title} to match CBZ file {cbzFile.Name}");
                         cbzFile.Delete();
                     }
 
@@ -475,8 +496,10 @@ public class InkhoundManager : BaseServiceManager
 
                 }
 
+                JobSendTrace($"[Sync] Attaching CBZ file {cbzFile.Name} to issue {existingIssue.Title} (issue number {existingIssue.IssueNumber})");
                 ArchiveService.AttachFileToIssue(cbzFile, existingIssue, volume, library);
                 await ctx.SaveChangesAsync();
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(existingIssue.Id));
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
 
@@ -484,11 +507,22 @@ public class InkhoundManager : BaseServiceManager
 
             }
 
+
+            volume.UpdatedAt = DateTime.UtcNow;
+            volume.CountOfIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id);
+            volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED);
+            volume.Status = volume.CountOfIssues == volume.CountOfDownloadedIssues ? VolumeStatus.COMPLETED : VolumeStatus.MONITORED;
+
             await ctx.SaveChangesAsync();
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+
+
         }
 
         library.UpdatedAt = DateTime.UtcNow;
+        JobSendTrace($"[Sync] Synchronization complete for library {library.Name}");
         ctx.SaveChanges();
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(library.Id));
 
         EndJob(job.Progress.Error < directories.Count);
         return library;
@@ -529,6 +563,7 @@ public class InkhoundManager : BaseServiceManager
         volume.UpdatedAt = now;
         ctx.Volumes.Add(volume);
         await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
 
         var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
         foreach (var cvIssue in cvIssues)
@@ -540,7 +575,10 @@ public class InkhoundManager : BaseServiceManager
             ctx.Issues.Add(issue);
         }
         if (cvIssues.Count > 0)
+        {
             await ctx.SaveChangesAsync(ct);
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+        }
 
         return volume;
     }
@@ -560,34 +598,42 @@ public class InkhoundManager : BaseServiceManager
         var job = StartJob($"Transform {parameters.SourceFile} to archive", parameters);
         job.SetState(JobState.RUNNING);
 
-        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
-        if (sourcefile == null)
+        try
         {
+            var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
+            if (sourcefile == null)
+            {
+                EndJob(false);
+                return null;
+            }
+
+            // STEP 1 : Get pages from file
+            var pageFiles = await archiveService.ConvertToImages(sourcefile, parameters.WorkingPath, job.CallbackHandler);
+            if (pageFiles == null)
+            {
+                EndJob(false);
+                return null;
+            }
+
+            // STEP 2 : Add ComicsInfo
+            var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
+
+            // STEP 3 : Generage CBZ
+            var archive = await archiveService.CreateCbzFile(parameters.WorkingPath, parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
+
+            // STEP 4 : Delete files
+            comicsInfo.Delete();
+            pageFiles.ForEach(c => c.Delete());
+
+            EndJob(job.Progress.Error < job.Progress.Total);
+            return archive;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
             return null;
         }
-
-        // STEP 1 : Get pages from file
-        var pageFiles = await archiveService.ConvertToImages(sourcefile, parameters.WorkingPath, job.CallbackHandler);
-        if (pageFiles == null)
-        {
-            EndJob(false);
-            return null;
-        }
-
-        // STEP 2 : Add ComicsInfo
-        var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
-
-        // STEP 3 : Generage CBZ
-        var archive = await archiveService.CreateCbzFile(parameters.Library, parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
-
-        // STEP 4 : Delete files
-        comicsInfo.Delete();
-        pageFiles.ForEach(c => c.Delete());
-
-        EndJob(job.Progress.Error < job.Progress.Total);
-
-        return archive;
 
 
 
@@ -632,6 +678,7 @@ public class InkhoundManager : BaseServiceManager
                 {
                     SourceFile = file.FullName,
                     WorkingPath = subPath,
+                    Library = library,
                     Volume = volume,
                     Issue = issue
                 };
@@ -639,14 +686,15 @@ public class InkhoundManager : BaseServiceManager
                 var archive = await LaunchJobImportArchive(parameters);
                 if (archive is null) continue;
 
-                var volumeDir = new DirectoryInfo(ArchiveService.GetPath(volume, library));
-                volumeDir.Create();
+                var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
+
                 var dest = Path.Combine(volumeDir.FullName, archive.Name);
                 File.Move(archive.FullName, dest, overwrite: true);
 
                 issue.CbzFilename = archive.Name;
                 issue.Status = IssueStatus.DOWNLOADED;
                 await ctx.SaveChangesAsync(ct);
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
             }
         }
         finally
