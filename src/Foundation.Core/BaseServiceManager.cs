@@ -120,6 +120,14 @@ public abstract class BaseServiceManager
         return job;
     }
 
+    public JobContext StartJob(string title)
+    {
+        var job = new JobContext() { Title = title, OnUpdated = this.OnJobUpdated };
+        OnJobUpdated?.Invoke(job);
+        _currentJob.Value = job;
+        return job;
+    }
+
     public void JobSendTrace(string message, ETraceLevel level = ETraceLevel.INFO)
     {
         var trace = new TraceDefinition() { JobId = _currentJob.Value?.JobId ?? Guid.Empty, ServiceName = "InkHound", Level = level };

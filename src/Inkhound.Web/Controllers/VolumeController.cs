@@ -94,6 +94,18 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return Accepted(new { message = $"Import started for volume {volumeId}." });
     }
 
+    // DELETE /api/volumes/{volumeId}
+    [HttpDelete("/api/volumes/{volumeId:guid}")]
+    public async Task<IActionResult> Delete(Guid volumeId)
+    {
+        try
+        {
+            var deleted = await manager.DeleteVolumeAsync(volumeId);
+            return deleted ? NoContent() : NotFound();
+        }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
     // GET /api/libraries/{libraryId}/volumes
     [HttpGet]
     public async Task<IActionResult> GetByLibrary(Guid libraryId)

@@ -95,4 +95,8 @@ export class VolumeService {
       { comicVineVolumeId: Number(comicVineVolumeId) }
     );
   }
+
+  delete(id: string) {
+    return this.http.delete<void>(`/api/volumes/${id}`);
+  }
 }

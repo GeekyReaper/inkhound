@@ -102,8 +102,12 @@
                 <div class="mt-auto">
                   <div [cTooltip]="volume.countOfDownloadedIssues + ' / ' + volume.countOfIssues"
                        cTooltipPlacement="top">
-                    <c-progress thin>
-                      <c-progress-bar [value]="progressPercent(volume)" color="success"></c-progress-bar>
+                    <c-progress style="height: 18px;">
+                      <c-progress-bar [value]="progressPercent(volume)" color="success">
+                        @if (progressPercent(volume) > 0) {
+                          {{ progressPercent(volume) }}%
+                        }
+                      </c-progress-bar>
                     </c-progress>
                   </div>
                 </div>

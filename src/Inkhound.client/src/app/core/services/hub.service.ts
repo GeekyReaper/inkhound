@@ -75,7 +75,14 @@ export class HubService {
       this.lastDataUpdated.set(data);
     });
 
-    this.connection.start().catch(console.error);
+    this.connection.start().catch(err => {
+      console.error('[Hub] Connection failed:', err);
+      this.connection = null;
+    });
+  }
+
+  ensureConnected(): void {
+    if (this.auth.isAuthenticated()) this.connect();
   }
 
   disconnect(): void {

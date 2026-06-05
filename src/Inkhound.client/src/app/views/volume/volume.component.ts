@@ -1,15 +1,21 @@
 import { Component, DestroyRef, inject, signal } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, switchMap } from 'rxjs';
 import {
   AlertComponent,
+  ButtonCloseDirective,
   ButtonDirective,
   CardBodyComponent,
   CardComponent,
   CardFooterComponent,
   ColComponent,
   ContainerComponent,
+  ModalBodyComponent,
+  ModalComponent,
+  ModalFooterComponent,
+  ModalHeaderComponent,
+  ModalTitleDirective,
   RowComponent,
   SpinnerComponent
 } from '@coreui/angular';
@@ -27,11 +33,14 @@ import { UpdatedData } from '../../core/models/hub.models';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent, CardFooterComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
-    SelectPathComponent
+    SelectPathComponent,
+    ModalComponent, ModalHeaderComponent, ModalBodyComponent,
+    ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective
   ]
 })
 export class VolumeComponent {
   private route         = inject(ActivatedRoute);
+  private router        = inject(Router);
   private volumeService = inject(VolumeService);
   private issueService  = inject(IssueService);
   private hub           = inject(HubService);
@@ -45,6 +54,10 @@ export class VolumeComponent {
   importVisible = signal(false);
   importing     = signal(false);
   importSuccess = signal(false);
+
+  confirmDeleteVisible = signal(false);
+  deleting             = signal(false);
+  deleteError          = signal<string | null>(null);
 
   constructor() {
     this.route.params
@@ -106,12 +119,39 @@ export class VolumeComponent {
     this.importing.set(true);
     this.importSuccess.set(false);
     this.error.set(null);
-    
+
     this.volumeService.importFromDirectory(volumeId, path)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  () => { this.importing.set(false); this.importSuccess.set(true); },
         error: err => { this.error.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
+      });
+  }
+
+  requestDelete(): void {
+    this.deleteError.set(null);
+    this.confirmDeleteVisible.set(true);
+  }
+
+  confirmDelete(): void {
+    const vol = this.volume();
+    if (!vol) return;
+
+    this.deleting.set(true);
+    this.deleteError.set(null);
+
+    this.volumeService.delete(vol.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next: () => {
+          this.deleting.set(false);
+          this.confirmDeleteVisible.set(false);
+          this.router.navigate(['/library', vol.libraryId]);
+        },
+        error: err => {
+          this.deleteError.set(err?.error?.message ?? 'Failed to delete volume.');
+          this.deleting.set(false);
+        }
       });
   }
 

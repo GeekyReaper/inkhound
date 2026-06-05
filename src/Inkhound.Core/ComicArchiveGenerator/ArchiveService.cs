@@ -103,7 +103,13 @@ public class ArchiveService : BaseService<ArchiveOption>
         }
 
         var fullDestPath = Path.Combine(Options.WorkingPath, destinationPath);
-        Directory.CreateDirectory(fullDestPath);
+        var workingtempdir = Directory.CreateDirectory(fullDestPath);
+
+        // Copy sourcefile to working directory to avoid locking issues
+        var sourcefilecopyPath = Path.Combine(workingtempdir.FullName, source.Name);
+        SendTrace($"Copying source file to working directory: {sourcefilecopyPath}");
+        var workingSource = source.CopyTo(sourcefilecopyPath, overwrite: true);
+        SendTrace($"Copying done");
 
         var imagePaths = new List<FileInfo>();
 
@@ -136,6 +142,8 @@ public class ArchiveService : BaseService<ArchiveOption>
             progression?.Callback(internalprogress);
 
         }
+        SendTrace($"Deletion of working source file: {workingSource.FullName}");
+        workingSource.Delete();
 
         return imagePaths;
     }

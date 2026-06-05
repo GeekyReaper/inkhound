@@ -180,6 +180,19 @@ public class InkhoundManager : BaseServiceManager
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(id));
         return true;
     }
+
+    public async Task<bool> DeleteVolumeAsync(Guid id)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(id);
+        if (volume is null) return false;
+
+        ctx.Issues.RemoveRange(ctx.Issues.Where(i => i.VolumeId == id));
+        ctx.Volumes.Remove(volume);
+        await ctx.SaveChangesAsync();
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(id));
+        return true;
+    }
     #endregion
 
     #region Volume CRUD
@@ -314,6 +327,9 @@ public class InkhoundManager : BaseServiceManager
             return null;
         }
 
+        try
+        {
+
         // STEP 1. Scan directories in library path and match with ComicVine volumes
         var libraryDir = new DirectoryInfo(library.Path);
         var directories = await ArchiveService.GetDirectoriesAsync(library.Path);
@@ -380,7 +396,6 @@ public class InkhoundManager : BaseServiceManager
                     // ADD issue in MISSING status for all issues in this volume, will be updated to DOWNLOADED if a matching CBZ file is found in step 2
                     JobSendTrace($"[Sync] Adding issues for volume {volume.Title}");
                     var cvIssuesFull = await comicVine.GetAllIssuesForVolumeAsync(cvVolume.Id, ELevelDetail.FULL);
-                    List<VolumeAuthor> allIssueAuthors = [];
                     foreach (var cvIssue in cvIssuesFull)
                     {
                         var issue = Mapper.Map(cvIssue);
@@ -388,18 +403,8 @@ public class InkhoundManager : BaseServiceManager
                         issue.VolumeId = volume.Id;
                         issue.Status = IssueStatus.MISSING;
                         ctx.Issues.Add(issue);
-                        allIssueAuthors.AddRange(issue.Authors);
                     }
 
-                    var roleByName = allIssueAuthors
-                        .GroupBy(a => a.Name)
-                        .ToDictionary(g => g.Key, g => g.First().Role);
-
-                    volume.Authors = volume.Authors
-                        .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
-                            ? new VolumeAuthor(a.Name, role ?? string.Empty)
-                            : a)
-                        .ToList();
                     JobSendTrace($"[Sync] Added {cvIssuesFull.Count} issues for volume {volume.Title} to database");
                     await ctx.SaveChangesAsync(); // Save here to get the Volume ID for issue linking
                     OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
@@ -507,6 +512,28 @@ public class InkhoundManager : BaseServiceManager
 
             }
 
+            // STEP 3. Update volume status and counts
+            var volumeIssues = await ctx.Issues
+                .Where(i => i.VolumeId == volume.Id).ToListAsync();
+
+            List<VolumeAuthor> allIssueAuthors = [];
+            foreach (var cvIssue in volumeIssues)
+            {
+                allIssueAuthors.AddRange(cvIssue.Authors);
+            }
+
+            var roleByName = allIssueAuthors
+                .GroupBy(a => a.Name)
+                .ToDictionary(g => g.Key, g => g.First().Role);
+
+            volume.Authors = volume.Authors
+                .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                    ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                    : a)
+                .ToList();
+            volume.CountOfIssues = localIssues.Count;
+            volume.CountOfDownloadedIssues = localIssues.Count(i => i.Status == IssueStatus.DOWNLOADED);
+
 
             volume.UpdatedAt = DateTime.UtcNow;
             volume.CountOfIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id);
@@ -526,6 +553,13 @@ public class InkhoundManager : BaseServiceManager
 
         EndJob(job.Progress.Error < directories.Count);
         return library;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Sync] Unhandled error during synchronization: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+            return library;
+        }
     }
 
 
@@ -567,16 +601,32 @@ public class InkhoundManager : BaseServiceManager
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
 
         var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
+
+        List<VolumeAuthor> allIssueAuthors = [];
+
         foreach (var cvIssue in cvIssues)
         {
             var issue = Mapper.Map(cvIssue);
             issue.Id = Guid.NewGuid();
             issue.Status = IssueStatus.MISSING;
             issue.VolumeId = volume.Id;
+            allIssueAuthors.AddRange(issue.Authors);
             ctx.Issues.Add(issue);
         }
         if (cvIssues.Count > 0)
         {
+            var roleByName = allIssueAuthors
+                        .GroupBy(a => a.Name)
+                        .ToDictionary(g => g.Key, g => g.First().Role);
+
+            volume.Authors = volume.Authors
+                .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                    ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                    : a)
+                .ToList();
+
+
+
             volume.CountOfIssues = cvIssues.Count;
             volume.UpdatedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync(ct);
@@ -584,6 +634,101 @@ public class InkhoundManager : BaseServiceManager
         }
 
         return volume;
+    }
+
+    public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, bool overrideExisting = false, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct)
+            ?? throw new KeyNotFoundException($"Volume {volumeId} not found.");
+        var library = await ctx.Libraries.FindAsync([volume.LibraryId], ct)
+            ?? throw new KeyNotFoundException($"Library {volume.LibraryId} not found.");
+        var issues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
+
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        if (archiveService.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("ArchiveService is not available");
+
+        var job = StartJob($"Import {importDirectory} to {volume.Title}");
+        job.SetState(JobState.RUNNING);
+
+        var tempDir = archiveService.GenerateTempDirectory();
+        JobSendTrace($"Created temporary directory {tempDir.FullName} for import processing", ETraceLevel.INFO);
+        try
+        {
+            var files = _archiveExtensions
+                .SelectMany(ext => Directory.GetFiles(importDirectory, ext))
+                .Select(f => new FileInfo(f))
+                .OrderBy(f => f.Name)
+                .ToList();
+
+            job.AddTotal(files.Count);
+            JobSendTrace($"Found {files.Count} archive files in import directory {importDirectory}", ETraceLevel.INFO);
+
+            foreach (var file in files)
+            {
+                JobSendTrace($"Processing file {file.Name}", ETraceLevel.INFO);
+                var issueNumber = ComicVineService.ParseIssueNumber(file.Name);
+                if (issueNumber is null) continue;
+
+                var issue = issues.FirstOrDefault(i => i.IssueNumber == issueNumber);
+                if (issue is null) continue;
+
+                if (issue.Status == IssueStatus.DOWNLOADED && !overrideExisting)
+                {
+                    JobSendTrace($"Skipping {file.Name} (already downloaded)", ETraceLevel.INFO);
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue; // Skip already downloaded issues if not overriding
+                }
+                var subPath = Path.Combine(tempDir.FullName, issueNumber.Value.ToString("D3"));
+                var parameters = new ArchiveConverterPdfJobParameters
+                {
+                    SourceFile = file.FullName,
+                    WorkingPath = subPath,
+                    Library = library,
+                    Volume = volume,
+                    Issue = issue
+                };
+                JobSendTrace($"Launching import job for file {file.Name} to issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
+                var archive = await LaunchJobImportArchive(parameters);
+                JobSendTrace($"Import job completed for file {file.Name} with result: {(archive != null ? "Success" : "Failure")}", ETraceLevel.INFO);
+                if (archive is null) continue;
+
+                var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
+
+                var dest = Path.Combine(volumeDir.FullName, archive.Name);
+                JobSendTrace($"Moving archive file {archive.FullName} to final destination {dest}", ETraceLevel.INFO);
+                File.Copy(archive.FullName, dest, overwrite: true);
+                JobSendTrace($"Moving Done", ETraceLevel.INFO);
+
+                issue.CbzFilename = archive.Name;
+                issue.FileSizeBytes = (int)archive.Length;
+                issue.Status = IssueStatus.DOWNLOADED;
+                volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED, ct);
+                volume.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync(ct);
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+                JobSendTrace($"Successfully imported file {file.Name} as issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+            }
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+            return;
+        }
+
+        if (tempDir.Exists)
+            tempDir.Delete(recursive: true);
+        JobSendTrace($"Import process completed for directory {importDirectory}", ETraceLevel.INFO);
+        EndJob(true);
+
+
     }
 
     #endregion
@@ -598,18 +743,17 @@ public class InkhoundManager : BaseServiceManager
             throw new InvalidOperationException("ArchiveService is not available");
         }
 
-        var job = StartJob($"Transform {parameters.SourceFile} to archive", parameters);
+        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
+        if (sourcefile == null)
+        {
+            return null;
+        }
+
+        var job = StartJob($"Transform {sourcefile.Name} to archive", parameters);
         job.SetState(JobState.RUNNING);
 
         try
         {
-            var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
-            if (sourcefile == null)
-            {
-                EndJob(false);
-                return null;
-            }
-
             // STEP 1 : Get pages from file
             var pageFiles = await archiveService.ConvertToImages(sourcefile, parameters.WorkingPath, job.CallbackHandler);
             if (pageFiles == null)
@@ -629,6 +773,7 @@ public class InkhoundManager : BaseServiceManager
             pageFiles.ForEach(c => c.Delete());
 
             EndJob(job.Progress.Error < job.Progress.Total);
+
             return archive;
         }
         catch (Exception ex)
@@ -644,72 +789,6 @@ public class InkhoundManager : BaseServiceManager
 
     private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];
 
-    public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, CancellationToken ct = default)
-    {
-        var ctx = GetDb();
-
-        var volume = await ctx.Volumes.FindAsync([volumeId], ct)
-            ?? throw new KeyNotFoundException($"Volume {volumeId} not found.");
-        var library = await ctx.Libraries.FindAsync([volume.LibraryId], ct)
-            ?? throw new KeyNotFoundException($"Library {volume.LibraryId} not found.");
-        var issues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
-
-        var archiveService = GetService<ArchiveService, ArchiveOption>();
-        if (archiveService.CurrentState.State != EState.OK)
-            throw new InvalidOperationException("ArchiveService is not available");
-
-        var tempDir = archiveService.GenerateTempDirectory();
-
-        try
-        {
-            var files = _archiveExtensions
-                .SelectMany(ext => Directory.GetFiles(importDirectory, ext))
-                .Select(f => new FileInfo(f))
-                .OrderBy(f => f.Name)
-                .ToList();
-
-            foreach (var file in files)
-            {
-                var issueNumber = ComicVineService.ParseIssueNumber(file.Name);
-                if (issueNumber is null) continue;
-
-                var issue = issues.FirstOrDefault(i => i.IssueNumber == issueNumber);
-                if (issue is null) continue;
-
-                var subPath = Path.Combine(tempDir.FullName, issueNumber.Value.ToString("D3"));
-                var parameters = new ArchiveConverterPdfJobParameters
-                {
-                    SourceFile = file.FullName,
-                    WorkingPath = subPath,
-                    Library = library,
-                    Volume = volume,
-                    Issue = issue
-                };
-
-                var archive = await LaunchJobImportArchive(parameters);
-                if (archive is null) continue;
-
-                var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
-
-                var dest = Path.Combine(volumeDir.FullName, archive.Name);
-                File.Move(archive.FullName, dest, overwrite: true);
-
-                issue.CbzFilename = archive.Name;
-                issue.Status = IssueStatus.DOWNLOADED;
-                volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED, ct);
-                volume.UpdatedAt = DateTime.UtcNow;
-                await ctx.SaveChangesAsync(ct);
-                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
-            }
-        }
-        finally
-        {
-            if (tempDir.Exists)
-                tempDir.Delete(recursive: true);
-
-        }
-    }
 
 
     #endregion

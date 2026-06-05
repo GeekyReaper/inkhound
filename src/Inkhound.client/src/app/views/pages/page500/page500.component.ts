@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { EMPTY, Subscription, interval } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { ColComponent, ContainerComponent, RowComponent, SpinnerComponent } from '@coreui/angular';
+import { HubService } from '../../../core/services/hub.service';
 
 @Component({
   selector: 'app-page500',
@@ -13,6 +14,7 @@ import { ColComponent, ContainerComponent, RowComponent, SpinnerComponent } from
 export class Page500Component implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private router = inject(Router);
+  private hub = inject(HubService);
   private retrySubscription?: Subscription;
 
   ngOnInit() {
@@ -27,6 +29,7 @@ export class Page500Component implements OnInit, OnDestroy {
         })
       ))
     ).subscribe(() => {
+      this.hub.ensureConnected();
       this.router.navigate(['/dashboard']);
     });
   }
