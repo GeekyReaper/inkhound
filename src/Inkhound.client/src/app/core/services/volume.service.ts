@@ -64,6 +64,25 @@ export interface PageResult<T> {
   hasPrev:    boolean;
 }
 
+export interface ManualIssueRequest {
+  issueNumber:  number;
+  title:        string | null;
+  year:         number | null;
+  description:  string | null;
+  imageUrl:     string | null;
+}
+
+export interface AddVolumeManuallyRequest {
+  title:       string;
+  year:        number | null;
+  publisher:   string | null;
+  description: string | null;
+  imageUrl:    string | null;
+  authors:     VolumeAuthor[];
+  genres:      string[];
+  issues:      ManualIssueRequest[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class VolumeService {
   private http = inject(HttpClient);
@@ -93,6 +112,13 @@ export class VolumeService {
     return this.http.post<{ id: string }>(
       `/api/libraries/${libraryId}/volumes`,
       { comicVineVolumeId: Number(comicVineVolumeId) }
+    );
+  }
+
+  addManually(libraryId: string, request: AddVolumeManuallyRequest) {
+    return this.http.post<{ id: string }>(
+      `/api/libraries/${libraryId}/volumes/manual`,
+      request
     );
   }
 

@@ -8,6 +8,7 @@ public class ArchiveOption : IOptionList
 {
     public string WorkingPath { get; set; } = "data/working";
     public string ImportPath { get; set; } = "data/import";
+    public string ImagesPath { get; set; } = "data/images";
 
     public List<OptionDefinition> GetOptions()
     {
@@ -27,6 +28,13 @@ public class ArchiveOption : IOptionList
                 Description = "The path where the import files will be stored.",
                 ValueType = EValueType.STRING,
                 DefaultValue = "data/import"
+            },
+            new OptionDefinition
+            {
+                Name = nameof(ImagesPath),
+                Description = "The path where uploaded cover images will be stored.",
+                ValueType = EValueType.STRING,
+                DefaultValue = "data/images"
             }
         };
     }
@@ -43,6 +51,11 @@ public class ArchiveOption : IOptionList
         if (ImportPath == null)
         {
             errors.Add("Import path is null.");
+        }
+
+        if (ImagesPath == null)
+        {
+            errors.Add("Images path is null.");
         }
 
         return errors.Count == 0;
@@ -64,6 +77,10 @@ public class ArchiveOption : IOptionList
                 else if (option.Name == nameof(ImportPath))
                 {
                     ImportPath = option.Value;
+                }
+                else if (option.Name == nameof(ImagesPath))
+                {
+                    ImagesPath = option.Value;
                 }
             }
             errors.AddRange(optionErrors);

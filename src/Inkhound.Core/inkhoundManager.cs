@@ -636,6 +636,90 @@ public class InkhoundManager : BaseServiceManager
         return volume;
     }
 
+    public async Task<string> UploadImageAsync(Stream content, string extension, CancellationToken ct = default)
+    {
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var dir = archiveService.ImagesPath;
+        Directory.CreateDirectory(dir);
+        var filename = $"{Guid.NewGuid()}{extension}";
+        var path = Path.Combine(dir, filename);
+        await using var fs = File.Create(path);
+        await content.CopyToAsync(fs, ct);
+        return $"/images/{filename}";
+    }
+
+    public async Task<Volume> AddVolumeManuallyAsync(
+        Guid libraryId,
+        string title,
+        int? year,
+        string? publisher,
+        string? description,
+        string? imageUrl,
+        List<VolumeAuthor> authors,
+        List<string> genres,
+        List<(int Number, string? Title, int? Year, string? Description, string? ImageUrl)> issues,
+        CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        _ = await ctx.Libraries.FindAsync([libraryId], ct)
+            ?? throw new KeyNotFoundException($"Library {libraryId} not found.");
+
+        var now = DateTime.UtcNow;
+
+        VolumeImage? volumeImage = null;
+        if (!string.IsNullOrEmpty(imageUrl))
+            volumeImage = new VolumeImage(imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, null);
+
+        var volume = new Volume
+        {
+            Id = Guid.NewGuid(),
+            LibraryId = libraryId,
+            SourceId = Guid.NewGuid().ToString(),
+            SourceType = "manual",
+            Title = title,
+            Year = year,
+            Publisher = publisher,
+            Description = description,
+            Image = volumeImage,
+            Authors = authors,
+            Genres = genres,
+            Status = VolumeStatus.MONITORED,
+            CreatedAt = now,
+            UpdatedAt = now,
+            DateAdded = now,
+            CountOfIssues = issues.Count
+        };
+
+        ctx.Volumes.Add(volume);
+
+        foreach (var issueData in issues)
+        {
+            VolumeImage? issueImage = null;
+            if (!string.IsNullOrEmpty(issueData.ImageUrl))
+                issueImage = new VolumeImage(issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, issueData.ImageUrl, null);
+
+            ctx.Issues.Add(new Issue
+            {
+                Id = Guid.NewGuid(),
+                VolumeId = volume.Id,
+                ComicVineId = Guid.NewGuid().ToString(),
+                IssueNumber = issueData.Number,
+                Title = issueData.Title,
+                Year = issueData.Year,
+                Description = issueData.Description,
+                Image = issueImage,
+                Authors = [],
+                Status = IssueStatus.MISSING
+            });
+        }
+
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+
+        return volume;
+    }
+
     public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, bool overrideExisting = false, CancellationToken ct = default)
     {
         var ctx = GetDb();

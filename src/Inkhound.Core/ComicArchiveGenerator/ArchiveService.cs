@@ -19,6 +19,8 @@ public class ArchiveService : BaseService<ArchiveOption>
     {
     }
 
+    public string ImagesPath => Options.ImagesPath;
+
     #region Override BaseService
 
     public override string GetServiceName() => "ArchiveService";

@@ -5,3 +5,15 @@
   overflow: hidden;
   font-size: 0.8rem;
 }
+
+.cover-preview {
+  max-height: 200px;
+  max-width: 150px;
+  object-fit: cover;
+}
+
+.issue-preview {
+  max-height: 120px;
+  max-width: 90px;
+  object-fit: cover;
+}

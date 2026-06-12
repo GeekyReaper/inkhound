@@ -6,6 +6,7 @@ using Inkhound.Web.Hubs;
 using Inkhound.Web.Middleware;
 using Inkhound.Web.Startup;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
@@ -122,6 +123,14 @@ app.UseSwaggerUI();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+var imagesDir = Path.Combine(app.Environment.ContentRootPath, "data", "images");
+Directory.CreateDirectory(imagesDir);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(imagesDir),
+    RequestPath = "/images"
+});
 
 app.UseCors();
 app.UseRouting();
