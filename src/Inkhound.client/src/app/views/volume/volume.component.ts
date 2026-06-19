@@ -116,6 +116,10 @@ export class VolumeComponent {
     this.router.navigate(['edit'], { relativeTo: this.route });
   }
 
+  goMatch(): void {
+    this.router.navigate(['match'], { relativeTo: this.route });
+  }
+
   onImportSelected(path: string): void {
     console.log('Selected path for import:', path);
     if (!path) return;

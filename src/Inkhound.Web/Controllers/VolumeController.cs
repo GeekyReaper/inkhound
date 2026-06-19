@@ -123,6 +123,21 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return updated ? NoContent() : NotFound();
     }
 
+    public record RematchFromComicVineRequest(int ComicVineVolumeId);
+
+    // POST /api/volumes/{volumeId}/rematch
+    [HttpPost("/api/volumes/{volumeId:guid}/rematch")]
+    public async Task<IActionResult> RematchFromComicVine(Guid volumeId, [FromBody] RematchFromComicVineRequest req)
+    {
+        try
+        {
+            var updated = await manager.RematchVolumeFromComicVineAsync(volumeId, req.ComicVineVolumeId);
+            return updated ? NoContent() : NotFound();
+        }
+        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
     // DELETE /api/volumes/{volumeId}
     [HttpDelete("/api/volumes/{volumeId:guid}")]
     public async Task<IActionResult> Delete(Guid volumeId)

@@ -1,0 +1,465 @@
+<c-container class="py-4">
+
+  <!-- Mode switcher -->
+  <c-nav variant="tabs" class="mb-4">
+    <c-nav-item>
+      <a cNavLink [active]="mode() === 'comicvine'" (click)="mode.set('comicvine')" style="cursor:pointer">
+        ComicVine
+      </a>
+    </c-nav-item>
+    <c-nav-item>
+      <a cNavLink [active]="mode() === 'manual'" (click)="mode.set('manual')" style="cursor:pointer">
+        Saisie manuelle
+      </a>
+    </c-nav-item>
+  </c-nav>
+
+  <!-- ── ComicVine mode ──────────────────────────────────────────────────── -->
+  @if (mode() === 'comicvine') {
+
+    <!-- Search bar -->
+    <c-row class="mb-4">
+      <c-col md="8" lg="6">
+        <div class="input-group">
+          <input
+            type="text"
+            class="form-control"
+            placeholder="Search volumes…"
+            [(ngModel)]="query"
+            (keydown.enter)="search()"
+            [disabled]="cvLoading()" />
+          <button cButton color="primary" (click)="search()" [disabled]="cvLoading() || !query().trim()">
+            @if (cvLoading()) {
+              <c-spinner size="sm"></c-spinner>
+            } @else {
+              <svg cIcon name="cil-magnifying-glass"></svg>
+            }
+          </button>
+        </div>
+      </c-col>
+    </c-row>
+
+    @if (cvError()) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-alert color="danger">{{ cvError() }}</c-alert>
+        </c-col>
+      </c-row>
+    }
+
+    @if (results(); as page) {
+      @if (page.items.length === 0) {
+        <p class="text-body-secondary">No results found.</p>
+      } @else {
+
+        <!-- Results grid -->
+        <c-row class="g-3 mb-4">
+          @for (volume of page.items; track volume.sourceId) {
+            <c-col [xs]="12" [sm]="6" [md]="4" [lg]="3" [xl]="2">
+              <c-card
+                class="h-100"
+                style="cursor: pointer;"
+                [ngClass]="{ 'border-primary': selectedSourceId() === volume.sourceId }"
+                (click)="selectedSourceId.set(volume.sourceId)">
+
+                <c-card-body class="p-2">
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <input
+                      type="radio"
+                      class="form-check-input flex-shrink-0"
+                      name="volumeSelect"
+                      [checked]="selectedSourceId() === volume.sourceId"
+                      (change)="selectedSourceId.set(volume.sourceId)"
+                      (click)="$event.stopPropagation()" />
+                    <div class="small fw-semibold lh-sm">{{ volume.title }}</div>
+                  </div>
+                  @if (volume.image?.screenUrl ?? volume.image?.thumbUrl) {
+                    <img
+                      [src]="volume.image!.screenUrl ?? volume.image!.thumbUrl"
+                      [alt]="volume.title"
+                      class="img-fluid rounded max-height-450" />
+                  } @else {
+                    <div class="bg-body-secondary rounded d-flex align-items-center justify-content-center"
+                         style="height: 160px;">
+                      <span class="text-body-tertiary small">No cover</span>
+                    </div>
+                  }
+                  @if (volume.year) {
+                    <div class="text-body-secondary text-center mt-1 fw-bold" style="font-size: 0.75rem;">{{ volume.year }}</div>
+                  }
+                  @if (volume.publisher) {
+                    <div class="text-center mt-1">
+                      <span class="badge bg-secondary">{{ volume.publisher }}</span>
+                    </div>
+                  }
+                </c-card-body>
+
+                <c-card-footer class="d-flex justify-content-between align-items-center p-2">
+                  <button
+                    cButton color="secondary" size="sm" variant="outline"
+                    title="Issues"
+                    (click)="showIssues(volume, $event)">
+                    <svg cIcon name="cil-layers"></svg>
+                    Issues
+                    <span class="badge bg-secondary ms-1">{{ volume.countOfIssues }}</span>
+                  </button>
+                  @if (volume.siteDetailUrl) {
+                    <a
+                      [href]="volume.siteDetailUrl"
+                      target="_blank"
+                      rel="noopener"
+                      class="btn btn-outline-secondary btn-sm"
+                      title="View on ComicVine"
+                      (click)="$event.stopPropagation()">
+                      <svg cIcon name="cil-external-link"></svg>
+                    </a>
+                  }
+                </c-card-footer>
+
+              </c-card>
+            </c-col>
+          }
+        </c-row>
+
+        <!-- Pagination -->
+        @if (page.totalPages > 1) {
+          <c-row class="mb-4">
+            <c-col class="d-flex justify-content-center">
+              <c-pagination aria-label="Volume search pages">
+                <c-page-item [disabled]="!page.hasPrev">
+                  <a cPageLink (click)="search(page.pageNumber - 1)">‹</a>
+                </c-page-item>
+                @for (p of visiblePages(); track p) {
+                  <c-page-item [active]="p === page.pageNumber">
+                    <a cPageLink (click)="search(p)">{{ p }}</a>
+                  </c-page-item>
+                }
+                <c-page-item [disabled]="!page.hasNext">
+                  <a cPageLink (click)="search(page.pageNumber + 1)">›</a>
+                </c-page-item>
+              </c-pagination>
+            </c-col>
+          </c-row>
+        }
+
+        <!-- Rematch button -->
+        <c-row>
+          <c-col class="d-flex justify-content-end">
+            <button cButton color="primary" [disabled]="!selectedSourceId() || rematching()" (click)="onRematch()">
+              @if (rematching()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+              <svg cIcon name="cilSync" class="me-1"></svg>
+              Rematche
+            </button>
+          </c-col>
+        </c-row>
+
+      }
+    }
+
+  }
+
+  <!-- ── Manual mode ─────────────────────────────────────────────────────── -->
+  @if (mode() === 'manual') {
+
+    @if (loading()) {
+      <c-row>
+        <c-col class="d-flex justify-content-center py-5">
+          <c-spinner color="primary"></c-spinner>
+        </c-col>
+      </c-row>
+    } @else if (error() && !saving()) {
+      <c-row>
+        <c-col>
+          <c-alert color="danger">{{ error() }}</c-alert>
+        </c-col>
+      </c-row>
+    } @else {
+
+      @if (error()) {
+        <c-alert color="danger" class="mb-3">{{ error() }}</c-alert>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmitManual()">
+
+        <!-- Volume info -->
+        <c-card class="mb-4">
+          <c-card-header><strong>Informations du volume</strong></c-card-header>
+          <c-card-body>
+            <c-row class="g-3">
+
+              <c-col [md]="8">
+                <label cLabel for="title">Titre <span class="text-danger">*</span></label>
+                <input cFormControl id="title" formControlName="title" placeholder="Ex : Batman" />
+              </c-col>
+
+              <c-col [md]="2">
+                <label cLabel for="year">Année</label>
+                <input cFormControl id="year" type="number" formControlName="year" placeholder="2024" />
+              </c-col>
+
+              <c-col [md]="2">
+                <label cLabel for="publisher">Éditeur</label>
+                <input cFormControl id="publisher" formControlName="publisher" placeholder="Ex : DC Comics" />
+              </c-col>
+
+              <c-col [md]="12">
+                <label cLabel for="description">Description</label>
+                <textarea cFormControl id="description" formControlName="description" rows="3" placeholder="Synopsis…"></textarea>
+              </c-col>
+
+            </c-row>
+          </c-card-body>
+        </c-card>
+
+        <!-- Cover image -->
+        <c-card class="mb-4">
+          <c-card-header><strong>Image de couverture</strong></c-card-header>
+          <c-card-body>
+            <div class="d-flex align-items-start gap-3 flex-wrap">
+              <div>
+                <input
+                  type="file"
+                  class="form-control"
+                  accept="image/jpeg,image/png,image/webp"
+                  (change)="onVolumeImageSelected($event)"
+                  [disabled]="uploadingVolumeImage()" />
+                <div class="form-text">JPEG, PNG ou WebP — 5 Mo max</div>
+              </div>
+              @if (uploadingVolumeImage()) {
+                <c-spinner size="sm" class="mt-2"></c-spinner>
+              }
+              @if (volumeImagePreview()) {
+                <img [src]="volumeImagePreview()" alt="Couverture" class="cover-preview rounded" />
+              }
+            </div>
+          </c-card-body>
+        </c-card>
+
+        <!-- Authors -->
+        <c-card class="mb-4">
+          <c-card-header><strong>Auteurs</strong></c-card-header>
+          <c-card-body>
+            <div formArrayName="authors">
+              @for (ctrl of authorsArray.controls; track $index) {
+                <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
+                  <input cFormControl formControlName="name" placeholder="Nom" />
+                  <select cSelect formControlName="role">
+                    <option value="" disabled>Rôle…</option>
+                    @for (r of AUTHOR_ROLES; track r) {
+                      <option [value]="r">{{ r }}</option>
+                    }
+                  </select>
+                  <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeAuthor($index)">
+                    <svg cIcon name="cilTrash" size="sm"></svg>
+                  </button>
+                </div>
+              }
+            </div>
+            <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addAuthor()">
+              <svg cIcon name="cilPlus" size="sm"></svg>
+              Ajouter un auteur
+            </button>
+          </c-card-body>
+        </c-card>
+
+        <!-- Genres -->
+        <c-card class="mb-4">
+          <c-card-header><strong>Genres</strong></c-card-header>
+          <c-card-body>
+            <div formArrayName="genres">
+              @for (ctrl of genresArray.controls; track $index) {
+                <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
+                  <input cFormControl formControlName="value" placeholder="Ex : Super-héros" />
+                  <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeGenre($index)">
+                    <svg cIcon name="cilTrash" size="sm"></svg>
+                  </button>
+                </div>
+              }
+            </div>
+            <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addGenre()">
+              <svg cIcon name="cilPlus" size="sm"></svg>
+              Ajouter un genre
+            </button>
+          </c-card-body>
+        </c-card>
+
+        <!-- Issues -->
+        <c-card class="mb-4">
+          <c-card-header><strong>Issues</strong></c-card-header>
+          <c-card-body>
+            <div formArrayName="issues">
+              @for (ctrl of issuesArray.controls; track $index) {
+                <c-card class="mb-3 border" [formGroupName]="$index">
+                  <c-card-body>
+                    <c-row class="g-2 mb-2">
+
+                      <c-col [sm]="2">
+                        <label cLabel>#</label>
+                        <input cFormControl type="number" formControlName="issueNumber"
+                               placeholder="1"
+                               [attr.readonly]="isDownloaded($any(ctrl)) || null" />
+                      </c-col>
+
+                      <c-col [sm]="5">
+                        <label cLabel>Titre</label>
+                        <input cFormControl formControlName="title" placeholder="Titre de l'issue" />
+                      </c-col>
+
+                      <c-col [sm]="2">
+                        <label cLabel>Année</label>
+                        <input cFormControl type="number" formControlName="year" placeholder="2024" />
+                      </c-col>
+
+                      <c-col [sm]="2" class="d-flex align-items-end">
+                        @if (isDownloaded($any(ctrl))) {
+                          <c-badge color="success">Downloaded</c-badge>
+                        }
+                      </c-col>
+
+                      <c-col [sm]="1" class="d-flex align-items-end">
+                        <button type="button" cButton color="danger" size="sm" variant="outline" class="w-100"
+                                [disabled]="isDownloaded($any(ctrl))"
+                                (click)="removeIssue($index)">
+                          <svg cIcon name="cilTrash" size="sm"></svg>
+                        </button>
+                      </c-col>
+
+                    </c-row>
+
+                    <c-row class="g-2">
+                      <c-col [sm]="12">
+                        <label cLabel>Description</label>
+                        <textarea cFormControl formControlName="description" rows="2" placeholder="Synopsis de l'issue…"></textarea>
+                      </c-col>
+                      <c-col [sm]="12">
+                        <label cLabel>Vignette</label>
+                        <div class="d-flex align-items-start gap-3 flex-wrap">
+                          <input
+                            type="file"
+                            class="form-control"
+                            accept="image/jpeg,image/png,image/webp"
+                            (change)="onIssueImageSelected($index, $event)" />
+                          @if (issueImagePreviews()[$index]) {
+                            <img [src]="issueImagePreviews()[$index]" alt="Vignette" class="issue-preview rounded" />
+                          }
+                        </div>
+                      </c-col>
+                    </c-row>
+
+                  </c-card-body>
+                </c-card>
+              }
+            </div>
+            <button type="button" cButton color="secondary" size="sm" variant="outline" (click)="addIssue()">
+              <svg cIcon name="cilPlus" size="sm"></svg>
+              Ajouter une issue
+            </button>
+          </c-card-body>
+        </c-card>
+
+        <!-- Actions -->
+        <div class="d-flex justify-content-end gap-2">
+          <button type="button" cButton color="secondary" variant="outline" [disabled]="saving()" (click)="cancel()">
+            Annuler
+          </button>
+          <button cButton color="primary" type="submit" [disabled]="form.invalid || saving()">
+            @if (saving()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+            Sauvegarder
+          </button>
+        </div>
+
+      </form>
+    }
+
+  }
+
+</c-container>
+
+<!-- Issues modal (ComicVine preview) -->
+<c-modal
+  [visible]="issuesModalVolume() !== null"
+  (visibleChange)="!$event && closeIssuesModal()"
+  backdrop="static"
+  scrollable="true">
+  <c-modal-header>
+    <h5 cModalTitle>
+      {{ issuesModalVolume()?.title }}
+      @if (issuesModalVolume()?.year) {
+        <span class="text-body-secondary fw-normal fs-6 ms-1">({{ issuesModalVolume()!.year }})</span>
+      }
+    </h5>
+    <button cButtonClose (click)="closeIssuesModal()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    @if (issuesModalVolume(); as v) {
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Publisher</dt>
+        <dd class="col-sm-8">{{ v.publisher ?? '—' }}</dd>
+
+        <dt class="col-sm-4">Total issues</dt>
+        <dd class="col-sm-8">{{ v.countOfIssues }}</dd>
+      </dl>
+
+      <hr class="my-3">
+
+      @if (issuesLoading()) {
+        <div class="text-center py-3">
+          <c-spinner></c-spinner>
+        </div>
+      } @else if (issuesError()) {
+        <c-alert color="danger">{{ issuesError() }}</c-alert>
+      } @else if (issuesPage(); as ip) {
+        @if (ip.items.length === 0) {
+          <p class="text-body-secondary text-center">No issues found.</p>
+        } @else {
+          <c-row class="g-2">
+            @for (issue of ip.items; track issue.id) {
+              <c-col [xs]="6" [sm]="4" [md]="3">
+                <c-card class="h-100">
+                  <div class="text-center pt-2 px-2">
+                    @if (issue.thumbUrl) {
+                      <img
+                        [src]="issue.thumbUrl"
+                        [alt]="issue.name ?? ''"
+                        class="img-fluid rounded"
+                        style="max-height: 140px; object-fit: cover;" />
+                    } @else {
+                      <div class="bg-body-secondary rounded d-flex align-items-center justify-content-center"
+                           style="height: 140px;">
+                        <span class="text-body-tertiary small">#{{ issue.issueNumber ?? '?' }}</span>
+                      </div>
+                    }
+                  </div>
+                  <c-card-body class="p-2 text-center">
+                    <div class="small fw-semibold lh-sm">{{ issue.name ?? ('Issue #' + (issue.issueNumber ?? '?')) }}</div>
+                    @if (issue.coverDate) {
+                      <div class="text-body-secondary" style="font-size: 0.75rem;">{{ issue.coverDate | slice:0:4 }}</div>
+                    }
+                  </c-card-body>
+                </c-card>
+              </c-col>
+            }
+          </c-row>
+
+          @if (ip.totalPages > 1) {
+            <div class="d-flex justify-content-center mt-3">
+              <c-pagination size="sm" aria-label="Issues pages">
+                <c-page-item [disabled]="!ip.hasPrev">
+                  <a cPageLink (click)="loadCvIssues(v, ip.pageNumber - 1)">‹</a>
+                </c-page-item>
+                @for (p of issuesVisiblePages(); track p) {
+                  <c-page-item [active]="p === ip.pageNumber">
+                    <a cPageLink (click)="loadCvIssues(v, p)">{{ p }}</a>
+                  </c-page-item>
+                }
+                <c-page-item [disabled]="!ip.hasNext">
+                  <a cPageLink (click)="loadCvIssues(v, ip.pageNumber + 1)">›</a>
+                </c-page-item>
+              </c-pagination>
+            </div>
+          }
+        }
+      }
+    }
+  </c-modal-body>
+</c-modal>

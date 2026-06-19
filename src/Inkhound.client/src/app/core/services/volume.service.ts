@@ -146,6 +146,10 @@ export class VolumeService {
     return this.http.put<void>(`/api/volumes/${volumeId}`, request);
   }
 
+  rematchFromComicVine(volumeId: string, comicVineVolumeId: string) {
+    return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { comicVineVolumeId: Number(comicVineVolumeId) });
+  }
+
   delete(id: string) {
     return this.http.delete<void>(`/api/volumes/${id}`);
   }

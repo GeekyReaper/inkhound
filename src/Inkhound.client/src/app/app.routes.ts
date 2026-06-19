@@ -92,6 +92,11 @@ export const routes: Routes = [
                 path: 'edit',
                 data: { title: 'Edit' },
                 loadComponent: () => import('./views/volume/volume-edit.component').then(m => m.VolumeEditComponent)
+              },
+              {
+                path: 'match',
+                data: { title: 'Match' },
+                loadComponent: () => import('./views/volume/volume-match.component').then(m => m.VolumeMatchComponent)
               }
             ]
           },

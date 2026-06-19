@@ -636,6 +636,89 @@ public class InkhoundManager : BaseServiceManager
         return volume;
     }
 
+    public async Task<bool> RematchVolumeFromComicVineAsync(
+        Guid volumeId, int comicVineVolumeId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return false;
+
+        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        if (comicVine.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("ComicVine service is not available");
+
+        var cvVolume = await comicVine.GetVolumeAsync(comicVineVolumeId, ct)
+            ?? throw new KeyNotFoundException($"ComicVine volume {comicVineVolumeId} not found.");
+
+        var mapped = Mapper.Map(cvVolume);
+        volume.SourceId     = mapped.SourceId;
+        volume.SourceType   = mapped.SourceType;
+        volume.Title        = mapped.Title;
+        volume.Year         = mapped.Year;
+        volume.Description  = mapped.Description;
+        volume.Image        = mapped.Image;
+        volume.Publisher    = mapped.Publisher;
+        volume.Authors      = mapped.Authors;
+        volume.Genres       = mapped.Genres;
+        volume.UpdatedAt    = DateTime.UtcNow;
+
+        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
+        var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
+
+        var matchedExistingIds = new HashSet<Guid>();
+
+        foreach (var cvIssue in cvIssues)
+        {
+            var cvId = cvIssue.Id.ToString();
+            int.TryParse(cvIssue.IssueNumber, out var issueNum);
+
+            // Correspondance par ComicVineId en priorité, puis par numéro d'issue
+            var existing =
+                existingIssues.FirstOrDefault(i => i.ComicVineId == cvId) ??
+                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.ComicVineId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
+
+            var mappedIssue = Mapper.Map(cvIssue);
+
+            if (existing is not null)
+            {
+                matchedExistingIds.Add(existing.Id);
+                existing.ComicVineId  = mappedIssue.ComicVineId;
+                existing.Title        = mappedIssue.Title;
+                existing.Year         = mappedIssue.Year;
+                existing.Description  = mappedIssue.Description;
+                existing.Image        = mappedIssue.Image;
+                existing.Authors      = mappedIssue.Authors;
+                if (existing.Status == IssueStatus.MISSING)
+                    existing.IssueNumber = issueNum;
+            }
+            else
+            {
+                var newIssue = mappedIssue;
+                newIssue.Id      = Guid.NewGuid();
+                newIssue.VolumeId = volumeId;
+                newIssue.Status  = IssueStatus.MISSING;
+                ctx.Issues.Add(newIssue);
+            }
+        }
+
+        // Supprimer les issues MISSING non appariées
+        foreach (var orphan in existingIssues.Where(i => !matchedExistingIds.Contains(i.Id)))
+        {
+            if (orphan.Status == IssueStatus.MISSING)
+                ctx.Issues.Remove(orphan);
+            // DOWNLOADED / DOWNLOADING → conservé
+        }
+
+        await ctx.SaveChangesAsync(ct);
+
+        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
+        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
+        await ctx.SaveChangesAsync(ct);
+
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
     public async Task<string> UploadImageAsync(Stream content, string extension, CancellationToken ct = default)
     {
         var archiveService = GetService<ArchiveService, ArchiveOption>();
