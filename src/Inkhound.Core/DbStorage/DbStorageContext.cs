@@ -22,6 +22,11 @@ public class DbStorageContext : DbContext
             .Property(v => v.Status)
             .HasConversion<string>();
 
+        modelBuilder.Entity<Volume>()
+            .Property(v => v.AgeRating)
+            .HasConversion<string>()
+            .HasDefaultValue(AgeRating.Unknown);
+
         modelBuilder.Entity<OptionDefinition>()
             .Property(v => v.ValueType)
             .HasConversion<string>();

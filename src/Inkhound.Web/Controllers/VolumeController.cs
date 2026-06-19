@@ -58,6 +58,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         string? Description,
         string? Publisher,
         VolumeStatus Status,
+        string AgeRating,
         List<string> Genres,
         List<VolumeAuthor> Authors,
         VolumeImage? Image,
@@ -68,7 +69,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
 
     private static VolumeDto ToDto(Volume v)
         => new(v.Id, v.LibraryId, v.SourceId, v.SourceType, v.Title, v.Year,
-               v.Description, v.Publisher, v.Status, v.Genres, v.Authors,
+               v.Description, v.Publisher, v.Status, v.AgeRating.ToString(), v.Genres, v.Authors,
                v.Image, v.CountOfIssues, v.CountOfDownloadedIssues,
                v.CreatedAt, v.UpdatedAt);
 
@@ -120,6 +121,18 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         var updated = await manager.UpdateVolumeManuallyAsync(
             volumeId, req.Title, req.Year, req.Publisher,
             req.Description, req.ImageUrl, req.Authors, req.Genres, issues);
+        return updated ? NoContent() : NotFound();
+    }
+
+    public record PatchVolumeAgeRatingRequest(string AgeRating);
+
+    // PATCH /api/volumes/{volumeId}/age-rating
+    [HttpPatch("/api/volumes/{volumeId:guid}/age-rating")]
+    public async Task<IActionResult> PatchAgeRating(Guid volumeId, [FromBody] PatchVolumeAgeRatingRequest req)
+    {
+        if (!Enum.TryParse<AgeRating>(req.AgeRating, out var rating))
+            return BadRequest(new { message = $"Invalid AgeRating value: {req.AgeRating}" });
+        var updated = await manager.UpdateVolumeAgeRatingAsync(volumeId, rating);
         return updated ? NoContent() : NotFound();
     }
 

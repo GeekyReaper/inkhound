@@ -21,7 +21,7 @@ import {
   SpinnerComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
+import { AGE_RATINGS, AgeRating, AgeRatingOption, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { HubService } from '../../core/services/hub.service';
@@ -62,6 +62,9 @@ export class VolumeComponent {
   confirmDeleteVisible = signal(false);
   deleting             = signal(false);
   deleteError          = signal<string | null>(null);
+
+  readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
+  savingRating = signal(false);
 
   constructor() {
     this.route.parent!.params
@@ -165,6 +168,15 @@ export class VolumeComponent {
           this.deleting.set(false);
         }
       });
+  }
+
+  onAgeRatingChange(value: string): void {
+    const vol = this.volume();
+    if (!vol || this.savingRating()) return;
+    this.savingRating.set(true);
+    this.volumeService.patchAgeRating(vol.id, value as AgeRating)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({ complete: () => this.savingRating.set(false) });
   }
 
   volumeStatusBadgeClass(status: VolumeStatus): string {

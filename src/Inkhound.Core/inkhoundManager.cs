@@ -890,6 +890,18 @@ public class InkhoundManager : BaseServiceManager
         return true;
     }
 
+    public async Task<bool> UpdateVolumeAgeRatingAsync(Guid volumeId, AgeRating ageRating, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return false;
+        volume.AgeRating = ageRating;
+        volume.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
     public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, bool overrideExisting = false, CancellationToken ct = default)
     {
         var ctx = GetDb();

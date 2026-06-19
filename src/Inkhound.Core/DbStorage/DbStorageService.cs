@@ -40,6 +40,7 @@ public class DbStorageService : BaseService<DbStorageOption>
                 .Options;
             Database = new DbStorageContext(options);
             Database.Database.EnsureCreated();
+            await ApplyPendingMigrationsAsync(Database);
         }
         catch (Exception ex)
         {
@@ -53,6 +54,18 @@ public class DbStorageService : BaseService<DbStorageOption>
 
 
     #endregion
+
+    // Migrations légères via raw SQL — idempotentes, complètent EnsureCreated pour les colonnes ajoutées après coup
+    private static async Task ApplyPendingMigrationsAsync(DbStorageContext db)
+    {
+        // AgeRating ajouté en juin 2026 — colonne absente des bases existantes
+        var hasAgeRating = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Volumes') WHERE name='AgeRating'")
+            .AnyAsync();
+        if (!hasAgeRating)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Volumes ADD COLUMN AgeRating TEXT NOT NULL DEFAULT 'Unknown'");
+    }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)
     {

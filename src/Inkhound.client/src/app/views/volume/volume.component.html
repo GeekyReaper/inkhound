@@ -63,6 +63,16 @@
               }
             </dd>
           }
+          <dt class="col-sm-3 col-lg-2">Age Rating</dt>
+          <dd class="col-sm-9 col-lg-10">
+            <select class="form-select form-select-sm w-auto"
+                    [disabled]="savingRating()"
+                    (change)="onAgeRatingChange($any($event.target).value)">
+              @for (r of ageRatings; track r.value) {
+                <option [value]="r.value" [selected]="r.value === volume()!.ageRating">{{ r.label }}</option>
+              }
+            </select>
+          </dd>
           @if (volume()!.description) {
             <dt class="col-sm-3 col-lg-2">Description</dt>
             <dd class="col-sm-9 col-lg-10" [innerHTML]="volume()!.description"></dd>

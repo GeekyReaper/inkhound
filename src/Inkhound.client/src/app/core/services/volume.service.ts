@@ -21,6 +21,24 @@ export interface VolumeAuthor {
 
 export type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'PAUSED';
 
+export type AgeRating =
+  | 'Unknown' | 'AllAges' | 'G' | 'PG' | 'Everyone10Plus'
+  | 'Teen' | 'Mature17Plus' | 'Adults18Plus' | 'X18Plus';
+
+export interface AgeRatingOption { value: AgeRating; label: string; }
+
+export const AGE_RATINGS: AgeRatingOption[] = [
+  { value: 'Unknown',       label: 'Unknown' },
+  { value: 'AllAges',       label: 'All Ages' },
+  { value: 'G',             label: 'G' },
+  { value: 'PG',            label: 'PG' },
+  { value: 'Everyone10Plus',label: 'Everyone 10+' },
+  { value: 'Teen',          label: 'Teen' },
+  { value: 'Mature17Plus',  label: 'Mature 17+' },
+  { value: 'Adults18Plus',  label: 'Adults 18+' },
+  { value: 'X18Plus',       label: 'X18+' },
+];
+
 export interface Volume {
   id:                       string;
   libraryId:                string;
@@ -31,6 +49,7 @@ export interface Volume {
   description:              string | null;
   publisher:                string | null;
   status:                   VolumeStatus;
+  ageRating:                AgeRating;
   genres:                   string[];
   authors:                  VolumeAuthor[];
   image:                    VolumeImage | null;
@@ -148,6 +167,10 @@ export class VolumeService {
 
   rematchFromComicVine(volumeId: string, comicVineVolumeId: string) {
     return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { comicVineVolumeId: Number(comicVineVolumeId) });
+  }
+
+  patchAgeRating(volumeId: string, ageRating: AgeRating) {
+    return this.http.patch<void>(`/api/volumes/${volumeId}/age-rating`, { ageRating });
   }
 
   delete(id: string) {

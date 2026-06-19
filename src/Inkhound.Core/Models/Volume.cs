@@ -33,6 +33,7 @@ public class Volume
     public List<VolumeAuthor> Authors { get; set; } = [];
     public List<string> Genres { get; set; } = [];
     public VolumeStatus Status { get; set; } = VolumeStatus.MONITORED;
+    public AgeRating AgeRating { get; set; } = AgeRating.Unknown;
 
     public List<string>? Issues { get; set; }
     public DateTime CreatedAt { get; set; }
