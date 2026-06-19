@@ -83,7 +83,17 @@ export const routes: Routes = [
           {
             path: 'volume/:volumeId',
             resolve: { title: volumeTitleResolver },
-            loadComponent: () => import('./views/volume/volume.component').then(m => m.VolumeComponent)
+            children: [
+              {
+                path: '',
+                loadComponent: () => import('./views/volume/volume.component').then(m => m.VolumeComponent)
+              },
+              {
+                path: 'edit',
+                data: { title: 'Edit' },
+                loadComponent: () => import('./views/volume/volume-edit.component').then(m => m.VolumeEditComponent)
+              }
+            ]
           },
           {
             path: 'add-volume',

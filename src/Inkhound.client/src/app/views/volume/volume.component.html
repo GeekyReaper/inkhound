@@ -38,6 +38,10 @@
         </div>
 
         <dl class="row mt-3 mb-0">
+          <dt class="col-sm-3 col-lg-2">Source</dt>
+          <dd class="col-sm-9 col-lg-10">
+            <c-badge [color]="sourceColor()">{{ sourceLabel() }}</c-badge>
+          </dd>
           @if (volume()!.year) {
             <dt class="col-sm-3 col-lg-2">Year</dt>
             <dd class="col-sm-9 col-lg-10">{{ volume()!.year }}</dd>
@@ -80,6 +84,12 @@
           }
           Import
         </button>
+        @if (volume()!.sourceType === 'manual') {
+          <button cButton color="secondary" size="sm" (click)="goEdit()">
+            <svg cIcon name="cilPencil" class="me-1"></svg>
+            Edit
+          </button>
+        }
         <button cButton color="danger" size="sm" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete

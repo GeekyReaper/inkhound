@@ -720,6 +720,93 @@ public class InkhoundManager : BaseServiceManager
         return volume;
     }
 
+    public async Task<bool> UpdateVolumeManuallyAsync(
+        Guid volumeId,
+        string title,
+        int? year,
+        string? publisher,
+        string? description,
+        string? imageUrl,
+        List<VolumeAuthor> authors,
+        List<string> genres,
+        List<(Guid? Id, int Number, string? Title, int? Year, string? Description, string? ImageUrl)> issues,
+        CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return false;
+
+        VolumeImage? volumeImage = null;
+        if (!string.IsNullOrEmpty(imageUrl))
+            volumeImage = new VolumeImage(imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, imageUrl, null);
+
+        volume.Title       = title;
+        volume.Year        = year;
+        volume.Publisher   = publisher;
+        volume.Description = description;
+        volume.Image       = volumeImage;
+        volume.Authors     = authors;
+        volume.Genres      = genres;
+        volume.UpdatedAt   = DateTime.UtcNow;
+
+        // ── Issues ────────────────────────────────────────────────────────────
+        var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
+        var requestedIds   = issues.Where(i => i.Id.HasValue).Select(i => i.Id!.Value).ToHashSet();
+
+        // Supprimer les issues MISSING absentes du formulaire
+        foreach (var existing in existingIssues.Where(i => !requestedIds.Contains(i.Id)))
+        {
+            if (existing.Status == IssueStatus.MISSING)
+                ctx.Issues.Remove(existing);
+            // DOWNLOADED / DOWNLOADING → conservé intact
+        }
+
+        // Mettre à jour les issues existantes référencées par Id
+        foreach (var req in issues.Where(i => i.Id.HasValue))
+        {
+            var existing = existingIssues.FirstOrDefault(i => i.Id == req.Id!.Value);
+            if (existing is null) continue;
+
+            existing.Title       = req.Title;
+            existing.Year        = req.Year;
+            existing.Description = req.Description;
+            existing.Image       = string.IsNullOrEmpty(req.ImageUrl) ? existing.Image
+                : new VolumeImage(req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, null);
+            if (existing.Status == IssueStatus.MISSING)
+                existing.IssueNumber = req.Number;
+        }
+
+        // Créer les nouvelles issues (Id == null)
+        foreach (var req in issues.Where(i => !i.Id.HasValue))
+        {
+            VolumeImage? issueImage = null;
+            if (!string.IsNullOrEmpty(req.ImageUrl))
+                issueImage = new VolumeImage(req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, req.ImageUrl, null);
+
+            ctx.Issues.Add(new Issue
+            {
+                Id           = Guid.NewGuid(),
+                VolumeId     = volumeId,
+                ComicVineId  = Guid.NewGuid().ToString(),
+                IssueNumber  = req.Number,
+                Title        = req.Title,
+                Year         = req.Year,
+                Description  = req.Description,
+                Image        = issueImage,
+                Authors      = [],
+                Status       = IssueStatus.MISSING
+            });
+        }
+
+        await ctx.SaveChangesAsync(ct);
+
+        volume.CountOfIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
+        await ctx.SaveChangesAsync(ct);
+
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
     public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, bool overrideExisting = false, CancellationToken ct = default)
     {
         var ctx = GetDb();

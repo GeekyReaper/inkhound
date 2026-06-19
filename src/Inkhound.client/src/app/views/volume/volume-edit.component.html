@@ -1,0 +1,213 @@
+<c-container class="py-4">
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (error() && !saving()) {
+    <c-row>
+      <c-col>
+        <c-alert color="danger">{{ error() }}</c-alert>
+      </c-col>
+    </c-row>
+  } @else {
+
+    @if (error()) {
+      <c-alert color="danger" class="mb-3">{{ error() }}</c-alert>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="onSubmit()">
+
+      <!-- Volume info -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Informations du volume</strong></c-card-header>
+        <c-card-body>
+          <c-row class="g-3">
+
+            <c-col [md]="8">
+              <label cLabel for="title">Titre <span class="text-danger">*</span></label>
+              <input cFormControl id="title" formControlName="title" placeholder="Ex : Batman" />
+            </c-col>
+
+            <c-col [md]="2">
+              <label cLabel for="year">Année</label>
+              <input cFormControl id="year" type="number" formControlName="year" placeholder="2024" />
+            </c-col>
+
+            <c-col [md]="2">
+              <label cLabel for="publisher">Éditeur</label>
+              <input cFormControl id="publisher" formControlName="publisher" placeholder="Ex : DC Comics" />
+            </c-col>
+
+            <c-col [md]="12">
+              <label cLabel for="description">Description</label>
+              <textarea cFormControl id="description" formControlName="description" rows="3" placeholder="Synopsis…"></textarea>
+            </c-col>
+
+          </c-row>
+        </c-card-body>
+      </c-card>
+
+      <!-- Cover image -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Image de couverture</strong></c-card-header>
+        <c-card-body>
+          <div class="d-flex align-items-start gap-3 flex-wrap">
+            <div>
+              <input
+                type="file"
+                class="form-control"
+                accept="image/jpeg,image/png,image/webp"
+                (change)="onVolumeImageSelected($event)"
+                [disabled]="uploadingVolumeImage()" />
+              <div class="form-text">JPEG, PNG ou WebP — 5 Mo max</div>
+            </div>
+            @if (uploadingVolumeImage()) {
+              <c-spinner size="sm" class="mt-2"></c-spinner>
+            }
+            @if (volumeImagePreview()) {
+              <img [src]="volumeImagePreview()" alt="Couverture" class="cover-preview rounded" />
+            }
+          </div>
+        </c-card-body>
+      </c-card>
+
+      <!-- Authors -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Auteurs</strong></c-card-header>
+        <c-card-body>
+          <div formArrayName="authors">
+            @for (ctrl of authorsArray.controls; track $index) {
+              <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
+                <input cFormControl formControlName="name" placeholder="Nom" />
+                <select cSelect formControlName="role">
+                  <option value="" disabled>Rôle…</option>
+                  @for (r of AUTHOR_ROLES; track r) {
+                    <option [value]="r">{{ r }}</option>
+                  }
+                </select>
+                <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeAuthor($index)">
+                  <svg cIcon name="cilTrash" size="sm"></svg>
+                </button>
+              </div>
+            }
+          </div>
+          <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addAuthor()">
+            <svg cIcon name="cilPlus" size="sm"></svg>
+            Ajouter un auteur
+          </button>
+        </c-card-body>
+      </c-card>
+
+      <!-- Genres -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Genres</strong></c-card-header>
+        <c-card-body>
+          <div formArrayName="genres">
+            @for (ctrl of genresArray.controls; track $index) {
+              <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
+                <input cFormControl formControlName="value" placeholder="Ex : Super-héros" />
+                <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeGenre($index)">
+                  <svg cIcon name="cilTrash" size="sm"></svg>
+                </button>
+              </div>
+            }
+          </div>
+          <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addGenre()">
+            <svg cIcon name="cilPlus" size="sm"></svg>
+            Ajouter un genre
+          </button>
+        </c-card-body>
+      </c-card>
+
+      <!-- Issues -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Issues</strong></c-card-header>
+        <c-card-body>
+          <div formArrayName="issues">
+            @for (ctrl of issuesArray.controls; track $index) {
+              <c-card class="mb-3 border" [formGroupName]="$index">
+                <c-card-body>
+                  <c-row class="g-2 mb-2">
+
+                    <c-col [sm]="2">
+                      <label cLabel>#</label>
+                      <input cFormControl type="number" formControlName="issueNumber"
+                             placeholder="1"
+                             [attr.readonly]="isDownloaded($any(ctrl)) || null" />
+                    </c-col>
+
+                    <c-col [sm]="5">
+                      <label cLabel>Titre</label>
+                      <input cFormControl formControlName="title" placeholder="Titre de l'issue" />
+                    </c-col>
+
+                    <c-col [sm]="2">
+                      <label cLabel>Année</label>
+                      <input cFormControl type="number" formControlName="year" placeholder="2024" />
+                    </c-col>
+
+                    <c-col [sm]="2" class="d-flex align-items-end">
+                      @if (isDownloaded($any(ctrl))) {
+                        <c-badge color="success">Downloaded</c-badge>
+                      }
+                    </c-col>
+
+                    <c-col [sm]="1" class="d-flex align-items-end">
+                      <button type="button" cButton color="danger" size="sm" variant="outline" class="w-100"
+                              [disabled]="isDownloaded($any(ctrl))"
+                              (click)="removeIssue($index)">
+                        <svg cIcon name="cilTrash" size="sm"></svg>
+                      </button>
+                    </c-col>
+
+                  </c-row>
+
+                  <c-row class="g-2">
+                    <c-col [sm]="12">
+                      <label cLabel>Description</label>
+                      <textarea cFormControl formControlName="description" rows="2" placeholder="Synopsis de l'issue…"></textarea>
+                    </c-col>
+                    <c-col [sm]="12">
+                      <label cLabel>Vignette</label>
+                      <div class="d-flex align-items-start gap-3 flex-wrap">
+                        <input
+                          type="file"
+                          class="form-control"
+                          accept="image/jpeg,image/png,image/webp"
+                          (change)="onIssueImageSelected($index, $event)" />
+                        @if (issueImagePreviews()[$index]) {
+                          <img [src]="issueImagePreviews()[$index]" alt="Vignette" class="issue-preview rounded" />
+                        }
+                      </div>
+                    </c-col>
+                  </c-row>
+
+                </c-card-body>
+              </c-card>
+            }
+          </div>
+          <button type="button" cButton color="secondary" size="sm" variant="outline" (click)="addIssue()">
+            <svg cIcon name="cilPlus" size="sm"></svg>
+            Ajouter une issue
+          </button>
+        </c-card-body>
+      </c-card>
+
+      <!-- Actions -->
+      <div class="d-flex justify-content-end gap-2">
+        <button type="button" cButton color="secondary" variant="outline" [disabled]="saving()" (click)="cancel()">
+          Cancel
+        </button>
+        <button cButton color="primary" type="submit" [disabled]="form.invalid || saving()">
+          @if (saving()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+          Save
+        </button>
+      </div>
+
+    </form>
+  }
+
+</c-container>

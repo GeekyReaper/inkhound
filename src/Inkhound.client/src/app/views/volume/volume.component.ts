@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, switchMap } from 'rxjs';
@@ -6,6 +6,7 @@ import {
   AlertComponent,
   ButtonCloseDirective,
   ButtonDirective,
+  BadgeComponent,
   CardBodyComponent,
   CardComponent,
   CardFooterComponent,
@@ -32,6 +33,7 @@ import { UpdatedData } from '../../core/models/hub.models';
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent, CardFooterComponent,
+    BadgeComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
     SelectPathComponent,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent,
@@ -47,6 +49,8 @@ export class VolumeComponent {
   readonly #destroyRef  = inject(DestroyRef);
 
   volume        = signal<Volume | null>(null);
+  sourceLabel = computed(() => this.volume()?.sourceType === 'manual' ? 'Manual' : 'ComicVine');
+  sourceColor = computed(() => this.volume()?.sourceType === 'manual' ? 'warning' : 'info');
   loading       = signal(true);
   error         = signal<string | null>(null);
   issues        = signal<Issue[]>([]);
@@ -60,7 +64,7 @@ export class VolumeComponent {
   deleteError          = signal<string | null>(null);
 
   constructor() {
-    this.route.params
+    this.route.parent!.params
       .pipe(
         switchMap(params => this.volumeService.getById(params['volumeId'])),
         takeUntilDestroyed(this.#destroyRef)
@@ -106,6 +110,10 @@ export class VolumeComponent {
         next:  issues => { this.issues.set(issues.sort((a, b) => a.issueNumber - b.issueNumber)); this.issuesLoading.set(false); },
         error: ()     => { this.issuesLoading.set(false); }
       });
+  }
+
+  goEdit(): void {
+    this.router.navigate(['edit'], { relativeTo: this.route });
   }
 
   onImportSelected(path: string): void {

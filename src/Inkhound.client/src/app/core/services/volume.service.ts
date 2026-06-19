@@ -83,6 +83,26 @@ export interface AddVolumeManuallyRequest {
   issues:      ManualIssueRequest[];
 }
 
+export interface UpdateIssueRequest {
+  id:          string | null;
+  issueNumber: number;
+  title:       string | null;
+  year:        number | null;
+  description: string | null;
+  imageUrl:    string | null;
+}
+
+export interface UpdateVolumeManuallyRequest {
+  title:       string;
+  year:        number | null;
+  publisher:   string | null;
+  description: string | null;
+  imageUrl:    string | null;
+  authors:     VolumeAuthor[];
+  genres:      string[];
+  issues:      UpdateIssueRequest[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class VolumeService {
   private http = inject(HttpClient);
@@ -120,6 +140,10 @@ export class VolumeService {
       `/api/libraries/${libraryId}/volumes/manual`,
       request
     );
+  }
+
+  update(volumeId: string, request: UpdateVolumeManuallyRequest) {
+    return this.http.put<void>(`/api/volumes/${volumeId}`, request);
   }
 
   delete(id: string) {

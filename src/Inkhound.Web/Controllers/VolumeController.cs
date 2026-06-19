@@ -94,6 +94,35 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return Accepted(new { message = $"Import started for volume {volumeId}." });
     }
 
+    public record UpdateIssueRequest(
+        Guid? Id,
+        int IssueNumber,
+        string? Title,
+        int? Year,
+        string? Description,
+        string? ImageUrl);
+
+    public record UpdateVolumeManuallyRequest(
+        string Title,
+        int? Year,
+        string? Publisher,
+        string? Description,
+        string? ImageUrl,
+        List<VolumeAuthor> Authors,
+        List<string> Genres,
+        List<UpdateIssueRequest> Issues);
+
+    // PUT /api/volumes/{volumeId}
+    [HttpPut("/api/volumes/{volumeId:guid}")]
+    public async Task<IActionResult> Update(Guid volumeId, [FromBody] UpdateVolumeManuallyRequest req)
+    {
+        var issues = req.Issues.Select(i => (i.Id, i.IssueNumber, i.Title, i.Year, i.Description, i.ImageUrl)).ToList();
+        var updated = await manager.UpdateVolumeManuallyAsync(
+            volumeId, req.Title, req.Year, req.Publisher,
+            req.Description, req.ImageUrl, req.Authors, req.Genres, issues);
+        return updated ? NoContent() : NotFound();
+    }
+
     // DELETE /api/volumes/{volumeId}
     [HttpDelete("/api/volumes/{volumeId:guid}")]
     public async Task<IActionResult> Delete(Guid volumeId)
