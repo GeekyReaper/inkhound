@@ -124,6 +124,14 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return updated ? NoContent() : NotFound();
     }
 
+    // POST /api/volumes/{volumeId}/regenerate-comic-info
+    [HttpPost("/api/volumes/{volumeId:guid}/regenerate-comic-info")]
+    public IActionResult RegenerateComicInfo(Guid volumeId)
+    {
+        _ = manager.LaunchJobRegenerateComicInfo(new RegenerateComicInfoJobParameters { VolumeId = volumeId });
+        return Accepted(new { message = $"ComicInfo regeneration job started for volume {volumeId}." });
+    }
+
     public record PatchVolumeAgeRatingRequest(string AgeRating);
 
     // PATCH /api/volumes/{volumeId}/age-rating

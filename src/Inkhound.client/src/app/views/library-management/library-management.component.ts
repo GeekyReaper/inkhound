@@ -83,12 +83,13 @@ export class LibraryManagementComponent implements OnInit {
   deleteError          = signal<string | null>(null);
 
   form = new FormGroup({
-    name:         new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    path:         new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    kavitaLibraryId: new FormControl('', { nonNullable: true, validators: [Validators.required] })
+    name:            new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    path:            new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    kavitaLibraryId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    kavitaPath:      new FormControl('', { nonNullable: true })
   });
 
-  get pathCtrl()         { return this.form.controls.path; }
+  get pathCtrl()      { return this.form.controls.path; }
 
 
   ngOnInit() {
@@ -124,7 +125,8 @@ export class LibraryManagementComponent implements OnInit {
     this.form.setValue({
       name:            lib.name,
       path:            lib.path,
-      kavitaLibraryId: lib.kavitaLibraryId.toString()
+      kavitaLibraryId: lib.kavitaLibraryId.toString(),
+      kavitaPath:      lib.kavitaPath
     });
     this.saveStatus.set('idle');
     this.kavitaService.loadLibraries();
@@ -174,7 +176,8 @@ export class LibraryManagementComponent implements OnInit {
     const request: CreateLibraryRequest = {
       name:            this.form.controls.name.value,
       path:            this.form.controls.path.value,
-      kavitaLibraryId: Number(this.form.controls.kavitaLibraryId.value)
+      kavitaLibraryId: Number(this.form.controls.kavitaLibraryId.value),
+      kavitaPath:      this.form.controls.kavitaPath.value
     };
 
     this.saving.set(true);

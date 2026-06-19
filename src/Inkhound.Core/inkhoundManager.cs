@@ -138,7 +138,7 @@ public class InkhoundManager : BaseServiceManager
         return await GetDb().Libraries.FindAsync(id);
     }
 
-    public async Task<Library> CreateLibraryAsync(string name, string path, int kavitaLibraryId)
+    public async Task<Library> CreateLibraryAsync(string name, string path, int kavitaLibraryId, string kavitaPath = "")
     {
         var ctx = GetDb();
         var library = new Library
@@ -147,6 +147,7 @@ public class InkhoundManager : BaseServiceManager
             Name = name,
             Path = path,
             KavitaLibraryId = kavitaLibraryId,
+            KavitaPath = kavitaPath,
             CreatedAt = DateTime.UtcNow
         };
         ctx.Libraries.Add(library);
@@ -155,7 +156,7 @@ public class InkhoundManager : BaseServiceManager
         return library;
     }
 
-    public async Task<Library?> UpdateLibraryAsync(Guid id, string name, string path, int kavitaLibraryId)
+    public async Task<Library?> UpdateLibraryAsync(Guid id, string name, string path, int kavitaLibraryId, string kavitaPath = "")
     {
         var ctx = GetDb();
         var library = await ctx.Libraries.FindAsync(id);
@@ -164,6 +165,7 @@ public class InkhoundManager : BaseServiceManager
         library.Name = name;
         library.Path = path;
         library.KavitaLibraryId = kavitaLibraryId;
+        library.KavitaPath = kavitaPath;
         await ctx.SaveChangesAsync();
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(library.Id));
         return library;
@@ -888,6 +890,64 @@ public class InkhoundManager : BaseServiceManager
 
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
         return true;
+    }
+
+    public async Task LaunchJobRegenerateComicInfo(RegenerateComicInfoJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(parameters.VolumeId);
+        var jobTitle = volume is not null
+            ? $"Regenerate ComicInfo — {volume.Title}"
+            : $"Regenerate ComicInfo — {parameters.VolumeId}";
+
+        var job = StartJob(jobTitle, parameters);
+        job.SetState(JobState.RUNNING);
+        try
+        {
+            if (volume is null) { EndJob(false); return; }
+
+            var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+            if (library is null) { EndJob(false); return; }
+
+            var archiveService = GetService<ArchiveService, ArchiveOption>();
+
+            var downloadedIssues = await ctx.Issues
+                .Where(i => i.VolumeId == parameters.VolumeId && i.Status == IssueStatus.DOWNLOADED)
+                .ToListAsync();
+
+            JobSendTrace($"[Regen] {downloadedIssues.Count} downloaded issues found for {volume.Title}");
+            job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
+
+            foreach (var issue in downloadedIssues)
+            {
+                var cbzPath = ArchiveService.GetPath(issue, volume, library);
+                JobSendTrace($"[Regen] Injecting ComicInfo into {issue.CbzFilename}");
+                await archiveService.InjectComicInfoIntoCbzAsync(volume, issue, cbzPath);
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+            }
+
+            if (!string.IsNullOrEmpty(library.KavitaPath))
+            {
+                var kavita = GetService<KavitaService, KavitaOptions>();
+                var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
+                JobSendTrace($"[Regen] Triggering Kavita folder scan: {kavitaFolderPath}");
+                await kavita.ScanFolderAsync(kavitaFolderPath);
+            }
+            else
+            {
+                JobSendTrace("[Regen] No KavitaPath configured — falling back to full library scan");
+                await ScanKavitaLibraryAsync(library.KavitaLibraryId);
+            }
+
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(parameters.VolumeId));
+            EndJob(true);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Regen] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
     }
 
     public async Task<bool> UpdateVolumeAgeRatingAsync(Guid volumeId, AgeRating ageRating, CancellationToken ct = default)

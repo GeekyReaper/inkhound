@@ -94,6 +94,33 @@ public class KavitaService : BaseService<KavitaOptions>
         }
     }
 
+    public async Task<bool> ScanFolderAsync(string folderPath)
+    {
+        try
+        {
+            if (!await EnsureTokenAsync()) return false;
+
+            var url = "api/Library/scan-folder";
+            var content = new StringContent(
+                JsonSerializer.Serialize(new { apiKey = Options.ApiKey, folderPath }),
+                Encoding.UTF8,
+                "application/json");
+            var response = await _http.PostAsync(url, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                SendTrace($"ScanFolderAsync failed with HTTP {(int)response.StatusCode} for folder {folderPath}: {body}", ETraceLevel.WARNING);
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"ScanFolderAsync error for folder {folderPath}", ex);
+            return false;
+        }
+    }
+
     // Returns true if token is valid, false if authentication failed
     private async Task<bool> EnsureTokenAsync()
     {

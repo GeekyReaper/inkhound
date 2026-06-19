@@ -266,64 +266,17 @@ public class ArchiveService : BaseService<ArchiveOption>
             _ => null
         };
     }
-    public async Task<FileInfo> CreateComicInfo(Volume volume, Issue issue, string destinationPath, ProgressionCallback? progression = null)
+    private static XDocument BuildComicInfoDocument(Volume volume, Issue issue)
     {
-
-        progression?.UpdateTotal(1);
-
-        var fullDestPath = Path.Combine(Options.WorkingPath, destinationPath);
-        Directory.CreateDirectory(fullDestPath);
-
-        var filePath = Path.Combine(fullDestPath, "ComicInfo.xml");
-
         var authors = issue.Authors.Count > 0 ? issue.Authors : volume.Authors;
 
-        var writers = authors
-            .Where(a => a.Role.Equals("Writer", StringComparison.OrdinalIgnoreCase))
-            .Select(a => a.Name)
-            .ToList();
-
-        var pencillers = authors
-            .Where(a => a.Role.Equals("Penciler", StringComparison.OrdinalIgnoreCase)
-                     || a.Role.Equals("Penciller", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-
-        var inkers = authors
-            .Where(a => a.Role.Equals("Inker", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-
-        var editors = authors
-            .Where(a => a.Role.Equals("Editor", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-
-        var artists = authors
-            .Where(a => a.Role.Equals("Artist", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-
-        var colorists = authors
-            .Where(a => a.Role.Equals("Colorist", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-        var letterers = authors
-            .Where(a => a.Role.Equals("Letterer", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-        var translators = authors
-            .Where(a => a.Role.Equals("Translator", StringComparison.OrdinalIgnoreCase)
-                     )
-            .Select(a => a.Name)
-            .ToList();
-
+        var writers    = authors.Where(a => a.Role.Equals("Writer",     StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        var pencillers = authors.Where(a => a.Role.Equals("Penciler",   StringComparison.OrdinalIgnoreCase)
+                                         || a.Role.Equals("Penciller",  StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        var artists    = authors.Where(a => a.Role.Equals("Artist",     StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        var colorists  = authors.Where(a => a.Role.Equals("Colorist",   StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        var letterers  = authors.Where(a => a.Role.Equals("Letterer",   StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        var translators= authors.Where(a => a.Role.Equals("Translator", StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
 
         var elements = new List<object?>
         {
@@ -331,41 +284,32 @@ public class ArchiveService : BaseService<ArchiveOption>
             new XElement("Series", volume.Title),
             new XElement("Number", issue.IssueNumber),
             issue.Year.HasValue || volume.Year.HasValue
-                ? new XElement("Year", issue.Year ?? volume.Year)
-                : null,
+                ? new XElement("Year", issue.Year ?? volume.Year) : null,
             issue.PublishedAt.HasValue
-                ? new XElement("Month", issue.PublishedAt.Value.Month)
-                : null,
+                ? new XElement("Month", issue.PublishedAt.Value.Month) : null,
             !string.IsNullOrEmpty(volume.Publisher)
-                ? new XElement("Publisher", volume.Publisher)
-                : null,
+                ? new XElement("Publisher", volume.Publisher) : null,
             !string.IsNullOrEmpty(issue.Description ?? volume.Description)
-                ? new XElement("Summary", issue.Description ?? volume.Description)
-                : null,
+                ? new XElement("Summary", issue.Description ?? volume.Description) : null,
             volume.Genres.Count > 0
-                ? new XElement("Genre", string.Join(", ", volume.Genres))
-                : null,
+                ? new XElement("Genre", string.Join(", ", volume.Genres)) : null,
+            volume.AgeRating != AgeRating.Unknown
+                ? new XElement("AgeRating", volume.AgeRating.ToKavitaString()) : null,
             writers.Count > 0
-                ? new XElement("Writer", string.Join(", ", writers))
-                : null,
+                ? new XElement("Writer", string.Join(", ", writers)) : null,
             pencillers.Count > 0
-                ? new XElement("Penciller", string.Join(", ", pencillers))
-                : null,
+                ? new XElement("Penciller", string.Join(", ", pencillers)) : null,
             artists.Count > 0
-                ? new XElement("Artist", string.Join(", ", artists))
-                : null,
+                ? new XElement("Artist", string.Join(", ", artists)) : null,
             colorists.Count > 0
-                ? new XElement("Colorist", string.Join(", ", colorists))
-                : null,
+                ? new XElement("Colorist", string.Join(", ", colorists)) : null,
             letterers.Count > 0
-                ? new XElement("Letterer", string.Join(", ", letterers))
-                : null,
+                ? new XElement("Letterer", string.Join(", ", letterers)) : null,
             translators.Count > 0
-                ? new XElement("Translator", string.Join(", ", translators))
-                : null,
+                ? new XElement("Translator", string.Join(", ", translators)) : null,
         };
 
-        var doc = new XDocument(
+        return new XDocument(
             new XDeclaration("1.0", "utf-8", null),
             new XElement("ComicInfo",
                 new XAttribute(XNamespace.Xmlns + "xsi", "http://www.w3.org/2001/XMLSchema-instance"),
@@ -373,15 +317,47 @@ public class ArchiveService : BaseService<ArchiveOption>
                 elements.Where(e => e != null).Cast<object>().ToArray()
             )
         );
+    }
+
+    public async Task<FileInfo> CreateComicInfo(Volume volume, Issue issue, string destinationPath, ProgressionCallback? progression = null)
+    {
+        progression?.UpdateTotal(1);
+
+        var fullDestPath = Path.Combine(Options.WorkingPath, destinationPath);
+        Directory.CreateDirectory(fullDestPath);
+
+        var filePath = Path.Combine(fullDestPath, "ComicInfo.xml");
+        var doc = BuildComicInfoDocument(volume, issue);
 
         await using var stream = File.Create(filePath);
-
         await doc.SaveAsync(stream, SaveOptions.None, CancellationToken.None);
+
         var result = new FileInfo(filePath);
         SendTrace($"ComicInfo.xml created to {filePath} (size {result.Length / 1024.0:F1} KB)");
         progression?.Callback(new Progression() { Completed = 1, Error = 0 });
 
         return result;
+    }
+
+    public async Task InjectComicInfoIntoCbzAsync(Volume volume, Issue issue, string cbzPath)
+    {
+        if (!File.Exists(cbzPath))
+        {
+            SendTrace($"InjectComicInfoIntoCbz: CBZ not found at {cbzPath}", ETraceLevel.WARNING);
+            return;
+        }
+
+        var doc = BuildComicInfoDocument(volume, issue);
+
+        using var zip = ZipFile.Open(cbzPath, ZipArchiveMode.Update);
+        var existing = zip.GetEntry("ComicInfo.xml");
+        existing?.Delete();
+
+        var entry = zip.CreateEntry("ComicInfo.xml", CompressionLevel.NoCompression);
+        await using var entryStream = entry.Open();
+        await doc.SaveAsync(entryStream, SaveOptions.None, CancellationToken.None);
+
+        SendTrace($"ComicInfo.xml injected into {Path.GetFileName(cbzPath)}");
     }
 
     public async Task<FileInfo> CreateCbzFile(string workingPath, Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)

@@ -22,21 +22,28 @@ export interface VolumeAuthor {
 export type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'PAUSED';
 
 export type AgeRating =
-  | 'Unknown' | 'AllAges' | 'G' | 'PG' | 'Everyone10Plus'
-  | 'Teen' | 'Mature17Plus' | 'Adults18Plus' | 'X18Plus';
+  | 'Unknown' | 'RatingPending' | 'EarlyChildhood' | 'Everyone' | 'G'
+  | 'Everyone10Plus' | 'PG' | 'KidsToAdults' | 'Teen' | 'MA15Plus'
+  | 'Mature17Plus' | 'M' | 'R18Plus' | 'AdultsOnly18Plus' | 'X18Plus';
 
 export interface AgeRatingOption { value: AgeRating; label: string; }
 
 export const AGE_RATINGS: AgeRatingOption[] = [
-  { value: 'Unknown',       label: 'Unknown' },
-  { value: 'AllAges',       label: 'All Ages' },
-  { value: 'G',             label: 'G' },
-  { value: 'PG',            label: 'PG' },
-  { value: 'Everyone10Plus',label: 'Everyone 10+' },
-  { value: 'Teen',          label: 'Teen' },
-  { value: 'Mature17Plus',  label: 'Mature 17+' },
-  { value: 'Adults18Plus',  label: 'Adults 18+' },
-  { value: 'X18Plus',       label: 'X18+' },
+  { value: 'Unknown',          label: 'Unknown' },
+  { value: 'RatingPending',    label: 'Rating Pending' },
+  { value: 'EarlyChildhood',   label: 'Early Childhood' },
+  { value: 'Everyone',         label: 'Everyone' },
+  { value: 'G',                label: 'G' },
+  { value: 'Everyone10Plus',   label: 'Everyone 10+' },
+  { value: 'PG',               label: 'PG' },
+  { value: 'KidsToAdults',     label: 'Kids to Adults' },
+  { value: 'Teen',             label: 'Teen' },
+  { value: 'MA15Plus',         label: 'MA15+' },
+  { value: 'Mature17Plus',     label: 'Mature 17+' },
+  { value: 'M',                label: 'M' },
+  { value: 'R18Plus',          label: 'R18+' },
+  { value: 'AdultsOnly18Plus', label: 'Adults Only 18+' },
+  { value: 'X18Plus',          label: 'X18+' },
 ];
 
 export interface Volume {
@@ -167,6 +174,10 @@ export class VolumeService {
 
   rematchFromComicVine(volumeId: string, comicVineVolumeId: string) {
     return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { comicVineVolumeId: Number(comicVineVolumeId) });
+  }
+
+  regenerateComicInfo(volumeId: string) {
+    return this.http.post<{ message: string }>(`/api/volumes/${volumeId}/regenerate-comic-info`, {});
   }
 
   patchAgeRating(volumeId: string, ageRating: AgeRating) {

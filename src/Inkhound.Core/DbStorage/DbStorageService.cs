@@ -65,6 +65,14 @@ public class DbStorageService : BaseService<DbStorageOption>
         if (!hasAgeRating)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Volumes ADD COLUMN AgeRating TEXT NOT NULL DEFAULT 'Unknown'");
+
+        // KavitaPath ajouté en juin 2026 — chemin de la library tel que vu par Kavita
+        var hasKavitaPath = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Libraries') WHERE name='KavitaPath'")
+            .AnyAsync();
+        if (!hasKavitaPath)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Libraries ADD COLUMN KavitaPath TEXT NOT NULL DEFAULT ''");
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)

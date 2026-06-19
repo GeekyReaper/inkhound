@@ -104,6 +104,16 @@
           <svg cIcon name="cilSync" class="me-1"></svg>
           Match
         </button>
+        <button cButton color="secondary" size="sm"
+                [disabled]="regenerating()"
+                (click)="onRegenerateComicInfo()">
+          @if (regenerating()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          } @else {
+            <svg cIcon name="cilCloudUpload" class="me-1"></svg>
+          }
+          Refresh Kavita
+        </button>
         <button cButton color="danger" size="sm" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete
@@ -111,6 +121,11 @@
         @if (importSuccess()) {
           <c-alert color="success" class="mb-0 py-1 small">
             Import started — processing in background.
+          </c-alert>
+        }
+        @if (regenerateSuccess()) {
+          <c-alert color="success" class="mb-0 py-1 small">
+            Job started — follow progress in Jobs view.
           </c-alert>
         }
       </c-col>

@@ -156,6 +156,22 @@
                 }
               </div>
 
+              <!-- Kavita Path -->
+              <div class="mb-4">
+                <label cLabel for="kavitaPath">Kavita Path</label>
+                <input
+                  cFormControl
+                  id="kavitaPath"
+                  formControlName="kavitaPath"
+                  type="text"
+                  placeholder="/data/BandeDessinee"
+                />
+                <small class="text-body-secondary">
+                  Chemin de la library tel que Kavita le voit (peut différer du Path Inkhound si les points de montage diffèrent).
+                  Laissez vide pour utiliser un scan de toute la library.
+                </small>
+              </div>
+
               <!-- Error -->
               @if (saveStatus() === 'error') {
                 <c-alert color="danger" class="mb-3">{{ saveError() }}</c-alert>

@@ -64,7 +64,9 @@ export class VolumeComponent {
   deleteError          = signal<string | null>(null);
 
   readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
-  savingRating = signal(false);
+  savingRating      = signal(false);
+  regenerating      = signal(false);
+  regenerateSuccess = signal(false);
 
   constructor() {
     this.route.parent!.params
@@ -167,6 +169,19 @@ export class VolumeComponent {
           this.deleteError.set(err?.error?.message ?? 'Failed to delete volume.');
           this.deleting.set(false);
         }
+      });
+  }
+
+  onRegenerateComicInfo(): void {
+    const vol = this.volume();
+    if (!vol || this.regenerating()) return;
+    this.regenerating.set(true);
+    this.regenerateSuccess.set(false);
+    this.volumeService.regenerateComicInfo(vol.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  () => { this.regenerating.set(false); this.regenerateSuccess.set(true); },
+        error: err => { this.error.set(err?.error?.message ?? 'Regeneration failed.'); this.regenerating.set(false); }
       });
   }
 

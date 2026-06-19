@@ -10,12 +10,12 @@ namespace Inkhound.Web.Controllers;
 [Authorize(Roles = "admin")]
 public class LibraryController(InkhoundManager manager) : ControllerBase
 {
-    private record LibraryDto(Guid Id, string Name, string Path, int KavitaLibraryId, DateTime CreatedAt);
-    public record CreateLibraryRequest(string Name, string Path, int KavitaLibraryId);
-    public record UpdateLibraryRequest(string Name, string Path, int KavitaLibraryId);
+    private record LibraryDto(Guid Id, string Name, string Path, int KavitaLibraryId, string KavitaPath, DateTime CreatedAt);
+    public record CreateLibraryRequest(string Name, string Path, int KavitaLibraryId, string KavitaPath = "");
+    public record UpdateLibraryRequest(string Name, string Path, int KavitaLibraryId, string KavitaPath = "");
 
     private static LibraryDto ToDto(Library l)
-        => new(l.Id, l.Name, l.Path, l.KavitaLibraryId, l.CreatedAt);
+        => new(l.Id, l.Name, l.Path, l.KavitaLibraryId, l.KavitaPath, l.CreatedAt);
 
     // GET /api/libraries
     [HttpGet]
@@ -47,7 +47,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     {
         try
         {
-            var library = await manager.CreateLibraryAsync(request.Name, request.Path, request.KavitaLibraryId);
+            var library = await manager.CreateLibraryAsync(request.Name, request.Path, request.KavitaLibraryId, request.KavitaPath);
             return CreatedAtAction(nameof(GetById), new { id = library.Id }, ToDto(library));
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
@@ -59,7 +59,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     {
         try
         {
-            var library = await manager.UpdateLibraryAsync(id, request.Name, request.Path, request.KavitaLibraryId);
+            var library = await manager.UpdateLibraryAsync(id, request.Name, request.Path, request.KavitaLibraryId, request.KavitaPath);
             return library is null ? NotFound() : Ok(ToDto(library));
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }

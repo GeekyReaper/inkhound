@@ -7,6 +7,7 @@ export interface Library {
   name: string;
   path: string;
   kavitaLibraryId: number;
+  kavitaPath: string;
   createdAt: string;
 }
 
@@ -14,6 +15,7 @@ export interface CreateLibraryRequest {
   name: string;
   path: string;
   kavitaLibraryId: number;
+  kavitaPath: string;
 }
 
 export type UpdateLibraryRequest = CreateLibraryRequest;
