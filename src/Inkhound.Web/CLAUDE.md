@@ -93,12 +93,28 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
 
+## Jobs — exposition via les controllers
+
+Les méthodes `LaunchJobXxx` d'`InkhoundManager` sont des opérations longues (voir `Inkhound.Core/CLAUDE.md`). Le controller les déclenche en **fire-and-forget** et retourne immédiatement `202 Accepted`.
+
+```csharp
+[HttpPost("...")]
+public IActionResult StartXxx(Guid id)
+{
+    _ = manager.LaunchJobXxx(new XxxJobParameters { EntityId = id });
+    return Accepted(new { message = "Job started." });
+}
+```
+
+La progression est relayée en temps réel vers les clients via SignalR par `InkhoundManagerInitializer` (qui souscrit aux événements `OnJobUpdated` et `OnTrace` du manager et les diffuse via `AppHub`).
+
 ## SignalR Hub (`/hub/app`)
 
 Événements émis par le serveur :
 - `StateChanged` — patch d'état global (full au connect, partial ensuite)
-- `JobChanged` — contexte complet du job en cours
-- `JobTrace` — trace unitaire en temps réel
+- `ManagerJobChanged` — contexte complet du job en cours (état, progression)
+- `ManagerTrace` — trace unitaire en temps réel (niveau, message, jobId)
+- `ManagerDataUpdated` — notification de modification d'une entité (type + id)
 
 ## Gestion des erreurs
 
