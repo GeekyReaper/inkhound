@@ -93,11 +93,6 @@ export const appConfig: ApplicationConfig = {
 
 ### ✅ Toujours utiliser `@coreui/icons` + directive `cIcon`
 
-**Installation des packages :**
-```bash
-npm install @coreui/icons @coreui/icons-angular
-```
-
 **Setup dans `app.component.ts` (une seule fois) :**
 ```typescript
 import { IconSetService } from '@coreui/icons-angular';
@@ -106,7 +101,6 @@ import { cilUser, cilSettings, cilTrash, cilPencil, cilPlus, cilSearch } from '@
 @Component({ ... })
 export class AppComponent {
   constructor(public iconSet: IconSetService) {
-    // Enregistrer toutes les icônes utilisées dans l'app
     iconSet.icons = { cilUser, cilSettings, cilTrash, cilPencil, cilPlus, cilSearch };
   }
 }
@@ -114,16 +108,14 @@ export class AppComponent {
 
 **Utilisation dans les composants :**
 ```typescript
-// Importer IconModule dans chaque composant qui utilise des icônes
 @Component({
   standalone: true,
-  imports: [IconModule],  // ← obligatoire
+  imports: [IconDirective],  // ← obligatoire (IconDirective, pas IconModule)
   ...
 })
 ```
 
 ```html
-<!-- Par nom (recommandé — icône enregistrée dans IconSetService) -->
 <svg cIcon name="cilUser"></svg>
 <svg cIcon name="cilTrash" size="lg"></svg>
 <svg cIcon name="cilPencil" title="Modifier"></svg>
@@ -150,8 +142,6 @@ export class MyComponent {
 
 ### Icônes CoreUI disponibles pour Inkhound
 
-Préférer ces icônes pour les actions courantes du projet :
-
 | Action | Icône |
 |---|---|
 | Ajouter | `cilPlus` |
@@ -176,31 +166,48 @@ Préférer ces icônes pour les actions courantes du projet :
 
 ---
 
-## Structure
+## Structure réelle du projet
 
 ```
 src/
 ├── app/
 │   ├── core/                    # Singletons, guards, interceptors, modèles globaux
-│   │   ├── guards/
-│   │   ├── interceptors/
-│   │   ├── models/              # Interfaces TypeScript (auth, job, state, domaine)
-│   │   └── services/            # Services providedIn:'root'
-│   ├── shared/                  # Composants, pipes, directives réutilisables
-│   │   ├── components/
-│   │   ├── directives/
-│   │   └── pipes/
-│   └── features/                # Un dossier par domaine fonctionnel
-│       ├── auth/login/
-│       ├── dashboard/
-│       ├── library/
-│       ├── volume/
-│       ├── issue/
-│       └── admin/
-├── components/                  # Composants CoreUI surchargés
+│   │   ├── guards/              # auth.guard.ts
+│   │   ├── interceptors/        # auth, auth-error, connection
+│   │   ├── models/              # hub.models.ts (EState, JobContext, TraceDefinition, etc.)
+│   │   ├── resolvers/           # library-title, volume-title
+│   │   └── services/            # AuthService, HubService, LibraryService, VolumeService,
+│   │                            # IssueService, KavitaService, OptionsService, FilesystemService, ImageService
+│   ├── views/                   # Pages / vues de l'application
+│   │   ├── dashboard/           # DashboardComponent
+│   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste des volumes)
+│   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
+│   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
+│   │   ├── settings/            # SettingsComponent (options par service via OptionsService)
+│   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
+│   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
+│   │   └── pages/               # login, 404, 500
+│   ├── layout/                  # DefaultLayoutComponent (sidebar + header)
+│   └── icons/                   # logo.ts, signet.ts
+├── components/                  # Composants CoreUI surchargés (template CoreUI)
 ├── scss/                        # Styles globaux
 └── assets/
 ```
+
+## Routes applicatives
+
+| Route | Composant | Description |
+|---|---|---|
+| `/dashboard` | `DashboardComponent` | Tableau de bord |
+| `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
+| `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes |
+| `/library/:id/add-volume` | `VolumeAddComponent` | Ajouter un volume (ComicVine ou manuel) |
+| `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
+| `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
+| `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch ComicVine |
+| `/settings` | `SettingsComponent` | Options de configuration par service |
+| `/jobs` | `JobsComponent` | Historique des jobs |
+| `/login` | `LoginComponent` | Authentification |
 
 ## Règles absolues
 
@@ -277,15 +284,17 @@ ngOnInit() {
 
 ## Modèles TypeScript — domaine Inkhound
 
+Les interfaces métier sont co-localisées avec leur service, pas dans un dossier `models/` central.
+Exception : `hub.models.ts` regroupe les types Hub/SignalR (job, état, trace).
+
 ```typescript
-// Statuts Volume (miroir de VolumeStatus C#)
+// ─── volume.service.ts ───────────────────────────────────────────────────────
 type VolumeStatus = 'MONITORED' | 'COMPLETED' | 'PAUSED';
 
-// Statuts Issue (miroir de IssueStatus C#)
-type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
+type AgeRating = 'Unknown' | 'RatingPending' | 'EarlyChildhood' | 'Everyone' | 'G'
+  | 'Everyone10Plus' | 'PG' | 'KidsToAdults' | 'Teen' | 'MA15Plus'
+  | 'Mature17Plus' | 'M' | 'R18Plus' | 'AdultsOnly18Plus' | 'X18Plus';
 
-// Types partagés
-interface VolumeAuthor { name: string; role: string; }
 interface VolumeImage {
   iconUrl: string | null; mediumUrl: string | null; screenUrl: string | null;
   screenLargeUrl: string | null; smallUrl: string | null; superUrl: string | null;
@@ -293,33 +302,130 @@ interface VolumeImage {
   imageTags: string | null;
 }
 
-// Entités principales (miroir de Inkhound.Core/Models)
-interface Library {
-  id: string; name: string; path: string; kavitaLibraryId: number; createdAt: string;
-}
+interface VolumeAuthor { name: string; role: string; }
+
 interface Volume {
-  id: string; sourceId: string; sourceType: string; libraryId: string;
+  id: string; libraryId: string; sourceId: string; sourceType: string;
   title: string; year: number | null; description: string | null;
-  image: VolumeImage | null; publisher: string | null;
-  authors: VolumeAuthor[]; genres: string[];
-  status: VolumeStatus; countOfIssues: number; countOfDownloadedIssues: number;
-  issues: string[] | null; createdAt: string; updatedAt: string; dateAdded: string;
+  publisher: string | null; status: VolumeStatus; ageRating: AgeRating;
+  genres: string[]; authors: VolumeAuthor[]; image: VolumeImage | null;
+  countOfIssues: number; countOfDownloadedIssues: number;
+  createdAt: string; updatedAt: string;
 }
+
+interface VolumeSearchResult {
+  sourceId: string; sourceType: string; title: string; year: number | null;
+  countOfIssues: number; description: string | null; publisher: string | null;
+  image: VolumeImage | null; firstIssueName: string | null;
+  lastIssueName: string | null; siteDetailUrl: string | null;
+}
+
+interface PageResult<T> {
+  items: T[]; pageNumber: number; pageSize: number;
+  totalItems: number; totalPages: number; hasNext: boolean; hasPrev: boolean;
+}
+
+// ─── issue.service.ts ────────────────────────────────────────────────────────
+type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
+
 interface Issue {
-  id: string; comicVineId: string; volumeId: string; issueNumber: number;
+  id: string; volumeId: string; comicVineId: string; issueNumber: number;
   title: string | null; year: number | null; description: string | null;
-  image: VolumeImage | null; authors: VolumeAuthor[];
-  filePath: string | null; cbzFilename: string | null; fileSizeBytes: number;
-  downloadedAt: string; publishedAt: string | null; status: IssueStatus;
+  status: IssueStatus; authors: VolumeAuthor[]; image: VolumeImage | null;
+  cbzFilename: string | null; publishedAt: string | null;
 }
+
+interface ComicVineIssue {
+  id: string; issueNumber: string | null; name: string | null;
+  coverDate: string | null; thumbUrl: string | null; siteDetailUrl: string | null;
+}
+
+// ─── library.service.ts ──────────────────────────────────────────────────────
+interface Library {
+  id: string; name: string; path: string;
+  kavitaLibraryId: number; kavitaPath: string; createdAt: string;
+}
+
+// ─── kavita.service.ts ───────────────────────────────────────────────────────
+interface KavitaLibrary { id: number; name: string; type: number; lastScanned: string; }
+
+// ─── filesystem.service.ts ───────────────────────────────────────────────────
+interface DirectoryDto { name: string; fullPath: string; parent: string | null; createdAt: string; modifiedAt: string; }
+interface FileDto { name: string; fullPath: string; extension: string; sizeBytes: number; createdAt: string; modifiedAt: string; }
+
+// ─── auth.service.ts ─────────────────────────────────────────────────────────
+interface CurrentUser { id: string; login: string; role: string; }
+
+// ─── hub.models.ts ───────────────────────────────────────────────────────────
+type EState = 'NOTINIT' | 'INVALID' | 'OK' | 'WARNING' | 'ERROR';
+type EValueType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOL' | 'PASSWORD' | 'TEXT';
+type ETraceLevel = 'INFO' | 'DEBUG' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'NONE';
+type JobState = 'INITIALIZING' | 'RUNNING' | 'SUCCESS' | 'ERROR';
+
+interface OptionDefinition {
+  id: string; name: string; value: string; valueType: EValueType;
+  mandatory: boolean; description: string; regexValidator: string;
+  defaultValue: string; serviceName: string;
+}
+interface StateService { state: EState; lastRefresh: string; serviceName: string; infos: string[]; }
+interface StateServiceManager { stateServices: StateService[]; date: string; globalState: EState; }
+interface Progression { total: number; completed: number; error: number; percentage: number; }
+interface JobContext {
+  jobId: string; state: JobState; title: string; progress: Progression;
+  startDate: string; endDate: string | null; duration: string;
+}
+interface TraceDefinition {
+  message: string[]; date: string; serviceName: string; jobId: string | null; level: ETraceLevel;
+}
+interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 ```
 
 ## Services clés
 
-- `AuthService` — signal `currentUser`, `login()`, `logout()`, `isAdmin()`
-- `SignalRService` — connexion Hub, méthode `on<T>(eventName)`
-- `PlatformStateService` — signal `state`, `applyPatch()`
-- `JobService` — signals `job`, `traces`, `isRunning`, `start()`, `cancel()`
+| Service | Signals exposés | Méthodes principales |
+|---|---|---|
+| `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
+| `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
+| `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()` |
+| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromComicVine()`, `addManually()`, `update()`, `rematchFromComicVine()`, `regenerateComicInfo()`, `patchAgeRating()`, `delete()`, `importFromDirectory()` |
+| `IssueService` | — | `getByVolume()`, `getByComicVineVolume()` |
+| `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
+| `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
+| `FilesystemService` | — | `getDirectories()`, `getFiles()` |
+
+### HubService — événements SignalR reçus
+
+| Événement | Signal mis à jour | Description |
+|---|---|---|
+| `ManagerStateChanged` | `managerState` | Changement d'état d'un service |
+| `ManagerHealthcheck` | `managerState` | Healthcheck périodique |
+| `ManagerJobChanged` | `currentJob`, `jobs` | Mise à jour d'un job |
+| `ManagerTrace` | `lastTrace`, `jobTraces` | Log de trace (par job) |
+| `ManagerDataUpdated` | `lastDataUpdated` | Entité modifiée côté serveur (Volume, Issue, Library…) |
+
+> `lastDataUpdated.dataType` se termine par `'Volume'`, `'Issue'` ou `'Library'` — utiliser `.endsWith()` pour filtrer.
+
+## Composant réutilisable : SelectPathComponent
+
+`app-select-path` — modal de navigation du filesystem serveur.
+
+```typescript
+// Inputs
+mode        = input<'file' | 'directory'>('directory');
+initialPath = input<string>('');
+visible     = model<boolean>(false);  // two-way binding
+
+// Output
+pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
+```
+
+```html
+<app-select-path
+  mode="directory"
+  [initialPath]="library().path"
+  [(visible)]="importVisible"
+  (pathSelected)="onImportSelected($event)" />
+```
 
 ## Environnements
 
@@ -350,7 +456,7 @@ interface Issue {
 ```typescript
 @Component({
   standalone: true,
-  imports: [CardModule, TableDirective, BadgeModule, SpinnerModule, AlertModule, ButtonDirective, IconModule],
+  imports: [CardModule, TableDirective, BadgeModule, SpinnerModule, AlertModule, ButtonDirective, IconDirective],
 })
 export class VolumeListComponent {
   private service    = inject(VolumeService);

@@ -1,0 +1,19 @@
+.status-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--cui-body-bg);
+}
+
+.spinning {
+  display: inline-flex;
+  animation: rotate 2s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
