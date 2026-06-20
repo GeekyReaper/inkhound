@@ -98,7 +98,12 @@
               </div>
               <c-card-body class="d-flex flex-column">
                 <strong class="mb-1 text-truncate" title="{{ volume.title }}">{{ volume.title }}</strong>
-                <div class="small text-body-secondary mb-3">{{ volumeSubtitle(volume) }}</div>
+                <div class="small text-body-secondary mb-1">{{ volumeSubtitle(volume) }}</div>
+                @if (volume.ageRating && volume.ageRating !== 'Unknown') {
+                  <div class="mb-2">
+                    <c-badge color="secondary" class="fw-normal">{{ ageRatingLabel(volume.ageRating) }}</c-badge>
+                  </div>
+                }
                 <div class="mt-auto">
                   <div [cTooltip]="volume.countOfDownloadedIssues + ' / ' + volume.countOfIssues"
                        cTooltipPlacement="top">

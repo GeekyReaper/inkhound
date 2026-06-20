@@ -19,7 +19,7 @@ import {
 } from '@coreui/angular';
 import { Library, LibraryService } from '../../core/services/library.service';
 import { KavitaService } from '../../core/services/kavita.service';
-import { Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
+import { AGE_RATINGS, AgeRating, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 
@@ -122,6 +122,10 @@ export class LibraryComponent {
   volumeSubtitle(volume: Volume): string {
     const parts = [volume.year?.toString(), volume.publisher].filter((p): p is string => !!p);
     return parts.length ? parts.join(' · ') : '—';
+  }
+
+  ageRatingLabel(rating: AgeRating): string {
+    return AGE_RATINGS.find(r => r.value === rating)?.label ?? rating;
   }
 
   synchronize(): void {
