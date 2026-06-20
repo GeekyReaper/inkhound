@@ -70,14 +70,14 @@
     <ul cDropdownMenu class="pt-0" style="min-width: 280px">
       <li>
         <h6 cDropdownHeader class="bg-body-secondary text-body-secondary fw-semibold py-2 rounded-top">
-          Jobs en cours
+          Running jobs
         </h6>
       </li>
 
       @if (runningJobs().length === 0) {
         <li>
           <span class="dropdown-item-text text-body-secondary fst-italic px-3 py-2 d-block">
-            Aucun job actif
+            No active job
           </span>
         </li>
       } @else {
@@ -98,13 +98,13 @@
       <li>
         <a cDropdownItem routerLink="/jobs">
           <svg cIcon class="me-2" name="cilList"></svg>
-          Voir tous les jobs
+          View all jobs
         </a>
       </li>
       <li>
         <a cDropdownItem routerLink="/settings">
           <svg cIcon class="me-2" name="cilSettings"></svg>
-          Paramètres services
+          Service settings
         </a>
       </li>
     </ul>
