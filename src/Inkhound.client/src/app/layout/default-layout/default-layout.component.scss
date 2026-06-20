@@ -1,4 +1,12 @@
 :host::ng-deep {
+  .inkhound-sidebar {
+    --cui-sidebar-bg: #06468d;
+    --cui-sidebar-brand-bg: #06468d;
+    --cui-sidebar-nav-link-hover-bg: rgba(255, 255, 255, 0.1);
+    --cui-sidebar-nav-link-active-bg: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
   .ng-scrollbar {
     --scrollbar-padding: 1px;
     --scrollbar-size: 5px;
