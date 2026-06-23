@@ -1,10 +1,35 @@
 :host::ng-deep {
   .inkhound-sidebar {
     --cui-sidebar-bg: #06468d;
-    --cui-sidebar-brand-bg: #06468d;
-    --cui-sidebar-nav-link-hover-bg: rgba(255, 255, 255, 0.1);
-    --cui-sidebar-nav-link-active-bg: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.1) !important;
+    --cui-sidebar-brand-bg: #05397a;
+    --cui-sidebar-nav-title-color: rgba(255, 255, 255, 0.42);
+
+    border-color: rgba(255, 255, 255, 0.08) !important;
+
+    .nav-link {
+      color: rgba(255, 255, 255, 0.82) !important;
+      transition: background-color 0.15s ease, color 0.15s ease;
+
+      .nav-icon { opacity: 0.55; transition: opacity 0.15s ease; }
+
+      &:hover {
+        background-color: #1a6dd4 !important;
+        color: #ffffff !important;
+        .nav-icon { opacity: 1; }
+      }
+
+      &.active {
+        background-color: #1e78e8 !important;
+        color: #ffffff !important;
+        border-left: 3px solid rgba(255, 255, 255, 0.7);
+        padding-left: calc(1rem - 3px);
+        .nav-icon { opacity: 1; }
+      }
+    }
+
+    .nav-group.show > .nav-group-items {
+      background-color: rgba(0, 0, 0, 0.15) !important;
+    }
   }
 
   .ng-scrollbar {
