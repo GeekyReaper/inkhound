@@ -9,7 +9,10 @@ using Inkhound.Core.DbStorage;
 using Inkhound.Core.ComicArchiveGenerator;
 using Inkhound.Core.Kavita;
 using Inkhound.Core.Kavita.Models;
+using Inkhound.Core.Prowlarr;
+using Inkhound.Core.Scoring;
 using SharpCompress.Compressors.ZStandard.Unsafe;
+using System.Text.Json;
 
 namespace Inkhound.Core;
 
@@ -80,6 +83,7 @@ public class InkhoundManager : BaseServiceManager
         var comicVine = GetService<ComicVineService, ComicVineOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var kavitaService = GetService<KavitaService, KavitaOptions>();
+        GetService<ProwlarrService, ProwlarrOptions>();
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };
@@ -218,6 +222,9 @@ public class InkhoundManager : BaseServiceManager
             .OrderBy(i => i.IssueNumber)
             .ToListAsync();
     }
+
+    public async Task<Issue?> GetIssueAsync(Guid id, CancellationToken ct = default)
+        => await GetDb().Issues.FindAsync([id], ct);
 
     #endregion
 
@@ -1115,7 +1122,201 @@ public class InkhoundManager : BaseServiceManager
 
     private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];
 
+    #endregion
 
+    #region Prowlarr
+
+    public async Task<List<ProwlarrIndexer>> GetProwlarrIndexersAsync(CancellationToken ct = default)
+    {
+        var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
+        if (prowlarr.CurrentState.State != EState.OK) return [];
+        return await prowlarr.GetIndexersAsync(ct);
+    }
+
+    public async Task<List<SelectedIndexer>> GetSelectedIndexersAsync()
+    {
+        return await GetDb().SelectedIndexers.ToListAsync();
+    }
+
+    public async Task SetSelectedIndexersAsync(
+        List<(ProwlarrIndexer Indexer, List<int> CategoryIds)> items)
+    {
+        var ctx = GetDb();
+        ctx.SelectedIndexers.RemoveRange(ctx.SelectedIndexers);
+        foreach (var (indexer, categoryIds) in items)
+        {
+            ctx.SelectedIndexers.Add(new SelectedIndexer
+            {
+                IndexerId      = indexer.Id,
+                Name           = indexer.Name,
+                Protocol       = indexer.Protocol,
+                AddedAt        = DateTime.UtcNow,
+                CategoriesJson = JsonSerializer.Serialize(categoryIds)
+            });
+        }
+        await ctx.SaveChangesAsync();
+    }
+
+    public async Task<List<ScoredSearchResult>> LaunchJobSearchMissingIssue(ProwlarrSearchJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync(parameters.IssueId);
+        var jobTitle = issue is not null
+            ? $"Recherche Prowlarr — Issue #{issue.IssueNumber}"
+            : $"Recherche Prowlarr — {parameters.IssueId}";
+
+        var job = StartJob(jobTitle, parameters);
+        job.SetState(JobState.RUNNING);
+
+        try
+        {
+            if (issue is null)
+            {
+                EndJob(false);
+                return [];
+            }
+
+            var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
+            if (volume is null)
+            {
+                EndJob(false);
+                return [];
+            }
+
+            var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
+            if (prowlarr.CurrentState.State != EState.OK)
+            {
+                JobSendTrace("[Prowlarr] Service non disponible", ETraceLevel.ERROR);
+                EndJob(false);
+                return [];
+            }
+
+            // Indexers : paramètre explicite ou sélection persistée
+            int[]? indexerIds = parameters.IndexerIds;
+            var saved = await ctx.SelectedIndexers.ToListAsync();
+            if (indexerIds is null or { Length: 0 })
+                indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
+
+            var queries = BuildSearchQueries(volume, issue);
+            job.CallbackHandler.UpdateTotal(queries.Count);
+
+            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) à tenter pour \"{volume.Title} #{issue.IssueNumber}\"");
+
+            List<ScoredSearchResult> results = [];
+
+            foreach (var query in queries)
+            {
+                JobSendTrace($"[Prowlarr] Recherche : {query}");
+                var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+
+                if (raw.Count > 0)
+                {
+                    JobSendTrace($"[Prowlarr] {raw.Count} résultat(s) trouvé(s) avec \"{query}\"");
+                    results = ScoringService.ScoreAndSort(volume, issue, raw);
+                    break;
+                }
+
+                JobSendTrace($"[Prowlarr] Aucun résultat pour \"{query}\", tentative suivante");
+            }
+
+            if (results.Count == 0)
+                JobSendTrace("[Prowlarr] Aucun résultat sur aucune tentative", ETraceLevel.WARNING);
+
+            EndJob(true);
+            return results;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+            return [];
+        }
+    }
+
+    public async Task<bool> GrabSearchResultAsync(
+        string guid,
+        int indexerId,
+        Guid issueId,
+        int? downloadClientId = null,
+        CancellationToken ct = default)
+    {
+        var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
+        if (prowlarr.CurrentState.State != EState.OK) return false;
+
+        var success = await prowlarr.GrabReleaseAsync(guid, indexerId, downloadClientId, ct);
+        if (!success) return false;
+
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync([issueId], ct);
+        if (issue is not null)
+        {
+            issue.Status = IssueStatus.DOWNLOADING;
+            await ctx.SaveChangesAsync(ct);
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
+        }
+
+        return true;
+    }
+
+    public async Task<List<ProwlarrHistoryItem>> GetProwlarrHistoryAsync(
+        int limit = 20,
+        CancellationToken ct = default)
+    {
+        var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
+        if (prowlarr.CurrentState.State != EState.OK) return [];
+        return await prowlarr.GetHistoryAsync(limit, ct);
+    }
+
+    private static int[] ComputeCategories(List<SelectedIndexer> saved, int[]? activeIndexerIds)
+    {
+        var relevant = activeIndexerIds is { Length: > 0 }
+            ? saved.Where(s => activeIndexerIds.Contains(s.IndexerId)).ToList()
+            : saved;
+
+        var cats = relevant
+            .Where(s => !string.IsNullOrEmpty(s.CategoriesJson))
+            .SelectMany(s => JsonSerializer.Deserialize<List<int>>(s.CategoriesJson) ?? [])
+            .Distinct()
+            .ToArray();
+
+        return cats.Length > 0 ? cats : [7030];
+    }
+
+    // Construit les requêtes du plus précis au plus général en croisant Volume + Issue
+    private static List<string> BuildSearchQueries(Volume volume, Issue issue)
+    {
+        var title = volume.Title;
+        var num = issue.IssueNumber;
+        var year = issue.Year ?? volume.Year;
+        var publisher = string.IsNullOrWhiteSpace(volume.Publisher) ? null : volume.Publisher;
+        var issueTitle = string.IsNullOrWhiteSpace(issue.Title) ? null : issue.Title;
+
+        List<string> candidates = [];
+
+        // Niveau 1 : max — titre + numéro + éditeur + année + titre issue
+        if (publisher is not null && year is not null && issueTitle is not null)
+            candidates.Add($"{title} #{num} {publisher} ({year}) {issueTitle}");
+
+        // Niveau 2 : titre + numéro + éditeur + année
+        if (publisher is not null && year is not null)
+            candidates.Add($"{title} #{num} {publisher} ({year})");
+
+        // Niveau 3 : titre + numéro + année
+        if (year is not null)
+            candidates.Add($"{title} #{num} ({year})");
+
+        // Niveau 4 : titre + numéro
+        candidates.Add($"{title} #{num}");
+
+        // Niveau 5 (fallback) : titre seul
+        candidates.Add(title);
+
+        // Déduplication en conservant l'ordre
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return candidates.Where(seen.Add).ToList();
+    }
 
     #endregion
 }

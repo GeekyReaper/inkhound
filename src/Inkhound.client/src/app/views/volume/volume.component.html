@@ -14,6 +14,17 @@
     </c-row>
   } @else if (volume()) {
 
+    <!-- Back button -->
+    <c-row class="mb-3 align-items-center">
+      <c-col></c-col>
+      <c-col [xs]="'auto'">
+        <button cButton color="secondary" variant="outline" size="sm" (click)="goBack()">
+          <svg cIcon name="cilChevronLeft" size="sm"></svg>
+          Back
+        </button>
+      </c-col>
+    </c-row>
+
     <!-- Volume detail -->
     <c-row class="mb-4">
       <c-col md="3" lg="2">
@@ -153,7 +164,7 @@
               <c-row class="g-3">
                 @for (issue of issues(); track issue.id) {
                   <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
-                    <c-card class="h-100">
+                    <c-card class="h-100" style="cursor: pointer;" (click)="goIssue(issue)">
                       <div class="position-relative rounded-top overflow-hidden" style="aspect-ratio: 2/3;">
                         @if (issue.image?.smallUrl ?? issue.image?.thumbUrl; as imgUrl) {
                           <img

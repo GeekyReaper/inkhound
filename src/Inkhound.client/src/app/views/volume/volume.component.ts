@@ -117,12 +117,21 @@ export class VolumeComponent {
       });
   }
 
+  goBack(): void {
+    const libraryId = this.volume()?.libraryId;
+    if (libraryId) this.router.navigate(['/library', libraryId]);
+  }
+
   goEdit(): void {
     this.router.navigate(['edit'], { relativeTo: this.route });
   }
 
   goMatch(): void {
     this.router.navigate(['match'], { relativeTo: this.route });
+  }
+
+  goIssue(issue: Issue): void {
+    this.router.navigate(['issue', issue.id], { relativeTo: this.route.parent });
   }
 
   onImportSelected(path: string): void {

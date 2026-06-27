@@ -73,6 +73,29 @@ public class DbStorageService : BaseService<DbStorageOption>
         if (!hasKavitaPath)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Libraries ADD COLUMN KavitaPath TEXT NOT NULL DEFAULT ''");
+
+        // SelectedIndexers ajouté en juin 2026 — indexers Prowlarr sélectionnés par l'utilisateur
+        var hasSelectedIndexers = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='SelectedIndexers'")
+            .AnyAsync();
+        if (!hasSelectedIndexers)
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS SelectedIndexers (
+                    IndexerId   INTEGER NOT NULL PRIMARY KEY,
+                    Name        TEXT    NOT NULL DEFAULT '',
+                    Protocol    TEXT    NOT NULL DEFAULT '',
+                    AddedAt     TEXT    NOT NULL DEFAULT ''
+                )
+                """);
+
+        // CategoriesJson ajouté en juin 2026 — catégories Prowlarr par indexeur (JSON)
+        var hasCategoriesJson = await db.Database
+            .SqlQueryRaw<string>(
+                "SELECT name FROM pragma_table_info('SelectedIndexers') WHERE name='CategoriesJson'")
+            .AnyAsync();
+        if (!hasCategoriesJson)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE SelectedIndexers ADD COLUMN CategoriesJson TEXT NOT NULL DEFAULT ''");
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)

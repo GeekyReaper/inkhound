@@ -1,0 +1,239 @@
+<c-container class="py-4">
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (loadError()) {
+    <c-row>
+      <c-col>
+        <c-alert color="danger">{{ loadError() }}</c-alert>
+      </c-col>
+    </c-row>
+  } @else if (issue()) {
+
+    <!-- Barre titre + bouton Back -->
+    <c-row class="mb-3 align-items-center">
+      <c-col>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <h2 class="mb-0">Issue #{{ issue()!.issueNumber }}</h2>
+          @if (issue()!.title) {
+            <span class="text-body-secondary fs-5">— {{ issue()!.title }}</span>
+          }
+          <span [class]="issueStatusBadgeClass(issue()!.status)">{{ issue()!.status }}</span>
+        </div>
+      </c-col>
+      <c-col [xs]="'auto'">
+        <button cButton color="secondary" variant="outline" size="sm" (click)="goBack()">
+          <svg cIcon name="cilChevronLeft" size="sm"></svg>
+          Back
+        </button>
+      </c-col>
+    </c-row>
+
+    <!-- Cover + métadonnées -->
+    <c-row class="mb-4">
+      <c-col md="3" lg="2">
+        @if (issue()!.image?.smallUrl ?? issue()!.image?.thumbUrl; as imgUrl) {
+          <img
+            [src]="imgUrl"
+            [alt]="'Issue #' + issue()!.issueNumber"
+            class="img-fluid rounded shadow-sm w-100"
+            style="object-fit: cover;" />
+        } @else {
+          <div class="rounded bg-body-secondary d-flex align-items-center justify-content-center"
+               style="width: 100%; aspect-ratio: 2/3;">
+            <span class="text-body-tertiary small">No cover</span>
+          </div>
+        }
+      </c-col>
+
+      <c-col md="9" lg="10">
+        <dl class="row mb-0">
+          @if (issue()!.year) {
+            <dt class="col-sm-3 col-lg-2">Year</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.year }}</dd>
+          }
+          @if (issue()!.publishedAt) {
+            <dt class="col-sm-3 col-lg-2">Published</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.publishedAt | date:'mediumDate' }}</dd>
+          }
+          @if (issue()!.authors.length > 0) {
+            <dt class="col-sm-3 col-lg-2">Authors</dt>
+            <dd class="col-sm-9 col-lg-10">
+              @for (author of issue()!.authors; track author.name) {
+                <span>{{ author.name }}<span class="text-body-secondary"> ({{ author.role }})</span></span>
+                @if (!$last) { <span class="me-1">,</span> }
+              }
+            </dd>
+          }
+          @if (issue()!.description) {
+            <dt class="col-sm-3 col-lg-2">Description</dt>
+            <dd class="col-sm-9 col-lg-10" [innerHTML]="issue()!.description"></dd>
+          }
+        </dl>
+      </c-col>
+    </c-row>
+
+    <!-- Manual Search -->
+    <c-row>
+      <c-col>
+        <c-card>
+          <c-card-body>
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <h5 class="mb-0">Manual Search via Prowlarr</h5>
+              <button cButton color="primary" size="sm" [disabled]="searching()" (click)="onSearch()">
+                @if (searching()) {
+                  <c-spinner size="sm" class="me-1"></c-spinner>
+                } @else {
+                  <svg cIcon name="cilMagnifyingGlass" size="sm" class="me-1"></svg>
+                }
+                Search
+              </button>
+            </div>
+
+            @if (searching() && currentJob()) {
+              <div class="mb-3">
+                <div class="text-body-secondary small mb-1">{{ currentJob()!.title }}</div>
+                <c-progress class="mb-1">
+                  <c-progress-bar
+                    color="primary"
+                    [value]="currentJob()!.progress.percentage"
+                    [animated]="true">
+                    {{ currentJob()!.progress.percentage | number:'1.0-0' }}%
+                  </c-progress-bar>
+                </c-progress>
+              </div>
+            }
+
+            @if (grabSuccess()) {
+              <c-alert color="success" class="mb-3">{{ grabSuccess() }}</c-alert>
+            }
+
+            @if (searchError()) {
+              <c-alert color="danger" class="mb-3">{{ searchError() }}</c-alert>
+            }
+
+            @if (searchResults().length > 0) {
+
+              <!-- Compteur résultats -->
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <span class="text-body-secondary small">
+                  {{ searchResults().length }} result{{ searchResults().length > 1 ? 's' : '' }}
+                  @if (totalPages() > 1) {
+                    — page {{ currentPage() }} / {{ totalPages() }}
+                  }
+                </span>
+              </div>
+
+              <div class="table-responsive">
+                <table cTable [hover]="true">
+                  <thead>
+                    <tr>
+                      <th style="width: 75px;">Score</th>
+                      <th style="width: 130px;">Indexer</th>
+                      <th>Title</th>
+                      <th style="width: 80px;">Format</th>
+                      <th style="width: 85px;">Size</th>
+                      <th style="width: 80px;">Seeders</th>
+                      <th style="width: 115px;">Date</th>
+                      <th style="width: 60px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of pagedResults(); track item.result.guid) {
+                      <tr>
+                        <td class="align-middle">
+                          <span [class]="'badge bg-' + scoreColor(item.score)">
+                            {{ item.score | number:'1.0-0' }}
+                          </span>
+                        </td>
+                        <td class="align-middle">
+                          <div class="d-flex flex-column gap-1">
+                            <span class="small fw-semibold">{{ item.result.indexer ?? ('ID ' + item.result.indexerId) }}</span>
+                            @if (item.result.protocol?.toLowerCase() === 'torrent') {
+                              <span class="badge bg-info text-uppercase" style="width: fit-content;">torrent</span>
+                            } @else {
+                              <span class="badge bg-secondary text-uppercase" style="width: fit-content;">nzb</span>
+                            }
+                          </div>
+                        </td>
+                        <td class="align-middle text-break">
+                          <div>
+                            @if (item.result.infoUrl) {
+                              <a [href]="item.result.infoUrl" target="_blank" rel="noopener">{{ item.result.title }}</a>
+                            } @else {
+                              {{ item.result.title }}
+                            }
+                          </div>
+                          @if (item.result.categories.length > 0) {
+                            <div class="text-body-secondary small mt-1">
+                              {{ categoryNames(item.result.categories) }}
+                            </div>
+                          }
+                        </td>
+                        <td class="align-middle">
+                          <span class="badge bg-secondary">{{ detectFormat(item.result.title) }}</span>
+                        </td>
+                        <td class="align-middle text-nowrap">{{ formatSize(item.result.size) }}</td>
+                        <td class="align-middle">
+                          @if (item.result.protocol?.toLowerCase() === 'torrent') {
+                            {{ item.result.seeders }}
+                          } @else {
+                            <span class="text-body-secondary small">—</span>
+                          }
+                        </td>
+                        <td class="align-middle text-nowrap">{{ item.result.publishDate | date:'mediumDate' }}</td>
+                        <td class="align-middle">
+                          <button cButton color="primary" variant="outline" size="sm"
+                                  [disabled]="grabbingGuid() !== null"
+                                  (click)="onGrab(item)"
+                                  title="Download">
+                            @if (grabbingGuid() === item.result.guid) {
+                              <c-spinner size="sm"></c-spinner>
+                            } @else {
+                              <svg cIcon name="cilCloudDownload" size="sm"></svg>
+                            }
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Pagination -->
+              @if (totalPages() > 1) {
+                <nav class="mt-3">
+                  <ul class="pagination pagination-sm justify-content-center mb-0">
+                    <li class="page-item" [class.disabled]="currentPage() === 1">
+                      <button class="page-link" (click)="prevPage()">Previous</button>
+                    </li>
+                    @for (p of pageNumbers(); track p) {
+                      <li class="page-item" [class.active]="p === currentPage()">
+                        <button class="page-link" (click)="currentPage.set(p)">{{ p }}</button>
+                      </li>
+                    }
+                    <li class="page-item" [class.disabled]="currentPage() === totalPages()">
+                      <button class="page-link" (click)="nextPage()">Next</button>
+                    </li>
+                  </ul>
+                </nav>
+              }
+
+            } @else if (!searching()) {
+              <p class="text-body-secondary mb-0 small">
+                Click "Search" to find releases for this issue on your configured Prowlarr indexers.
+              </p>
+            }
+
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
+  }
+
+</c-container>

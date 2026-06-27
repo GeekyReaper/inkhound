@@ -154,9 +154,14 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-task' }
   },
   {
-    name: 'General',
+    name: 'Settings',
     url: '/settings',
     iconComponent: { name: 'cil-settings' }
+  },
+  {
+    name: 'Indexers',
+    url: '/settings/indexers',
+    iconComponent: { name: 'cil-list' }
   },
   {
     name: 'Libraries',

@@ -37,6 +37,14 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         IEnumerable<CvIssueDto> Items, int PageNumber, int PageSize,
         int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
 
+    // GET /api/issues/{issueId}
+    [HttpGet("/api/issues/{issueId:guid}")]
+    public async Task<IActionResult> GetById(Guid issueId)
+    {
+        var issue = await manager.GetIssueAsync(issueId);
+        return issue is null ? NotFound() : Ok(ToDto(issue));
+    }
+
     // GET /api/issues/comicvine?comicVineVolumeId=XXX&page=1&pageSize=10
     [HttpGet("/api/issues/comicvine")]
     public async Task<IActionResult> GetByComicVineVolumeId(

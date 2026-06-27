@@ -13,6 +13,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<OptionDefinition> Options => Set<OptionDefinition>();
 
+    public DbSet<SelectedIndexer> SelectedIndexers => Set<SelectedIndexer>();
+
     public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -34,6 +36,9 @@ public class DbStorageContext : DbContext
         modelBuilder.Entity<Issue>()
             .Property(i => i.Status)
             .HasConversion<string>();
+
+        modelBuilder.Entity<SelectedIndexer>()
+            .HasKey(si => si.IndexerId);
 
         // Authors serialized as JSON column
         modelBuilder.Entity<Volume>()

@@ -32,6 +32,10 @@ export interface Issue {
 export class IssueService {
   private http = inject(HttpClient);
 
+  getById(issueId: string) {
+    return this.http.get<Issue>(`/api/issues/${issueId}`);
+  }
+
   getByVolume(volumeId: string) {
     return this.http.get<Issue[]>(`/api/volumes/${volumeId}/issues`);
   }

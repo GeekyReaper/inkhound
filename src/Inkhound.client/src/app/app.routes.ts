@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
 import { libraryTitleResolver } from './core/resolvers/library-title.resolver';
 import { volumeTitleResolver } from './core/resolvers/volume-title.resolver';
+import { issueTitleResolver } from './core/resolvers/issue-title.resolver';
 
 export const routes: Routes = [
   {
@@ -97,6 +98,11 @@ export const routes: Routes = [
                 path: 'match',
                 data: { title: 'Match' },
                 loadComponent: () => import('./views/volume/volume-match.component').then(m => m.VolumeMatchComponent)
+              },
+              {
+                path: 'issue/:issueId',
+                resolve: { title: issueTitleResolver },
+                loadComponent: () => import('./views/issue/issue.component').then(m => m.IssueComponent)
               }
             ]
           },
