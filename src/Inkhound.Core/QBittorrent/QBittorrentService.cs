@@ -111,10 +111,14 @@ public class QBittorrentService : BaseService<QBittorrentOptions>
             if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
                 return ExtractMagnetHash(url);
 
-            // Pour les URLs HTTP .torrent, on interroge les torrents récemment ajoutés
+            // Pour les URLs HTTP .torrent : on identifie le torrent ajouté par son timestamp.
+            // On ne peut pas faire FirstOrDefault() car d'autres torrents récents
+            // (ajoutés lors d'une session précédente) seraient retournés à la place.
+            var addedAfter = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 5; // -5 s pour décalage d'horloge
             await Task.Delay(1500, ct);
             var recent = await GetTorrentsAsync(null, ct);
-            return recent.FirstOrDefault()?.Hash;
+            var added = recent.FirstOrDefault(t => t.AddedOn >= addedAfter);
+            return added?.Hash ?? recent.FirstOrDefault()?.Hash; // fallback défensif
         }
         catch (Exception ex)
         {
@@ -148,6 +152,82 @@ public class QBittorrentService : BaseService<QBittorrentOptions>
         {
             SendTrace("GetTorrentsAsync error", ex);
             return [];
+        }
+    }
+
+    public async Task<List<QBittorrentTorrentFile>> GetTorrentFilesAsync(
+        string hash,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var url = $"api/v2/torrents/files?hash={Uri.EscapeDataString(hash)}";
+            var response = await _http.GetAsync(url, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                SendTrace($"GetTorrentFilesAsync failed with HTTP {(int)response.StatusCode}", ETraceLevel.WARNING);
+                return [];
+            }
+            var json = await response.Content.ReadAsStringAsync(ct);
+            return JsonSerializer.Deserialize<List<QBittorrentTorrentFile>>(json, JsonOpts) ?? [];
+        }
+        catch (Exception ex)
+        {
+            SendTrace("GetTorrentFilesAsync error", ex);
+            return [];
+        }
+    }
+
+    public async Task<bool> PauseTorrentAsync(string hash, CancellationToken ct = default)
+    {
+        try
+        {
+            var form = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", hash)]);
+            var response = await _http.PostAsync("api/v2/torrents/pause", form, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            SendTrace("PauseTorrentAsync error", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> ResumeTorrentAsync(string hash, CancellationToken ct = default)
+    {
+        try
+        {
+            var form = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", hash)]);
+            var response = await _http.PostAsync("api/v2/torrents/resume", form, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            SendTrace("ResumeTorrentAsync error", ex);
+            return false;
+        }
+    }
+
+    public async Task<bool> SetFilePrioritiesAsync(
+        string hash,
+        IEnumerable<int> fileIds,
+        int priority,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var form = new FormUrlEncodedContent([
+                new KeyValuePair<string, string>("hash", hash),
+                new KeyValuePair<string, string>("id", string.Join("|", fileIds)),
+                new KeyValuePair<string, string>("priority", priority.ToString())
+            ]);
+            var response = await _http.PostAsync("api/v2/torrents/filePrio", form, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            SendTrace("SetFilePrioritiesAsync error", ex);
+            return false;
         }
     }
 

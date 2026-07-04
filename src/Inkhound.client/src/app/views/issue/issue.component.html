@@ -250,3 +250,120 @@
   }
 
 </c-container>
+
+<!-- Modale de téléchargement sélectif PACK -->
+<c-modal
+  id="packModal"
+  [visible]="packModalVisible()"
+  (visibleChange)="onPackModalVisibleChange($event)"
+  backdrop="static"
+  size="lg"
+  [scrollable]="true">
+
+  <c-modal-header>
+    <h5 cModalTitle>
+      @if (packModalStep() === 1) {
+        PACK — Choose download mode
+      } @else {
+        Select files to download
+      }
+    </h5>
+    <button cButtonClose (click)="closePackModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+
+    @if (packModalStep() === 1) {
+      @if (pendingResult()) {
+        <p class="mb-3">
+          <span class="badge bg-warning text-dark me-2">PACK</span>
+          <strong>{{ pendingResult()!.result.title }}</strong>
+        </p>
+        <p class="text-body-secondary small">
+          This torrent contains multiple issues. How do you want to download it?
+        </p>
+      }
+      <div class="d-grid gap-2">
+        <button cButton color="primary" size="lg" (click)="onPackReplaceAll()">
+          <svg cIcon name="cilCloudDownload" class="me-2"></svg>
+          Download all files
+        </button>
+        <button cButton color="warning" size="lg"
+                [disabled]="grabbingGuid() !== null"
+                (click)="onPackMissingOnly()">
+          @if (grabbingGuid() !== null) {
+            <c-spinner size="sm" class="me-2"></c-spinner>
+            Fetching file list...
+          } @else {
+            <svg cIcon name="cilList" class="me-2"></svg>
+            Select files individually
+          }
+        </button>
+      </div>
+    } @else {
+      <p class="text-body-secondary small mb-3">
+        {{ torrentFiles().length }} file(s) found in this pack.
+        Select the ones you want to download — the rest will be skipped.
+      </p>
+      <table cTable [hover]="true" class="mb-0">
+        <thead>
+          <tr>
+            <th style="width: 40px;">
+              <input
+                type="checkbox"
+                class="form-check-input"
+                [checked]="allFilesSelected()"
+                (change)="onToggleAllFiles()" />
+            </th>
+            <th>File</th>
+            <th class="text-end" style="width: 110px;">Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (file of torrentFiles(); track file.index) {
+            <tr style="cursor: pointer;" (click)="onToggleFile(file.index)">
+              <td>
+                <input
+                  type="checkbox"
+                  class="form-check-input"
+                  [checked]="isFileSelected(file.index)"
+                  (click)="$event.stopPropagation()"
+                  (change)="onToggleFile(file.index)" />
+              </td>
+              <td class="text-break">{{ file.name }}</td>
+              <td class="text-end text-nowrap">{{ formatSize(file.size) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+
+  </c-modal-body>
+
+  <c-modal-footer>
+    @if (packModalStep() === 2) {
+      <span class="text-body-secondary small me-auto">
+        {{ selectedFileIndices().size }} / {{ torrentFiles().length }} selected
+      </span>
+      <button cButton color="secondary" variant="outline" (click)="closePackModal()">
+        Cancel
+      </button>
+      <button cButton color="primary"
+              [disabled]="selectedFileIndices().size === 0 || applyingSelection()"
+              (click)="onApplySelection()">
+        @if (applyingSelection()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+          Applying...
+        } @else {
+          <svg cIcon name="cilCloudDownload" size="sm" class="me-1"></svg>
+          Download {{ selectedFileIndices().size }} file(s)
+        }
+      </button>
+    } @else {
+      <button cButton color="secondary" variant="outline" (click)="closePackModal()">
+        Cancel
+      </button>
+    }
+  </c-modal-footer>
+
+</c-modal>

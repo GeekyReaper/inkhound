@@ -25,6 +25,17 @@ export interface DownloadItem {
   size: number | null;
 }
 
+export interface TorrentFile {
+  index: number;
+  name: string;
+  size: number;
+}
+
+export interface GrabResponse {
+  torrentHash: string | null;
+  files: TorrentFile[] | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class QBittorrentService {
   private http = inject(HttpClient);
@@ -33,8 +44,12 @@ export class QBittorrentService {
     return this.http.get<QBittorrentCategory[]>('/api/qbittorrent/categories');
   }
 
-  grab(downloadUrl: string, issueId: string) {
-    return this.http.post<{ torrentHash: string | null }>('/api/qbittorrent/grab', { downloadUrl, issueId });
+  grab(downloadUrl: string, issueId: string, selective = false) {
+    return this.http.post<GrabResponse>('/api/qbittorrent/grab', { downloadUrl, issueId, selective });
+  }
+
+  applySelection(torrentHash: string, issueId: string, selectedFileIndices: number[]) {
+    return this.http.post<void>('/api/qbittorrent/apply-selection', { torrentHash, issueId, selectedFileIndices });
   }
 
   getDownloads(status?: DownloadStatus) {

@@ -12,6 +12,7 @@ using Inkhound.Core.Kavita.Models;
 using Inkhound.Core.Prowlarr;
 using Inkhound.Core.QBittorrent;
 using Inkhound.Core.Scoring;
+using Inkhound.Core.Analysis;
 
 using SharpCompress.Compressors.ZStandard.Unsafe;
 using System.Text.Json;
@@ -1328,6 +1329,109 @@ public class InkhoundManager : BaseServiceManager
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
 
         return (true, hash);
+    }
+
+    public async Task<(bool Success, string? TorrentHash, List<QBittorrentTorrentFile>? Files)> GrabPackSelectiveAsync(
+        string downloadUrl,
+        Guid issueId,
+        CancellationToken ct = default)
+    {
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return (false, null, null);
+
+        var grabParams = qb.GetGrabParameters();
+
+        // On ajoute le torrent normalement (sans paused=true) pour un état stable,
+        // puis on le met immédiatement en pause via l'API dédiée.
+        // Passer paused=true à l'ajout est instable selon la version QBittorrent
+        // et peut provoquer un état ERROR impossible à reprendre.
+        var hash = await qb.AddTorrentAsync(downloadUrl, grabParams.Category, grabParams.SavePath, paused: false, ct);
+        if (hash is null) return (false, null, null);
+
+        await qb.PauseTorrentAsync(hash, ct);
+        await Task.Delay(500, ct); // Laisse QBittorrent traiter la mise en pause
+
+        // Attente que QBittorrent charge les métadonnées du torrent (jusqu'à 10 s)
+        List<QBittorrentTorrentFile> files = [];
+        for (var attempt = 0; attempt < 10 && files.Count == 0; attempt++)
+        {
+            await Task.Delay(1000, ct);
+            files = await qb.GetTorrentFilesAsync(hash, ct);
+        }
+
+        return (true, hash, files.Count > 0 ? files : null);
+    }
+
+    public async Task<bool> ApplyPackSelectionAsync(
+        string torrentHash,
+        Guid issueId,
+        int[] selectedFileIndices,
+        CancellationToken ct = default)
+    {
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return false;
+
+        var allFiles = await qb.GetTorrentFilesAsync(torrentHash, ct);
+        var allIndices = allFiles.Select(f => f.Index).ToHashSet();
+        var unselectedIndices = allIndices.Except(selectedFileIndices).ToArray();
+
+        if (unselectedIndices.Length > 0)
+            await qb.SetFilePrioritiesAsync(torrentHash, unselectedIndices, 0, ct);
+
+        if (selectedFileIndices.Length > 0)
+            await qb.SetFilePrioritiesAsync(torrentHash, selectedFileIndices, 1, ct);
+
+        await qb.ResumeTorrentAsync(torrentHash, ct);
+
+        var ctx = GetDb();
+
+        // Tenter de matcher les fichiers sélectionnés aux issues MISSING du volume
+        var selectedFiles = allFiles.Where(f => selectedFileIndices.Contains(f.Index)).ToList();
+        var triggerIssue  = await ctx.Issues.FindAsync([issueId], ct);
+        var matchedIds    = new HashSet<Guid>();
+
+        if (triggerIssue is not null)
+        {
+            var volumeIssues = await ctx.Issues
+                .Where(i => i.VolumeId == triggerIssue.VolumeId && i.Status == IssueStatus.MISSING)
+                .ToListAsync(ct);
+
+            foreach (var file in selectedFiles)
+            {
+                var number  = TorrentTypeAnalyzer.ExtractIssueNumber(file.Name);
+                var matched = number.HasValue
+                    ? volumeIssues.FirstOrDefault(i => i.IssueNumber == number.Value && !matchedIds.Contains(i.Id))
+                    : null;
+
+                if (matched is null) continue;
+
+                matched.Status = IssueStatus.DOWNLOADING;
+                ctx.IssueDownloads.Add(new IssueDownload
+                {
+                    Id = Guid.NewGuid(), IssueId = matched.Id,
+                    TorrentHash = torrentHash, Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
+                });
+                matchedIds.Add(matched.Id);
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(matched.Id));
+            }
+        }
+
+        // Fallback : si aucun fichier n'a pu être associé, comportement standard (issue déclencheur)
+        if (matchedIds.Count == 0)
+        {
+            var fallback = triggerIssue ?? await ctx.Issues.FindAsync([issueId], ct);
+            if (fallback is not null) fallback.Status = IssueStatus.DOWNLOADING;
+            ctx.IssueDownloads.Add(new IssueDownload
+            {
+                Id = Guid.NewGuid(), IssueId = issueId,
+                TorrentHash = torrentHash, Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
+            });
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
+        }
+
+        await ctx.SaveChangesAsync(ct);
+
+        return true;
     }
 
     public async Task<List<DownloadItemData>> GetDownloadsAsync(

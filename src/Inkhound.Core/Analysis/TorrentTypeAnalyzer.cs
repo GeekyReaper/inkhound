@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.RegularExpressions;
 
 namespace Inkhound.Core.Analysis;
@@ -12,10 +13,33 @@ public static class TorrentTypeAnalyzer
     private static readonly string[] PackKeywords =
         ["pack", "intégral", "intégrale", "integrale", "integral", "complet", "complète", "complete", "collection", "omnibus"];
 
+    // Extraction du numéro d'issue depuis un nom de fichier individuel (ex : "Batman - T01 - Titre.cbz")
+    private static readonly Regex FilePrefixNumberRegex     = new(@"(?:T|Tome|Vol|Volume|#)[\s.]?0*(\d{1,3})\b",    RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex FileZeroPaddedNumberRegex = new(@"\b0+(\d{1,3})\b",                               RegexOptions.Compiled);
+
     private static readonly Regex FrenchRangeRegex  = new(@"T(\d{1,3})[\s.]*à[\s.]*T?(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BracketRangeRegex = new(@"\[?T(\d{1,3})\s*\.\s*T(\d{1,3})\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex DashRangeRegex    = new(@"(?:T|Vol|Tome|#)[\s.]?(\d{1,3})[\s.]*[-–][\s.]*(?:T|Vol|Tome|#)?[\s.]?(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SingleNumberRegex = new(@"(?:T|Tome|Vol|#)[\s.]?(\d{1,3})\b",   RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extrait le numéro d'issue d'un nom de fichier de torrent (ex : "Batman - T01 - Titre.cbz" → 1).
+    /// Retourne null si aucun numéro n'est trouvé.
+    /// </summary>
+    public static int? ExtractIssueNumber(string filename)
+    {
+        var stem = Path.GetFileNameWithoutExtension(filename);
+
+        // Priorité 1 : préfixe explicite (T01, Tome 1, Vol 3, #12)
+        var m = FilePrefixNumberRegex.Match(stem);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var n1)) return n1;
+
+        // Priorité 2 : nombre zéro-paddé sans préfixe (001, 02, ...)
+        m = FileZeroPaddedNumberRegex.Match(stem);
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var n2)) return n2;
+
+        return null;
+    }
 
     public static TorrentAnalysis Analyze(string title, long sizeBytes)
     {

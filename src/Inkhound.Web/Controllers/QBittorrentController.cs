@@ -6,7 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Inkhound.Web.Controllers;
 
-public record QBittorrentGrabRequest(string DownloadUrl, Guid IssueId);
+public record QBittorrentGrabRequest(string DownloadUrl, Guid IssueId, bool Selective = false);
+public record ApplySelectionRequest(string TorrentHash, Guid IssueId, int[] SelectedFileIndices);
 
 [ApiController]
 [Route("api/qbittorrent")]
@@ -14,6 +15,8 @@ public record QBittorrentGrabRequest(string DownloadUrl, Guid IssueId);
 public class QBittorrentController(InkhoundManager manager) : ControllerBase
 {
     private record QBittorrentCategoryDto(string Name, string SavePath);
+
+    private record TorrentFileDto(int Index, string Name, long Size);
 
     private record DownloadItemDto(
         Guid Id,
@@ -65,11 +68,39 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         if (string.IsNullOrWhiteSpace(req.DownloadUrl))
             return BadRequest(new { message = "DownloadUrl is required." });
 
-        var (success, torrentHash) = await manager.GrabToQBittorrentAsync(req.DownloadUrl, req.IssueId);
-        if (!success)
-            return StatusCode(502, new { message = "Failed to add torrent to QBittorrent." });
+        if (req.Selective)
+        {
+            var (success, hash, files) = await manager.GrabPackSelectiveAsync(req.DownloadUrl, req.IssueId);
+            if (!success)
+                return StatusCode(502, new { message = "Failed to add torrent in paused mode." });
 
-        return Ok(new { torrentHash });
+            var fileDtos = files?.Select(f => new TorrentFileDto(f.Index, f.Name, f.Size)) ?? [];
+            return Ok(new { torrentHash = hash, files = fileDtos });
+        }
+        else
+        {
+            var (success, torrentHash) = await manager.GrabToQBittorrentAsync(req.DownloadUrl, req.IssueId);
+            if (!success)
+                return StatusCode(502, new { message = "Failed to add torrent to QBittorrent." });
+
+            return Ok(new { torrentHash, files = (IEnumerable<TorrentFileDto>?)null });
+        }
+    }
+
+    // POST /api/qbittorrent/apply-selection
+    [HttpPost("apply-selection")]
+    public async Task<IActionResult> ApplySelection([FromBody] ApplySelectionRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.TorrentHash))
+            return BadRequest(new { message = "TorrentHash is required." });
+        if (req.SelectedFileIndices is null || req.SelectedFileIndices.Length == 0)
+            return BadRequest(new { message = "At least one file must be selected." });
+
+        var success = await manager.ApplyPackSelectionAsync(req.TorrentHash, req.IssueId, req.SelectedFileIndices);
+        if (!success)
+            return StatusCode(502, new { message = "Failed to apply file selection." });
+
+        return Ok(new { message = "Selection applied. Torrent resumed." });
     }
 
     // GET /api/qbittorrent/downloads

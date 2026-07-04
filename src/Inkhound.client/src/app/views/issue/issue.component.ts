@@ -7,13 +7,14 @@ import {
   AlertComponent, BadgeComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
+  ModalModule,
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { ProwlarrCategory, ProwlarrService, ScoredSearchResult } from '../../core/services/prowlarr.service';
-import { QBittorrentService } from '../../core/services/qbittorrent.service';
+import { QBittorrentService, TorrentFile } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 
@@ -26,17 +27,18 @@ import { UpdatedData } from '../../core/models/hub.models';
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, BadgeComponent, IconDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
+    ModalModule,
     DatePipe, DecimalPipe
   ]
 })
 export class IssueComponent {
-  private route             = inject(ActivatedRoute);
-  private router            = inject(Router);
-  private issueService      = inject(IssueService);
-  private prowlarrService   = inject(ProwlarrService);
+  private route              = inject(ActivatedRoute);
+  private router             = inject(Router);
+  private issueService       = inject(IssueService);
+  private prowlarrService    = inject(ProwlarrService);
   private qbittorrentService = inject(QBittorrentService);
-  private hub               = inject(HubService);
-  readonly #destroyRef    = inject(DestroyRef);
+  private hub                = inject(HubService);
+  readonly #destroyRef       = inject(DestroyRef);
 
   readonly issueId = this.route.snapshot.paramMap.get('issueId')!;
 
@@ -50,6 +52,15 @@ export class IssueComponent {
   grabSuccess   = signal<string | null>(null);
   currentPage   = signal(1);
 
+  // --- État de la modale PACK ---
+  packModalVisible    = signal(false);
+  packModalStep       = signal<1 | 2>(1);
+  pendingResult       = signal<ScoredSearchResult | null>(null);
+  torrentFiles        = signal<TorrentFile[]>([]);
+  pendingTorrentHash  = signal<string | null>(null);
+  selectedFileIndices = signal<Set<number>>(new Set());
+  applyingSelection   = signal(false);
+
   readonly pageSize     = 50;
   readonly totalPages   = computed(() => Math.ceil(this.searchResults().length / this.pageSize));
   readonly pageNumbers  = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i + 1));
@@ -57,6 +68,10 @@ export class IssueComponent {
     const start = (this.currentPage() - 1) * this.pageSize;
     return this.searchResults().slice(start, start + this.pageSize);
   });
+
+  readonly allFilesSelected = computed(() =>
+    this.torrentFiles().length > 0 &&
+    this.torrentFiles().every(f => this.selectedFileIndices().has(f.index)));
 
   readonly currentJob = this.hub.currentJob;
 
@@ -99,7 +114,20 @@ export class IssueComponent {
   }
 
   onGrab(result: ScoredSearchResult): void {
-    if (this.grabbingGuid() !== null) return;
+    if (this.grabbingGuid() !== null || this.packModalVisible()) return;
+
+    const isTorrent = result.result.protocol?.toLowerCase() === 'torrent';
+    if (isTorrent && result.result.torrentType === 'PACK') {
+      this.pendingResult.set(result);
+      this.packModalStep.set(1);
+      this.packModalVisible.set(true);
+      return;
+    }
+
+    this.executeGrab(result);
+  }
+
+  private executeGrab(result: ScoredSearchResult): void {
     this.grabbingGuid.set(result.result.guid);
     this.grabSuccess.set(null);
     this.searchError.set(null);
@@ -133,6 +161,101 @@ export class IssueComponent {
         });
     }
   }
+
+  // --- Actions de la modale PACK ---
+
+  onPackModalVisibleChange(visible: boolean): void {
+    if (!visible) this.closePackModal();
+  }
+
+  closePackModal(): void {
+    this.packModalVisible.set(false);
+    this.pendingResult.set(null);
+    this.torrentFiles.set([]);
+    this.selectedFileIndices.set(new Set());
+    this.pendingTorrentHash.set(null);
+    this.packModalStep.set(1);
+  }
+
+  onPackReplaceAll(): void {
+    const result = this.pendingResult();
+    if (!result) return;
+    this.closePackModal();
+    this.executeGrab(result);
+  }
+
+  onPackMissingOnly(): void {
+    const result = this.pendingResult();
+    if (!result?.result.downloadUrl) return;
+
+    this.grabbingGuid.set(result.result.guid);
+    this.grabSuccess.set(null);
+    this.searchError.set(null);
+
+    this.qbittorrentService.grab(result.result.downloadUrl, this.issueId, true)
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.grabbingGuid.set(null))
+      )
+      .subscribe({
+        next: resp => {
+          if (!resp.torrentHash || !resp.files?.length) {
+            this.searchError.set('Could not retrieve file list from this torrent.');
+            this.closePackModal();
+            return;
+          }
+          this.pendingTorrentHash.set(resp.torrentHash);
+          this.torrentFiles.set(resp.files);
+          this.selectedFileIndices.set(new Set(resp.files.map(f => f.index)));
+          this.packModalStep.set(2);
+        },
+        error: err => {
+          this.searchError.set(err?.error?.message ?? 'Grab failed.');
+          this.closePackModal();
+        }
+      });
+  }
+
+  onToggleFile(index: number): void {
+    this.selectedFileIndices.update(set => {
+      const next = new Set(set);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  onToggleAllFiles(): void {
+    if (this.allFilesSelected()) {
+      this.selectedFileIndices.set(new Set());
+    } else {
+      this.selectedFileIndices.set(new Set(this.torrentFiles().map(f => f.index)));
+    }
+  }
+
+  isFileSelected(index: number): boolean {
+    return this.selectedFileIndices().has(index);
+  }
+
+  onApplySelection(): void {
+    const hash = this.pendingTorrentHash();
+    if (!hash) return;
+    const selected = [...this.selectedFileIndices()];
+
+    this.applyingSelection.set(true);
+
+    this.qbittorrentService.applySelection(hash, this.issueId, selected)
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => { this.applyingSelection.set(false); this.closePackModal(); })
+      )
+      .subscribe({
+        next:  () => this.grabSuccess.set(`Pack download started — ${selected.length} file(s) selected.`),
+        error: err => this.searchError.set(err?.error?.message ?? 'Failed to apply selection.')
+      });
+  }
+
+  // --- Utilitaires ---
 
   formatSize(bytes: number): string {
     if (bytes <= 0) return '—';

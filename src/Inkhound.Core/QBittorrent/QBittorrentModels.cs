@@ -22,3 +22,5 @@ public record DownloadItemData(
     Issue? Issue,
     Volume? Volume,
     QBittorrentTorrent? Torrent);
+
+public record QBittorrentTorrentFile(int Index, string Name, long Size, double Progress, int Priority);
