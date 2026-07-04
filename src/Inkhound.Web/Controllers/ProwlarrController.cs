@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Inkhound.Core;
+using Inkhound.Core.Analysis;
 using Inkhound.Core.Models;
 using Inkhound.Core.Prowlarr;
 using Inkhound.Core.Scoring;
@@ -29,20 +30,23 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
         string Title, string? InfoUrl, long Size,
         int Seeders, int Leechers, string Guid, int IndexerId,
         string? Indexer, string? Protocol, string? DownloadUrl, DateTime? PublishDate,
-        List<ProwlarrCategoryDto> Categories);
+        List<ProwlarrCategoryDto> Categories,
+        string TorrentType,
+        string TorrentLabel);
     private record ScoreDetailsDto(float TitleMatch, float IssueNumberMatch, float YearMatch,
         float SizePlausibility, float SeederScore, float FormatScore);
     private record ScoredResultDto(SearchResultDto Result, float Score, ScoreDetailsDto Details);
     private record HistoryItemDto(int Id, string EventType, string SourceTitle, int IndexerId);
 
-    private static SearchResultDto ToResultDto(ProwlarrSearchResult r)
+    private static SearchResultDto ToResultDto(ProwlarrSearchResult r, TorrentAnalysis analysis)
         => new(r.Title, r.InfoUrl, r.Size, r.Seeders, r.Leechers,
                r.Guid, r.IndexerId, r.Indexer, r.Protocol, r.DownloadUrl, r.PublishDate,
-               r.Categories?.Select(c => new ProwlarrCategoryDto(c.Id, c.Name)).ToList() ?? []);
+               r.Categories?.Select(c => new ProwlarrCategoryDto(c.Id, c.Name)).ToList() ?? [],
+               analysis.Type, analysis.Label);
 
     private static ScoredResultDto ToScoredDto(ScoredSearchResult s)
         => new(
-            ToResultDto(s.Result),
+            ToResultDto(s.Result, s.Analysis),
             s.Score,
             new ScoreDetailsDto(
                 s.Details.TitleMatch, s.Details.IssueNumberMatch, s.Details.YearMatch,

@@ -10,7 +10,9 @@ using Inkhound.Core.ComicArchiveGenerator;
 using Inkhound.Core.Kavita;
 using Inkhound.Core.Kavita.Models;
 using Inkhound.Core.Prowlarr;
+using Inkhound.Core.QBittorrent;
 using Inkhound.Core.Scoring;
+
 using SharpCompress.Compressors.ZStandard.Unsafe;
 using System.Text.Json;
 
@@ -84,6 +86,7 @@ public class InkhoundManager : BaseServiceManager
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var kavitaService = GetService<KavitaService, KavitaOptions>();
         GetService<ProwlarrService, ProwlarrOptions>();
+        GetService<QBittorrentService, QBittorrentOptions>();
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };
@@ -1283,6 +1286,119 @@ public class InkhoundManager : BaseServiceManager
 
         return cats.Length > 0 ? cats : [7030];
     }
+
+    #region QBittorrent
+
+    public async Task<List<QBittorrentCategory>> GetQBittorrentCategoriesAsync(CancellationToken ct = default)
+    {
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return [];
+        return await qb.GetCategoriesAsync(ct);
+    }
+
+    public async Task<(bool Success, string? TorrentHash)> GrabToQBittorrentAsync(
+        string downloadUrl,
+        Guid issueId,
+        CancellationToken ct = default)
+    {
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return (false, null);
+
+        var grabParams = qb.GetGrabParameters();
+
+        var hash = await qb.AddTorrentAsync(downloadUrl, grabParams.Category, grabParams.SavePath, grabParams.AddPaused, ct);
+        if (hash is null) return (false, null);
+
+        var ctx = GetDb();
+        var download = new IssueDownload
+        {
+            Id = Guid.NewGuid(),
+            IssueId = issueId,
+            TorrentHash = hash,
+            Status = DownloadStatus.Unknown,
+            AddedAt = DateTime.UtcNow
+        };
+        ctx.IssueDownloads.Add(download);
+
+        var issue = await ctx.Issues.FindAsync([issueId], ct);
+        if (issue is not null)
+            issue.Status = IssueStatus.DOWNLOADING;
+
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
+
+        return (true, hash);
+    }
+
+    public async Task<List<DownloadItemData>> GetDownloadsAsync(
+        DownloadStatus? statusFilter = null,
+        CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        var query = ctx.IssueDownloads.AsQueryable();
+        if (statusFilter.HasValue)
+            query = query.Where(d => d.Status == statusFilter.Value);
+
+        var downloads = await query.OrderByDescending(d => d.AddedAt).ToListAsync(ct);
+        if (downloads.Count == 0) return [];
+
+        var issueIds = downloads.Select(d => d.IssueId).Distinct().ToList();
+        var issues = await ctx.Issues
+            .Where(i => issueIds.Contains(i.Id))
+            .ToListAsync(ct);
+
+        var volumeIds = issues.Select(i => i.VolumeId).Distinct().ToList();
+        var volumes = await ctx.Volumes
+            .Where(v => volumeIds.Contains(v.Id))
+            .ToListAsync(ct);
+
+        // Récupère les infos live depuis QBittorrent pour tous les hashes connus
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        var hashes = downloads.Where(d => !string.IsNullOrEmpty(d.TorrentHash)).Select(d => d.TorrentHash).ToList();
+        var torrents = qb.CurrentState.State == EState.OK && hashes.Count > 0
+            ? await qb.GetTorrentsAsync(hashes, ct)
+            : [];
+
+        var torrentByHash = torrents.ToDictionary(t => t.Hash, StringComparer.OrdinalIgnoreCase);
+        var issueById = issues.ToDictionary(i => i.Id);
+        var volumeById = volumes.ToDictionary(v => v.Id);
+
+        var result = new List<DownloadItemData>();
+        foreach (var dl in downloads)
+        {
+            issueById.TryGetValue(dl.IssueId, out var issue);
+            var volume = issue is not null && volumeById.TryGetValue(issue.VolumeId, out var v) ? v : null;
+            torrentByHash.TryGetValue(dl.TorrentHash, out var torrent);
+
+            // Mappe l'état QBittorrent → DownloadStatus et persiste si changé
+            if (torrent is not null)
+            {
+                var newStatus = MapQBittorrentState(torrent.State);
+                if (newStatus != dl.Status)
+                {
+                    dl.Status = newStatus;
+                    dl.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+
+            result.Add(new DownloadItemData(dl, issue, volume, torrent));
+        }
+
+        await ctx.SaveChangesAsync(ct);
+        return result;
+    }
+
+    private static DownloadStatus MapQBittorrentState(string state) => state.ToLowerInvariant() switch
+    {
+        "downloading" or "stalleddl" or "checkingdl" or "metadl" => DownloadStatus.Downloading,
+        "pauseddl" => DownloadStatus.Paused,
+        "uploading" or "stalledup" or "pausedup" or "checkingup" or "queuedup" => DownloadStatus.Finished,
+        "error" or "missingfiles" => DownloadStatus.Error,
+        _ => DownloadStatus.Unknown
+    };
+
+    #endregion
 
     // Construit les requêtes du plus précis au plus général en croisant Volume + Issue
     private static List<string> BuildSearchQueries(Volume volume, Issue issue)

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Inkhound.Core.Analysis;
 using Inkhound.Core.Models;
 using Inkhound.Core.Prowlarr;
 
@@ -16,19 +17,19 @@ public static class ScoringService
         Issue issue,
         ProwlarrSearchResult result)
     {
-        var titleMatch      = ScoreTitle(volume, result);
+        var analysis         = TorrentTypeAnalyzer.Analyze(result.Title, result.Size);
+        var titleMatch       = ScoreTitle(volume, result);
         var issueNumberMatch = ScoreIssueNumber(issue, result);
-        var yearMatch       = ScoreYear(volume, issue, result);
-        var sizePlausibility = ScoreSize(result);
-        var seederScore     = ScoreSeeders(result);
-        var formatScore     = ScoreFormat(result);
+        var yearMatch        = ScoreYear(volume, issue, result);
+        var sizePlausibility = ScoreSize(result, analysis.Type);
+        var seederScore      = ScoreSeeders(result);
+        var formatScore      = ScoreFormat(result, analysis.Type);
 
-        var total = Math.Clamp(
-            titleMatch + issueNumberMatch + yearMatch + sizePlausibility + seederScore + formatScore,
-            0f, 100f);
+        var baseScore = titleMatch + issueNumberMatch + yearMatch + sizePlausibility + seederScore + formatScore;
+        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size);
 
         var details = new ScoreDetails(titleMatch, issueNumberMatch, yearMatch, sizePlausibility, seederScore, formatScore);
-        return new ScoredSearchResult(result, total, details);
+        return new ScoredSearchResult(result, total, details, analysis);
     }
 
     public static List<ScoredSearchResult> ScoreAndSort(
@@ -39,6 +40,53 @@ public static class ScoringService
             .Select(r => ScoringIndexerResult(volume, issue, r))
             .OrderByDescending(r => r.Score)
             .ToList();
+
+    // ── Ajustement selon le type de torrent détecté ────────────────────────
+
+    private static float ApplyTypeAdjustment(
+        float baseScore, TorrentAnalysis analysis, int issueNumber, long sizeBytes)
+    {
+        if (analysis.Type == "SINGLE")
+        {
+            if (analysis.Label.StartsWith('#') && int.TryParse(analysis.Label.AsSpan(1), out var num))
+                return num == issueNumber
+                    ? Math.Clamp(70f + ScoreSizeBonusForSingle(sizeBytes), 0f, 100f)
+                    : Math.Clamp(baseScore * 0.1f, 0f, 10f);
+
+            // Numéro inconnu ("?") — pénalité modérée
+            return Math.Clamp(baseScore * 0.7f, 0f, 100f);
+        }
+
+        if (analysis.Type == "PACK")
+        {
+            if (analysis.Label == "Full")
+                return Math.Clamp(baseScore + 20f, 0f, 100f);
+
+            if (analysis.Label.Contains("..."))
+            {
+                var sep = analysis.Label.IndexOf("...", StringComparison.Ordinal);
+                if (sep > 0
+                    && int.TryParse(analysis.Label.AsSpan(0, sep), out var start)
+                    && int.TryParse(analysis.Label.AsSpan(sep + 3), out var end))
+                    return issueNumber >= start && issueNumber <= end
+                        ? Math.Clamp(baseScore + 20f, 0f, 100f)
+                        : Math.Clamp(baseScore * 0.1f, 0f, 10f);
+            }
+
+            // Plage inconnue ("?") — légère pénalité
+            return Math.Clamp(baseScore * 0.7f, 0f, 100f);
+        }
+
+        // UNKNOWN — pénalité forte, type indéterminable
+        return Math.Clamp(baseScore * 0.5f, 0f, 100f);
+    }
+
+    private static float ScoreSizeBonusForSingle(long sizeBytes)
+    {
+        const long cap = 209_715_200L; // 200 MB → bonus maximum
+        if (sizeBytes <= 0) return 0f;
+        return Math.Min(30f, sizeBytes / (float)cap * 30f);
+    }
 
     // ── Composantes de scoring ─────────────────────────────────────────────
 
@@ -81,10 +129,22 @@ public static class ScoringService
         return 0f;
     }
 
-    // Plausibilité de la taille pour un comic CBZ (max 10)
-    private static float ScoreSize(ProwlarrSearchResult result)
+    // Plausibilité de la taille (max 10) — progressive pour les PACKs, plage fixe pour les SINGLEs
+    private static float ScoreSize(ProwlarrSearchResult result, string torrentType)
     {
         if (result.Size <= 0) return 0f;
+
+        if (torrentType == "PACK")
+        {
+            // Pour les packs, plus c'est gros mieux c'est (qualité de scan plus élevée)
+            const long mb = 1_048_576L;
+            var sizeMB = result.Size / (float)mb;
+            if (sizeMB >= 500f) return 10f;
+            if (sizeMB >= 200f) return 8f;
+            if (sizeMB >= 50f)  return 5f;
+            return 2f;
+        }
+
         if (result.Size >= MinSizeBytes && result.Size <= MaxSizeBytes) return 10f;
         if (result.Size >= MinSizeBytes / 2 && result.Size <= MaxSizeBytes * 2) return 5f;
         return 0f;
@@ -101,9 +161,18 @@ public static class ScoringService
     }
 
     // Détection du format d'archive dans le titre (max 10)
-    private static float ScoreFormat(ProwlarrSearchResult result)
+    private static float ScoreFormat(ProwlarrSearchResult result, string torrentType)
     {
         var title = result.Title;
+
+        if (torrentType == "PACK")
+        {
+            // Pour les packs, le format est secondaire : la taille indique la qualité
+            if (ContainsIgnoreCase(title, "cbz")) return 8f;
+            if (ContainsIgnoreCase(title, "cbr")) return 7f;
+            if (ContainsIgnoreCase(title, "pdf")) return 6f;
+            return 6f;
+        }
 
         if (ContainsIgnoreCase(title, "cbz")) return 10f;
         if (ContainsIgnoreCase(title, "cbr")) return 4f;

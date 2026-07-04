@@ -1,0 +1,99 @@
+<c-container class="py-4">
+
+  <c-row class="mb-4 align-items-center">
+    <c-col>
+      <h2 class="mb-0">Downloads</h2>
+      @if (!loading() && downloads().length > 0) {
+        <span class="text-body-secondary small">
+          {{ downloads().length }} tracked — {{ activeCount() }} active
+        </span>
+      }
+    </c-col>
+  </c-row>
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (error()) {
+    <c-row>
+      <c-col>
+        <c-alert color="danger">{{ error() }}</c-alert>
+      </c-col>
+    </c-row>
+  } @else if (downloads().length === 0) {
+    <c-row>
+      <c-col>
+        <p class="text-body-secondary">No downloads tracked yet. Download a torrent from the Issue page to start tracking.</p>
+      </c-col>
+    </c-row>
+  } @else {
+    <c-row>
+      <c-col>
+        <c-card>
+          <c-card-body class="p-0">
+            <div class="table-responsive">
+              <table cTable [hover]="true" class="mb-0">
+                <thead>
+                  <tr>
+                    <th>Volume / Issue</th>
+                    <th>Torrent</th>
+                    <th style="width: 100px;">Status</th>
+                    <th style="width: 140px;">Progress</th>
+                    <th style="width: 90px;">Speed</th>
+                    <th style="width: 80px;">ETA</th>
+                    <th style="width: 85px;">Size</th>
+                    <th style="width: 110px;">Added</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of downloads(); track item.id) {
+                    <tr>
+                      <td class="align-middle">
+                        <div class="fw-semibold small">{{ item.volumeTitle ?? '—' }}</div>
+                        @if (item.issueNumber !== null) {
+                          <div class="text-body-secondary small">
+                            Issue #{{ item.issueNumber }}
+                            @if (item.issueTitle) { — {{ item.issueTitle }} }
+                          </div>
+                        }
+                      </td>
+                      <td class="align-middle text-break small">
+                        {{ item.torrentName ?? item.torrentHash || '—' }}
+                      </td>
+                      <td class="align-middle">
+                        <c-badge [color]="statusBadgeColor(item.status)">{{ item.status }}</c-badge>
+                      </td>
+                      <td class="align-middle">
+                        @if (item.progress !== null) {
+                          <c-progress class="mb-1" style="height: 6px;">
+                            <c-progress-bar
+                              [color]="item.status === 'Finished' ? 'success' : 'primary'"
+                              [value]="item.progress * 100">
+                            </c-progress-bar>
+                          </c-progress>
+                          <div class="text-body-secondary" style="font-size: 0.7rem;">
+                            {{ item.progress * 100 | number:'1.0-0' }}%
+                          </div>
+                        } @else {
+                          <span class="text-body-secondary small">Tracking...</span>
+                        }
+                      </td>
+                      <td class="align-middle text-nowrap small">{{ formatSpeed(item.dlspeed) }}</td>
+                      <td class="align-middle text-nowrap small">{{ formatEta(item.eta) }}</td>
+                      <td class="align-middle text-nowrap small">{{ formatSize(item.size) }}</td>
+                      <td class="align-middle text-nowrap small">{{ item.addedAt | date:'mediumDate' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+  }
+
+</c-container>

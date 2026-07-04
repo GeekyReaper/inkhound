@@ -1,0 +1,135 @@
+<c-container class="py-4">
+
+  <c-row class="mb-4 align-items-center">
+    <c-col>
+      <h2 class="mb-0">QBittorrent</h2>
+    </c-col>
+    <c-col [xs]="'auto'" class="d-flex align-items-center gap-2">
+      <c-badge [color]="getBadgeColor(getServiceState())">{{ getServiceState() }}</c-badge>
+      <button cButton color="secondary" variant="outline" size="sm"
+              [disabled]="testing()"
+              (click)="testConnection()">
+        @if (testing()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+        } @else {
+          <svg cIcon name="cilReload" size="sm" class="me-1"></svg>
+        }
+        Test connection
+      </button>
+      @if (testStatus() === 'ok') {
+        <c-badge color="success">Connected</c-badge>
+      } @else if (testStatus() === 'error') {
+        <c-badge color="danger">Unreachable</c-badge>
+      }
+    </c-col>
+  </c-row>
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else {
+
+    <form cForm [formGroup]="form()" (ngSubmit)="saveOptions()">
+
+      <!-- Connection -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Connection</strong></c-card-header>
+        <c-card-body>
+          @for (def of options(); track def.name) {
+            @if (def.name === 'BaseUrl' || def.name === 'ApiKey' || def.name === 'TimeoutSeconds') {
+              <div class="mb-3">
+                <label cLabel [for]="def.name">{{ def.name }}</label>
+                @if (def.description) {
+                  <div class="text-body-secondary small mb-1">{{ def.description }}</div>
+                }
+                <input
+                  cFormControl
+                  [id]="def.name"
+                  [formControlName]="def.name"
+                  [type]="def.valueType === 'PASSWORD' ? 'password' : def.valueType === 'INT' ? 'number' : 'text'"
+                  [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
+                  <c-form-feedback [valid]="false">This field is required.</c-form-feedback>
+                }
+              </div>
+            }
+          }
+        </c-card-body>
+      </c-card>
+
+      <!-- Download defaults -->
+      <c-card class="mb-4">
+        <c-card-header><strong>Download defaults</strong></c-card-header>
+        <c-card-body>
+
+          <!-- DefaultCategory -->
+          @for (def of options(); track def.name) {
+            @if (def.name === 'DefaultCategory') {
+              <div class="mb-3">
+                <label cLabel for="DefaultCategory">Default category</label>
+                <div class="text-body-secondary small mb-1">{{ def.description }}</div>
+                @if (categories().length > 0) {
+                  <select cSelect id="DefaultCategory" [formControlName]="def.name">
+                    <option value="">— None —</option>
+                    @for (cat of categories(); track cat.name) {
+                      <option [value]="cat.name">{{ cat.name }}</option>
+                    }
+                  </select>
+                } @else {
+                  <input cFormControl id="DefaultCategory" [formControlName]="def.name"
+                         type="text"
+                         placeholder="Configure connection first or type manually" />
+                }
+              </div>
+            }
+          }
+
+          <!-- DefaultSavePath -->
+          @for (def of options(); track def.name) {
+            @if (def.name === 'DefaultSavePath') {
+              <div class="mb-3">
+                <label cLabel [for]="def.name">Default save path</label>
+                <div class="text-body-secondary small mb-1">{{ def.description }}</div>
+                <input cFormControl [id]="def.name" [formControlName]="def.name"
+                       type="text" placeholder="/downloads/comics" />
+              </div>
+            }
+          }
+
+          <!-- AddPaused -->
+          @for (def of options(); track def.name) {
+            @if (def.name === 'AddPaused') {
+              <div class="mb-3">
+                <c-form-check>
+                  <input cFormCheckInput [id]="def.name" type="checkbox" [formControlName]="def.name" />
+                  <label cFormCheckLabel [for]="def.name">Add torrent as paused (do not start immediately)</label>
+                </c-form-check>
+              </div>
+            }
+          }
+
+        </c-card-body>
+      </c-card>
+
+      <!-- Actions -->
+      <div class="d-flex align-items-center gap-3">
+        <button cButton color="primary" type="submit" [disabled]="saving() || form().invalid">
+          @if (saving()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          }
+          Save
+        </button>
+        @if (saveStatus() === 'success') {
+          <c-alert color="success" class="mb-0 py-2 px-3">Settings saved.</c-alert>
+        } @else if (saveStatus() === 'error') {
+          <c-alert color="danger" class="mb-0 py-2 px-3">Failed to save settings.</c-alert>
+        }
+      </div>
+
+    </form>
+  }
+
+</c-container>

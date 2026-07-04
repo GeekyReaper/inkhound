@@ -13,6 +13,7 @@ import {
 import { IconDirective } from '@coreui/icons-angular';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { ProwlarrCategory, ProwlarrService, ScoredSearchResult } from '../../core/services/prowlarr.service';
+import { QBittorrentService } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 
@@ -29,11 +30,12 @@ import { UpdatedData } from '../../core/models/hub.models';
   ]
 })
 export class IssueComponent {
-  private route           = inject(ActivatedRoute);
-  private router          = inject(Router);
-  private issueService    = inject(IssueService);
-  private prowlarrService = inject(ProwlarrService);
-  private hub             = inject(HubService);
+  private route             = inject(ActivatedRoute);
+  private router            = inject(Router);
+  private issueService      = inject(IssueService);
+  private prowlarrService   = inject(ProwlarrService);
+  private qbittorrentService = inject(QBittorrentService);
+  private hub               = inject(HubService);
   readonly #destroyRef    = inject(DestroyRef);
 
   readonly issueId = this.route.snapshot.paramMap.get('issueId')!;
@@ -102,15 +104,34 @@ export class IssueComponent {
     this.grabSuccess.set(null);
     this.searchError.set(null);
 
-    this.prowlarrService.grab(result.result.guid, result.result.indexerId, this.issueId)
-      .pipe(
-        takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.grabbingGuid.set(null))
-      )
-      .subscribe({
-        next:  () => this.grabSuccess.set(`"${result.result.title}" sent to download client.`),
-        error: err => this.searchError.set(err?.error?.message ?? 'Grab failed.')
-      });
+    const isTorrent = result.result.protocol?.toLowerCase() === 'torrent';
+
+    if (isTorrent) {
+      if (!result.result.downloadUrl) {
+        this.searchError.set('No download URL available for this torrent.');
+        this.grabbingGuid.set(null);
+        return;
+      }
+      this.qbittorrentService.grab(result.result.downloadUrl, this.issueId)
+        .pipe(
+          takeUntilDestroyed(this.#destroyRef),
+          finalize(() => this.grabbingGuid.set(null))
+        )
+        .subscribe({
+          next:  () => this.grabSuccess.set(`"${result.result.title}" sent to QBittorrent.`),
+          error: err => this.searchError.set(err?.error?.message ?? 'Grab failed.')
+        });
+    } else {
+      this.prowlarrService.grab(result.result.guid, result.result.indexerId, this.issueId)
+        .pipe(
+          takeUntilDestroyed(this.#destroyRef),
+          finalize(() => this.grabbingGuid.set(null))
+        )
+        .subscribe({
+          next:  () => this.grabSuccess.set(`"${result.result.title}" sent to download client.`),
+          error: err => this.searchError.set(err?.error?.message ?? 'Grab failed.')
+        });
+    }
   }
 
   formatSize(bytes: number): string {

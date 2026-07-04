@@ -10,5 +10,10 @@ export const routes: Routes = [
     path: 'indexers',
     loadComponent: () => import('./indexers.component').then(m => m.IndexersComponent),
     data: { title: 'Indexers' }
+  },
+  {
+    path: 'qbittorrent',
+    loadComponent: () => import('./qbittorrent.component').then(m => m.QBittorrentSettingsComponent),
+    data: { title: 'QBittorrent' }
   }
 ];

@@ -96,6 +96,22 @@ public class DbStorageService : BaseService<DbStorageOption>
         if (!hasCategoriesJson)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE SelectedIndexers ADD COLUMN CategoriesJson TEXT NOT NULL DEFAULT ''");
+
+        // IssueDownloads ajouté en juin 2026 — hashes QBittorrent associés aux issues locales
+        var hasIssueDownloads = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='IssueDownloads'")
+            .AnyAsync();
+        if (!hasIssueDownloads)
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS IssueDownloads (
+                    Id          TEXT NOT NULL PRIMARY KEY,
+                    IssueId     TEXT NOT NULL,
+                    TorrentHash TEXT NOT NULL DEFAULT '',
+                    Status      TEXT NOT NULL DEFAULT 'Unknown',
+                    AddedAt     TEXT NOT NULL DEFAULT '',
+                    UpdatedAt   TEXT
+                )
+                """);
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)

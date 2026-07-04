@@ -1,3 +1,4 @@
+using Inkhound.Core.Analysis;
 using Inkhound.Core.Prowlarr;
 
 namespace Inkhound.Core.Scoring;
@@ -13,4 +14,5 @@ public record ScoreDetails(
 public record ScoredSearchResult(
     ProwlarrSearchResult Result,
     float Score,
-    ScoreDetails Details);
+    ScoreDetails Details,
+    TorrentAnalysis Analysis);

@@ -164,9 +164,19 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-list' }
   },
   {
+    name: 'QBittorrent',
+    url: '/settings/qbittorrent',
+    iconComponent: { name: 'cil-settings' }
+  },
+  {
     name: 'Libraries',
     url: '/libraries',
     iconComponent: { name: 'cil-library' }
+  },
+  {
+    name: 'Downloads',
+    url: '/downloads',
+    iconComponent: { name: 'cil-cloud-download' }
   },
   {
     title: true,

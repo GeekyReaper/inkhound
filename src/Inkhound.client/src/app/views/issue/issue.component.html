@@ -136,6 +136,7 @@
                       <th style="width: 130px;">Indexer</th>
                       <th>Title</th>
                       <th style="width: 80px;">Format</th>
+                      <th style="width: 90px;">Type</th>
                       <th style="width: 85px;">Size</th>
                       <th style="width: 80px;">Seeders</th>
                       <th style="width: 115px;">Date</th>
@@ -176,6 +177,18 @@
                         </td>
                         <td class="align-middle">
                           <span class="badge bg-secondary">{{ detectFormat(item.result.title) }}</span>
+                        </td>
+                        <td class="align-middle">
+                          @if (item.result.torrentType !== 'UNKNOWN') {
+                            <div class="d-flex flex-column gap-1 align-items-start">
+                              <span [class]="'badge bg-' + (item.result.torrentType === 'SINGLE' ? 'info' : 'warning')">
+                                {{ item.result.torrentType }}
+                              </span>
+                              <small class="text-body-secondary">{{ item.result.torrentLabel }}</small>
+                            </div>
+                          } @else {
+                            <span class="text-body-secondary small">—</span>
+                          }
                         </td>
                         <td class="align-middle text-nowrap">{{ formatSize(item.result.size) }}</td>
                         <td class="align-middle">

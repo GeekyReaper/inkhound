@@ -42,6 +42,8 @@ export interface ProwlarrSearchResult {
   downloadUrl: string | null;
   publishDate: string | null;
   categories: ProwlarrCategory[];
+  torrentType: 'SINGLE' | 'PACK' | 'UNKNOWN';
+  torrentLabel: string;
 }
 
 export interface ScoreDetails {
