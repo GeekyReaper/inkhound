@@ -3,7 +3,7 @@ using System;
 namespace Foundation.Core.Model;
 
 
-public enum EValueType { STRING, INT, DOUBLE, BOOL, PASSWORD, TEXT }
+public enum EValueType { STRING, INT, DOUBLE, BOOL, PASSWORD, TEXT, PATH }
 public enum ETraceLevel { INFO, DEBUG, WARNING, ERROR, CRITICAL, NONE }
 public class OptionDefinition
 {

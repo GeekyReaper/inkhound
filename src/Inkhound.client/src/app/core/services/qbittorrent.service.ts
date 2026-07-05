@@ -6,7 +6,7 @@ export interface QBittorrentCategory {
   savePath: string;
 }
 
-export type DownloadStatus = 'Downloading' | 'Paused' | 'Finished' | 'Error' | 'Unknown';
+export type DownloadStatus = 'Downloading' | 'Paused' | 'Finished' | 'Syncing' | 'Done' | 'Error' | 'Unknown';
 
 export interface DownloadItem {
   id: string;
@@ -56,5 +56,13 @@ export class QBittorrentService {
     const params: Record<string, string> = {};
     if (status) params['status'] = status;
     return this.http.get<DownloadItem[]>('/api/qbittorrent/downloads', { params });
+  }
+
+  processDownloads() {
+    return this.http.post<{ message: string }>('/api/qbittorrent/downloads/process', {});
+  }
+
+  processDownload(id: string) {
+    return this.http.post<{ message: string }>(`/api/qbittorrent/downloads/${id}/process`, {});
   }
 }

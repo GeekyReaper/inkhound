@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { interval, switchMap, startWith } from 'rxjs';
+import { interval, switchMap, startWith, finalize } from 'rxjs';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
@@ -9,6 +9,7 @@ import {
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
+import { IconDirective } from '@coreui/icons-angular';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 
 @Component({
@@ -19,7 +20,7 @@ import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/ser
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
-    DatePipe, DecimalPipe
+    DatePipe, DecimalPipe, IconDirective
   ],
   templateUrl: './downloads.component.html'
 })
@@ -31,8 +32,17 @@ export class DownloadsComponent implements OnInit {
   loading    = signal(true);
   error      = signal<string | null>(null);
 
+  processing    = signal(false);
+  processingIds = signal<Set<string>>(new Set());
+
   readonly activeCount = computed(() =>
     this.downloads().filter(d => d.status === 'Downloading' || d.status === 'Unknown').length
+  );
+  readonly syncingCount = computed(() =>
+    this.downloads().filter(d => d.status === 'Syncing').length
+  );
+  readonly doneCount = computed(() =>
+    this.downloads().filter(d => d.status === 'Done').length
   );
 
   ngOnInit() {
@@ -60,9 +70,38 @@ export class DownloadsComponent implements OnInit {
       case 'Downloading': return 'info';
       case 'Paused':      return 'warning';
       case 'Finished':    return 'success';
+      case 'Syncing':     return 'info';
+      case 'Done':        return 'success';
       case 'Error':       return 'danger';
       default:            return 'secondary';
     }
+  }
+
+  canProcess(item: DownloadItem): boolean {
+    return item.status === 'Finished' || item.status === 'Syncing';
+  }
+
+  processAll(): void {
+    if (this.processing()) return;
+    this.processing.set(true);
+    this.qbService.processDownloads()
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.processing.set(false)))
+      .subscribe({ next: () => {}, error: () => {} });
+  }
+
+  processOne(item: DownloadItem): void {
+    if (this.processingIds().has(item.id)) return;
+    this.processingIds.update(ids => new Set(ids).add(item.id));
+    this.qbService.processDownload(item.id)
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.processingIds.update(ids => {
+          const next = new Set(ids);
+          next.delete(item.id);
+          return next;
+        }))
+      )
+      .subscribe({ next: () => {}, error: () => {} });
   }
 
   formatSpeed(bytesPerSec: number | null): string {

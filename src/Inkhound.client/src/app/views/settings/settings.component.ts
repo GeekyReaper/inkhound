@@ -6,11 +6,13 @@ import {
   AlertComponent, BadgeComponent, ButtonDirective, FormCheckComponent,
   FormCheckInputDirective, FormCheckLabelDirective,
   FormControlDirective, FormDirective, FormFeedbackComponent,
-  FormLabelDirective, SpinnerComponent, Tabs2Module
+  FormLabelDirective, InputGroupComponent, SpinnerComponent, Tabs2Module
 } from '@coreui/angular';
+import { IconDirective } from '@coreui/icons-angular';
 import { OptionsService } from '../../core/services/options.service';
 import { HubService } from '../../core/services/hub.service';
 import { EState, EValueType, OptionDefinition } from '../../core/models/hub.models';
+import { SelectPathComponent } from '../select-path/select-path.component';
 
 @Component({
   selector: 'app-settings',
@@ -19,7 +21,8 @@ import { EState, EValueType, OptionDefinition } from '../../core/models/hub.mode
     Tabs2Module, ReactiveFormsModule,
     FormDirective, FormControlDirective, FormLabelDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
-    FormFeedbackComponent, BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent
+    FormFeedbackComponent, BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent,
+    IconDirective, SelectPathComponent, InputGroupComponent
   ],
   templateUrl: './settings.component.html'
 })
@@ -37,6 +40,9 @@ export class SettingsComponent implements OnInit {
   saving     = signal(false);
   saveStatus = signal<'idle' | 'success' | 'error'>('idle');
   noOptions  = signal(false);
+
+  pathPickerVisible = signal(false);
+  activePathOption  = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -112,6 +118,17 @@ export class SettingsComponent implements OnInit {
     if (vt === 'INT' || vt === 'DOUBLE') return 'number';
     if (vt === 'PASSWORD') return 'password';
     return 'text';
+  }
+
+  openPathPicker(optionName: string): void {
+    this.activePathOption.set(optionName);
+    this.pathPickerVisible.set(true);
+  }
+
+  onPathSelected(path: string): void {
+    const optionName = this.activePathOption();
+    if (optionName && path) this.form().get(optionName)?.setValue(path);
+    this.activePathOption.set(null);
   }
 
   private buildForm(defs: OptionDefinition[]): FormGroup {

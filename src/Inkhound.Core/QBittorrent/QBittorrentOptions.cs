@@ -35,7 +35,7 @@ public class QBittorrentOptions : IOptionList
             new() { Name = nameof(BaseUrl), Value = BaseUrl, ValueType = EValueType.STRING, DefaultValue = "http://localhost:8080", Description = "Base URL of the QBittorrent Web UI.", Mandatory = true },
             new() { Name = nameof(ApiKey), Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from QBittorrent → Preferences → Web UI → API Key.", Mandatory = true },
             new() { Name = nameof(DefaultCategory), Value = DefaultCategory, ValueType = EValueType.STRING, DefaultValue = string.Empty, Description = "Default QBittorrent category applied to downloaded torrents (optional).", Mandatory = false },
-            new() { Name = nameof(DefaultSavePath), Value = DefaultSavePath, ValueType = EValueType.STRING, DefaultValue = string.Empty, Description = "Default save path for downloaded torrents (optional, overrides category path).", Mandatory = false },
+            new() { Name = nameof(DefaultSavePath), Value = DefaultSavePath, ValueType = EValueType.PATH, DefaultValue = string.Empty, Description = "Default save path for downloaded torrents (optional, overrides category path).", Mandatory = false },
             new() { Name = nameof(AddPaused), Value = AddPaused.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Add torrents in paused state without starting the download immediately.", Mandatory = false },
             new() { Name = nameof(TimeoutSeconds), Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false }
         };

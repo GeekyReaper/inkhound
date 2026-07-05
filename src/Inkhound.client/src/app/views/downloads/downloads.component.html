@@ -5,9 +5,19 @@
       <h2 class="mb-0">Downloads</h2>
       @if (!loading() && downloads().length > 0) {
         <span class="text-body-secondary small">
-          {{ downloads().length }} tracked — {{ activeCount() }} active
+          {{ downloads().length }} tracked — {{ activeCount() }} active —
+          {{ syncingCount() }} syncing — {{ doneCount() }} done
         </span>
       }
+    </c-col>
+    <c-col class="col-auto">
+      <button cButton color="primary" size="sm" [disabled]="processing()" (click)="processAll()">
+        @if (processing()) {
+          <c-spinner size="sm" class="me-2"></c-spinner>Processing…
+        } @else {
+          Process downloads
+        }
+      </button>
     </c-col>
   </c-row>
 
@@ -46,6 +56,7 @@
                     <th style="width: 80px;">ETA</th>
                     <th style="width: 85px;">Size</th>
                     <th style="width: 110px;">Added</th>
+                    <th style="width: 60px;"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -85,6 +96,19 @@
                       <td class="align-middle text-nowrap small">{{ formatEta(item.eta) }}</td>
                       <td class="align-middle text-nowrap small">{{ formatSize(item.size) }}</td>
                       <td class="align-middle text-nowrap small">{{ item.addedAt | date:'mediumDate' }}</td>
+                      <td class="align-middle text-nowrap">
+                        @if (canProcess(item)) {
+                          <button cButton color="secondary" variant="ghost" size="sm"
+                                  [disabled]="processingIds().has(item.id)"
+                                  (click)="processOne(item)">
+                            @if (processingIds().has(item.id)) {
+                              <c-spinner size="sm"></c-spinner>
+                            } @else {
+                              <svg cIcon name="cilCloudDownload" size="sm"></svg>
+                            }
+                          </button>
+                        }
+                      </td>
                     </tr>
                   }
                 </tbody>

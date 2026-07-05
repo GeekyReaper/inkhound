@@ -9,6 +9,7 @@ public class ArchiveOption : IOptionList
     public string WorkingPath { get; set; } = "data/working";
     public string ImportPath { get; set; } = "data/import";
     public string ImagesPath { get; set; } = "data/images";
+    public string DownloadsPath { get; set; } = "data/downloads";
 
     public List<OptionDefinition> GetOptions()
     {
@@ -18,7 +19,7 @@ public class ArchiveOption : IOptionList
             {
                 Name = nameof(WorkingPath),
                 Description = "The path where the working files will be stored.",
-                ValueType = EValueType.STRING,
+                ValueType = EValueType.PATH,
                 DefaultValue = "data/working",
                 Mandatory = true,
             },
@@ -26,15 +27,22 @@ public class ArchiveOption : IOptionList
             {
                 Name = nameof(ImportPath),
                 Description = "The path where the import files will be stored.",
-                ValueType = EValueType.STRING,
+                ValueType = EValueType.PATH,
                 DefaultValue = "data/import"
             },
             new OptionDefinition
             {
                 Name = nameof(ImagesPath),
                 Description = "The path where uploaded cover images will be stored.",
-                ValueType = EValueType.STRING,
+                ValueType = EValueType.PATH,
                 DefaultValue = "data/images"
+            },
+            new OptionDefinition
+            {
+                Name = nameof(DownloadsPath),
+                Description = "The path where files downloaded by qBittorrent will land.",
+                ValueType = EValueType.PATH,
+                DefaultValue = "data/downloads"
             }
         };
     }
@@ -56,6 +64,11 @@ public class ArchiveOption : IOptionList
         if (ImagesPath == null)
         {
             errors.Add("Images path is null.");
+        }
+
+        if (DownloadsPath == null)
+        {
+            errors.Add("Downloads path is null.");
         }
 
         return errors.Count == 0;
@@ -81,6 +94,10 @@ public class ArchiveOption : IOptionList
                 else if (option.Name == nameof(ImagesPath))
                 {
                     ImagesPath = option.Value;
+                }
+                else if (option.Name == nameof(DownloadsPath))
+                {
+                    DownloadsPath = option.Value;
                 }
             }
             errors.AddRange(optionErrors);

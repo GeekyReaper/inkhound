@@ -115,4 +115,20 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         var downloads = await manager.GetDownloadsAsync(statusFilter);
         return Ok(downloads.Select(ToDto));
     }
+
+    // POST /api/qbittorrent/downloads/process
+    [HttpPost("downloads/process")]
+    public IActionResult ProcessDownloads()
+    {
+        _ = manager.LaunchJobProcessDownloads(new ProcessDownloadsJobParameters());
+        return Accepted(new { message = "Download processing started." });
+    }
+
+    // POST /api/qbittorrent/downloads/{id}/process
+    [HttpPost("downloads/{id:guid}/process")]
+    public IActionResult ProcessDownload(Guid id)
+    {
+        _ = manager.LaunchJobProcessDownloads(new ProcessDownloadsJobParameters { IssueDownloadId = id });
+        return Accepted(new { message = "Download processing started." });
+    }
 }

@@ -50,6 +50,14 @@
                               @if (def.mandatory) { <span class="text-danger">*</span> }
                             </label>
                           </c-form-check>
+                        } @else if (def.valueType === 'PATH') {
+                          <c-input-group>
+                            <input cFormControl [id]="def.id" [formControlName]="def.name" type="text" readonly
+                                   [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                            <button cButton color="secondary" type="button" (click)="openPathPicker(def.name)">
+                              <svg cIcon name="cilFolder"></svg>
+                            </button>
+                          </c-input-group>
                         } @else {
                           <input cFormControl [id]="def.id" [formControlName]="def.name"
                                  [type]="getInputType(def.valueType)"
@@ -98,3 +106,10 @@
     </div>
   </div>
 </div>
+
+<app-select-path
+  mode="directory"
+  [(visible)]="pathPickerVisible"
+  [initialPath]="activePathOption() ? (form().get(activePathOption()!)?.value ?? '') : ''"
+  (pathSelected)="onPathSelected($event)"
+/>

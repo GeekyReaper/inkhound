@@ -98,15 +98,27 @@ public class InkhoundManager : BaseServiceManager
             {
                 if (databaseService.GetServiceName() != service.Value.GetServiceName())
                 {
-                    // Try to load stored options for this service from the database          
+                    // Try to load stored options for this service from the database
                     var storedOptions = databaseService.GetOptionsForService(service.Value.GetServiceName());
+                    var currentOptions = service.Value.GetOptions();
+
                     if (storedOptions.Count > 0)
                     {
+                        // Complète avec les définitions d'option ajoutées depuis le dernier démarrage
+                        // (sinon une nouvelle option n'apparaîtrait jamais en base ni côté UI).
+                        // SetOptionsForService supprime toute option absente de la liste passée : on doit
+                        // donc lui fournir l'ensemble stocké + les manquantes, jamais un sous-ensemble seul.
+                        var missingOptions = currentOptions.Where(c => !storedOptions.Any(s => s.Name == c.Name)).ToList();
+                        if (missingOptions.Count > 0)
+                        {
+                            storedOptions.AddRange(missingOptions);
+                            databaseService.Database?.SetOptionsForService(storedOptions, service.Value.GetServiceName());
+                        }
+
                         await service.Value.LoadOptions(storedOptions);
                     }
                     else
                     { // No stored options, save current defaults to database
-                        var currentOptions = service.Value.GetOptions();
                         databaseService.Database?.SetOptionsForService(currentOptions, service.Value.GetServiceName());
                     }
                 }
@@ -1475,11 +1487,14 @@ public class InkhoundManager : BaseServiceManager
             var volume = issue is not null && volumeById.TryGetValue(issue.VolumeId, out var v) ? v : null;
             torrentByHash.TryGetValue(dl.TorrentHash, out var torrent);
 
-            // Mappe l'état QBittorrent → DownloadStatus et persiste si changé
+            // Mappe l'état QBittorrent → DownloadStatus et persiste si changé.
+            // Une fois qu'Inkhound a pris la main sur le statut (Finished/Syncing/Done), on ne
+            // laisse plus le polling QBittorrent l'écraser (QBittorrent reste "terminé" indéfiniment).
             if (torrent is not null)
             {
+                var alreadyOwnedByInkhound = dl.Status is DownloadStatus.Finished or DownloadStatus.Syncing or DownloadStatus.Done;
                 var newStatus = MapQBittorrentState(torrent.State);
-                if (newStatus != dl.Status)
+                if (!alreadyOwnedByInkhound && newStatus != dl.Status)
                 {
                     dl.Status = newStatus;
                     dl.UpdatedAt = DateTime.UtcNow;
@@ -1501,6 +1516,183 @@ public class InkhoundManager : BaseServiceManager
         "error" or "missingfiles" => DownloadStatus.Error,
         _ => DownloadStatus.Unknown
     };
+
+    public async Task LaunchJobProcessDownloads(ProcessDownloadsJobParameters parameters)
+    {
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+
+        var job = StartJob(parameters.IssueDownloadId.HasValue
+            ? $"Process download {parameters.IssueDownloadId}"
+            : "Process downloads", parameters);
+        job.SetState(JobState.RUNNING);
+
+        if (archiveService.CurrentState.State != EState.OK)
+        {
+            JobSendTrace("[Downloads] ArchiveService is not available", ETraceLevel.ERROR);
+            EndJob(false);
+            return;
+        }
+
+        var ctx = GetDb();
+
+        // Rafraîchit les statuts depuis QBittorrent avant de sélectionner les éligibles
+        await GetDownloadsAsync(null);
+
+        var query = ctx.IssueDownloads.Where(d => d.Status == DownloadStatus.Finished || d.Status == DownloadStatus.Syncing);
+        if (parameters.IssueDownloadId.HasValue)
+            query = query.Where(d => d.Id == parameters.IssueDownloadId.Value);
+
+        var eligible = await query.ToListAsync();
+        JobSendTrace($"[Downloads] {eligible.Count} download(s) eligible for processing");
+        job.CallbackHandler.UpdateTotal(eligible.Count);
+
+        if (eligible.Count == 0)
+        {
+            EndJob(true);
+            return;
+        }
+
+        var tempDir = archiveService.GenerateTempDirectory();
+        var touchedVolumeIds = new HashSet<Guid>();
+
+        try
+        {
+            foreach (var group in eligible.GroupBy(d => d.TorrentHash))
+            {
+                var torrentFiles = await qb.GetTorrentFilesAsync(group.Key);
+                var archiveFiles = torrentFiles.Where(f => IsArchiveFile(f.Name)).ToList();
+
+                foreach (var download in group)
+                {
+                    JobSendTrace($"[Downloads] Processing download {download.Id} (hash {download.TorrentHash})");
+
+                    var issue = await ctx.Issues.FindAsync(download.IssueId);
+                    if (issue is null)
+                    {
+                        JobSendTrace($"[Downloads] Issue {download.IssueId} not found, skipping", ETraceLevel.WARNING);
+                        job.Progress.Increment(false);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+
+                    var matchedFile = archiveFiles.Count == 1
+                        ? archiveFiles[0]
+                        : archiveFiles.FirstOrDefault(f => TorrentTypeAnalyzer.ExtractIssueNumber(f.Name) == issue.IssueNumber);
+
+                    if (matchedFile is null)
+                    {
+                        JobSendTrace($"[Downloads] Could not match a file for issue #{issue.IssueNumber} in torrent {download.TorrentHash}", ETraceLevel.WARNING);
+                        job.Progress.Increment(false);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+
+                    var downloadedFilePath = Path.Combine(archiveService.DownloadsPath, matchedFile.Name);
+                    if (!File.Exists(downloadedFilePath))
+                    {
+                        JobSendTrace($"[Downloads] File '{matchedFile.Name}' not yet present in downloads folder for issue #{issue.IssueNumber} — marking Syncing");
+                        download.Status = DownloadStatus.Syncing;
+                        download.UpdatedAt = DateTime.UtcNow;
+                        await ctx.SaveChangesAsync();
+                        job.Progress.Increment(true);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+
+                    var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
+                    var library = volume is not null ? await ctx.Libraries.FindAsync(volume.LibraryId) : null;
+                    if (volume is null || library is null)
+                    {
+                        JobSendTrace($"[Downloads] Volume/Library not found for issue {issue.Id}", ETraceLevel.ERROR);
+                        job.Progress.Increment(false);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+
+                    var importSubDir = Directory.CreateDirectory(Path.Combine(archiveService.ImportPath, download.Id.ToString("N")));
+                    var importedFilePath = Path.Combine(importSubDir.FullName, Path.GetFileName(matchedFile.Name));
+                    File.Copy(downloadedFilePath, importedFilePath, overwrite: true);
+
+                    var workingSubPath = Path.Combine(tempDir.FullName, download.Id.ToString("N"));
+                    var importParams = new ArchiveConverterPdfJobParameters
+                    {
+                        SourceFile = importedFilePath,
+                        WorkingPath = workingSubPath,
+                        Library = library,
+                        Volume = volume,
+                        Issue = issue
+                    };
+
+                    JobSendTrace($"[Downloads] Importing '{matchedFile.Name}' for issue #{issue.IssueNumber} — {volume.Title}");
+                    var archive = await LaunchJobImportArchive(importParams);
+
+                    Directory.Delete(importSubDir.FullName, recursive: true);
+
+                    if (archive is null)
+                    {
+                        JobSendTrace($"[Downloads] Import failed for issue #{issue.IssueNumber} — {volume.Title}", ETraceLevel.ERROR);
+                        job.Progress.Increment(false);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+
+                    var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
+                    var dest = Path.Combine(volumeDir.FullName, archive.Name);
+                    File.Copy(archive.FullName, dest, overwrite: true);
+
+                    issue.CbzFilename = archive.Name;
+                    issue.FileSizeBytes = (int)archive.Length;
+                    issue.Status = IssueStatus.DOWNLOADED;
+                    issue.DownloadedAt = DateTime.UtcNow;
+                    volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED);
+                    volume.UpdatedAt = DateTime.UtcNow;
+
+                    download.Status = DownloadStatus.Done;
+                    download.UpdatedAt = DateTime.UtcNow;
+
+                    await ctx.SaveChangesAsync();
+                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+                    touchedVolumeIds.Add(volume.Id);
+
+                    JobSendTrace($"[Downloads] Issue #{issue.IssueNumber} — {volume.Title} imported successfully");
+                    job.Progress.Increment(true);
+                    job.CallbackHandler.Callback(job.Progress);
+                }
+            }
+
+            foreach (var volumeId in touchedVolumeIds)
+            {
+                var volume = await ctx.Volumes.FindAsync(volumeId);
+                var library = volume is not null ? await ctx.Libraries.FindAsync(volume.LibraryId) : null;
+                if (volume is null || library is null || string.IsNullOrEmpty(library.KavitaPath)) continue;
+
+                var kavita = GetService<KavitaService, KavitaOptions>();
+                var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
+                JobSendTrace($"[Downloads] Triggering Kavita folder scan: {kavitaFolderPath}");
+                await kavita.ScanFolderAsync(kavitaFolderPath);
+            }
+
+            EndJob(job.Progress.Error == 0);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Downloads] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+        finally
+        {
+            if (tempDir.Exists)
+                tempDir.Delete(recursive: true);
+        }
+    }
+
+    private static bool IsArchiveFile(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext is ".cbz" or ".cbr" or ".pdf";
+    }
 
     #endregion
 

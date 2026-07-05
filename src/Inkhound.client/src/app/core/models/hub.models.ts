@@ -1,5 +1,5 @@
 export type EState = 'NOTINIT' | 'INVALID' | 'OK' | 'WARNING' | 'ERROR';
-export type EValueType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOL' | 'PASSWORD' | 'TEXT';
+export type EValueType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOL' | 'PASSWORD' | 'TEXT' | 'PATH';
 
 export interface OptionDefinition {
   id: string;

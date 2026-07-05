@@ -20,6 +20,8 @@ public class ArchiveService : BaseService<ArchiveOption>
     }
 
     public string ImagesPath => Options.ImagesPath;
+    public string DownloadsPath => Options.DownloadsPath;
+    public string ImportPath => Options.ImportPath;
 
     #region Override BaseService
 
@@ -81,6 +83,31 @@ public class ArchiveService : BaseService<ArchiveOption>
             catch (Exception ex)
             {
                 Console.WriteLine($"Error creating import directory: {ex.Message}");
+                return EState.ERROR;
+            }
+        }
+
+        // Check if downloads path exists (dossier de réception qBittorrent)
+        if (!Directory.Exists(Options.DownloadsPath))
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(Options.DownloadsPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                    File.Create(Path.Combine(Options.DownloadsPath, "testdownloads.txt")).Dispose(); // Test write access
+                    File.Delete(Path.Combine(Options.DownloadsPath, "testdownloads.txt"));
+                }
+                else
+                {
+                    Console.WriteLine("Downloads path directory is null or empty.");
+                    return EState.ERROR;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error creating downloads directory: {ex.Message}");
                 return EState.ERROR;
             }
         }
