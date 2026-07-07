@@ -3,7 +3,7 @@ using System;
 namespace Foundation.Core.Model;
 
 
-public enum EValueType { STRING, INT, DOUBLE, BOOL, PASSWORD, TEXT, PATH }
+public enum EValueType { STRING, INT, DOUBLE, BOOL, PASSWORD, TEXT, PATH, SELECT }
 public enum ETraceLevel { INFO, DEBUG, WARNING, ERROR, CRITICAL, NONE }
 public class OptionDefinition
 {
@@ -18,6 +18,8 @@ public class OptionDefinition
     public string RegexValidator { get; set; } = string.Empty;
 
     public string DefaultValue { get; set; } = string.Empty;
+
+    public List<string> AllowedValues { get; set; } = new();
 
     public int GetInt() => int.TryParse(Value, out var result) ? result : 0;
     public bool GetBool() => bool.TryParse(Value, out var result) && result;
@@ -45,6 +47,11 @@ public class OptionDefinition
         {
             if (!double.TryParse(Value, out _))
                 errors.Add($"{Name} must be a valid double.");
+        }
+        else if (ValueType == EValueType.SELECT)
+        {
+            if (AllowedValues.Count > 0 && !AllowedValues.Contains(Value))
+                errors.Add($"{Name} must be one of: {string.Join(", ", AllowedValues)}.");
         }
 
         if (!string.IsNullOrWhiteSpace(RegexValidator) && !System.Text.RegularExpressions.Regex.IsMatch(Value, RegexValidator))

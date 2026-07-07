@@ -58,6 +58,13 @@
                               <svg cIcon name="cilFolder"></svg>
                             </button>
                           </c-input-group>
+                        } @else if (def.valueType === 'SELECT') {
+                          <select cSelect [id]="def.id" [formControlName]="def.name"
+                                  [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                            @for (v of def.allowedValues; track v) {
+                              <option [value]="v">{{ v }}</option>
+                            }
+                          </select>
                         } @else {
                           <input cFormControl [id]="def.id" [formControlName]="def.name"
                                  [type]="getInputType(def.valueType)"

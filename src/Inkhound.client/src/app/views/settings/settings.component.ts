@@ -6,7 +6,7 @@ import {
   AlertComponent, BadgeComponent, ButtonDirective, FormCheckComponent,
   FormCheckInputDirective, FormCheckLabelDirective,
   FormControlDirective, FormDirective, FormFeedbackComponent,
-  FormLabelDirective, InputGroupComponent, SpinnerComponent, Tabs2Module
+  FormLabelDirective, FormSelectDirective, InputGroupComponent, SpinnerComponent, Tabs2Module
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { OptionsService } from '../../core/services/options.service';
@@ -22,7 +22,7 @@ import { SelectPathComponent } from '../select-path/select-path.component';
     FormDirective, FormControlDirective, FormLabelDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     FormFeedbackComponent, BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent,
-    IconDirective, SelectPathComponent, InputGroupComponent
+    IconDirective, SelectPathComponent, InputGroupComponent, FormSelectDirective
   ],
   templateUrl: './settings.component.html'
 })

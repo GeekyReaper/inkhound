@@ -136,9 +136,9 @@ public class ArchiveService : BaseService<ArchiveOption>
 
         // Copy sourcefile to working directory to avoid locking issues
         var sourcefilecopyPath = Path.Combine(workingtempdir.FullName, source.Name);
-        SendTrace($"Copying source file to working directory: {sourcefilecopyPath}");
-        var workingSource = source.CopyTo(sourcefilecopyPath, overwrite: true);
-        SendTrace($"Copying done");
+        var workingSource = RunTimed(
+            $"Copying source file ({source.Length / 1024.0 / 1024.0:F1} MB) to working directory: {sourcefilecopyPath}",
+            () => source.CopyTo(sourcefilecopyPath, overwrite: true));
 
         var imagePaths = new List<FileInfo>();
 
@@ -148,17 +148,25 @@ public class ArchiveService : BaseService<ArchiveOption>
         progression?.UpdateTotal(internalprogress.Total);
 
 
+        var renderOptions = new RenderOptions(Dpi: Options.PdfDpi);
+        var useJpeg = Options.PdfImageFormat == PdfPageFormat.Jpeg;
+        var jpegQuality = Options.PdfJpegQuality;
+
         await using var stream = File.OpenRead(source.FullName);
         int index = 0;
-        await foreach (var page in Conversion.ToImagesAsync(stream))
+        await foreach (var page in Conversion.ToImagesAsync(stream, options: renderOptions))
         {
             try
             {
-                var fileName = $"page_{++index:D3}.png";
+                ++index;
+                var fileName = useJpeg ? $"page_{index:D3}.jpg" : $"page_{index:D3}.png";
                 var filePath = Path.Combine(fullDestPath, fileName);
 
                 await using var output = File.OpenWrite(filePath);
-                page.Encode(output, SKEncodedImageFormat.Png, 100);
+                if (useJpeg)
+                    page.Encode(output, SKEncodedImageFormat.Jpeg, jpegQuality);
+                else
+                    page.Encode(output, SKEncodedImageFormat.Png, 100);
                 imagePaths.Add(new FileInfo(filePath));
                 internalprogress.Increment();
                 SendTrace($"Successfully converted page {index}/{totalPages}");

@@ -1,5 +1,6 @@
 ﻿
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
 
@@ -134,6 +135,48 @@ public abstract class BaseServiceManager
         trace.Message.Add(message);
         GlobalTraceHandler(trace);
     }
+
+    // Trace de début/fin (avec durée) autour d'une étape longue d'un job (I/O, appel réseau, etc.),
+    // pour que l'utilisateur voie que le job avance au lieu de sembler bloqué sans retour.
+    public async Task<T> JobRunTimedAsync<T>(string operationName, Func<Task<T>> action)
+    {
+        JobSendTrace($"{operationName}…");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await action();
+            JobSendTrace($"{operationName} — done in {TimeFormat.Elapsed(sw.Elapsed)}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"{operationName} — failed after {TimeFormat.Elapsed(sw.Elapsed)}: {ex.Message}", ETraceLevel.ERROR);
+            throw;
+        }
+    }
+
+    public Task JobRunTimedAsync(string operationName, Func<Task> action) =>
+        JobRunTimedAsync(operationName, async () => { await action(); return true; });
+
+    public T JobRunTimed<T>(string operationName, Func<T> action)
+    {
+        JobSendTrace($"{operationName}…");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = action();
+            JobSendTrace($"{operationName} — done in {TimeFormat.Elapsed(sw.Elapsed)}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"{operationName} — failed after {TimeFormat.Elapsed(sw.Elapsed)}: {ex.Message}", ETraceLevel.ERROR);
+            throw;
+        }
+    }
+
+    public void JobRunTimed(string operationName, Action action) =>
+        JobRunTimed(operationName, () => { action(); return true; });
 
     public void EndJob(bool success = true)
     {

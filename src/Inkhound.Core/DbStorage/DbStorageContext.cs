@@ -80,6 +80,13 @@ public class DbStorageContext : DbContext
             .HasConversion(
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                 v => JsonSerializer.Deserialize<List<VolumeAuthor>>(v, (JsonSerializerOptions?)null) ?? new List<VolumeAuthor>());
+
+        // OptionDefinition.AllowedValues serialized as JSON column (choices for SELECT-type options)
+        modelBuilder.Entity<OptionDefinition>()
+            .Property(o => o.AllowedValues)
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>());
     }
 
     #region Option Management
@@ -101,6 +108,7 @@ public class DbStorageContext : DbContext
                 existing.Value = option.Value;
                 existing.ValueType = option.ValueType;
                 existing.DefaultValue = option.DefaultValue;
+                existing.AllowedValues = option.AllowedValues;
 
                 existing.Mandatory = option.Mandatory;
                 existing.LastValue = DateTime.UtcNow;

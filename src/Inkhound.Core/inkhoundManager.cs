@@ -104,15 +104,20 @@ public class InkhoundManager : BaseServiceManager
 
                     if (storedOptions.Count > 0)
                     {
-                        // Complète avec les définitions d'option ajoutées depuis le dernier démarrage
-                        // (sinon une nouvelle option n'apparaîtrait jamais en base ni côté UI).
-                        // SetOptionsForService supprime toute option absente de la liste passée : on doit
-                        // donc lui fournir l'ensemble stocké + les manquantes, jamais un sous-ensemble seul.
+                        // Complète avec les définitions d'option ajoutées depuis le dernier démarrage, et
+                        // purge celles devenues obsolètes (renommées/supprimées côté code) — sinon une
+                        // nouvelle option n'apparaîtrait jamais en base ni côté UI, et une option renommée
+                        // laisserait un doublon orphelin. SetOptionsForService supprime toute option absente
+                        // de la liste passée : on doit donc lui fournir l'ensemble stocké + les manquantes
+                        // (moins les obsolètes), jamais un sous-ensemble seul.
                         var missingOptions = currentOptions.Where(c => !storedOptions.Any(s => s.Name == c.Name)).ToList();
-                        if (missingOptions.Count > 0)
+                        var obsoleteOptions = storedOptions.Where(s => !currentOptions.Any(c => c.Name == s.Name)).ToList();
+
+                        if (missingOptions.Count > 0 || obsoleteOptions.Count > 0)
                         {
-                            storedOptions.AddRange(missingOptions);
-                            databaseService.Database?.SetOptionsForService(storedOptions, service.Value.GetServiceName());
+                            var merged = storedOptions.Except(obsoleteOptions).Concat(missingOptions).ToList();
+                            databaseService.Database?.SetOptionsForService(merged, service.Value.GetServiceName());
+                            storedOptions = merged;
                         }
 
                         await service.Value.LoadOptions(storedOptions);
@@ -1041,7 +1046,7 @@ public class InkhoundManager : BaseServiceManager
                     Issue = issue
                 };
                 JobSendTrace($"Launching import job for file {file.Name} to issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
-                var archive = await LaunchJobImportArchive(parameters);
+                var archive = await ImportArchiveAsync(parameters, job.CallbackHandler);
                 JobSendTrace($"Import job completed for file {file.Name} with result: {(archive != null ? "Success" : "Failure")}", ETraceLevel.INFO);
                 if (archive is null) continue;
 
@@ -1083,7 +1088,40 @@ public class InkhoundManager : BaseServiceManager
     #endregion
 
     #region Issue Actions
+    // Point d'entrée autonome (démarre son propre job). À ne PAS appeler depuis une méthode qui gère
+    // déjà un job en cours : StartJob/EndJob repose sur un AsyncLocal partagé, donc un appel imbriqué
+    // remplace le job "courant" pendant l'exécution puis le remet à null à la fin (EndJob), ce qui fait
+    // disparaître silencieusement toutes les traces émises ensuite par l'appelant (JobId vide).
+    // Depuis une boucle déjà pilotée par un job, appeler ImportArchiveAsync(...) directement à la place.
     public async Task<FileInfo?> LaunchJobImportArchive(ArchiveConverterPdfJobParameters parameters)
+    {
+        var sourcefile = File.Exists(parameters.SourceFile) ? new FileInfo(parameters.SourceFile) : null;
+        if (sourcefile == null)
+        {
+            return null;
+        }
+
+        var job = StartJob($"Transform {sourcefile.Name} to archive", parameters);
+        job.SetState(JobState.RUNNING);
+
+        try
+        {
+            var archive = await ImportArchiveAsync(parameters, job.CallbackHandler);
+            EndJob(archive != null && job.Progress.Error < job.Progress.Total);
+            return archive;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+            return null;
+        }
+    }
+
+    // Logique de conversion pure, sans gestion de job — pour être appelée en toute sécurité depuis
+    // une boucle déjà pilotée par un job appelant (ImportArchiveFromDirectoryAsync, LaunchJobProcessDownloads).
+    // Les traces émises ici restent attachées au job de l'appelant (AsyncLocal non modifié).
+    private async Task<FileInfo?> ImportArchiveAsync(ArchiveConverterPdfJobParameters parameters, ProgressionCallback? progression = null)
     {
         var archiveService = GetService<ArchiveService, ArchiveOption>();
 
@@ -1098,42 +1136,24 @@ public class InkhoundManager : BaseServiceManager
             return null;
         }
 
-        var job = StartJob($"Transform {sourcefile.Name} to archive", parameters);
-        job.SetState(JobState.RUNNING);
-
-        try
+        // STEP 1 : Get pages from file
+        var pageFiles = await archiveService.ConvertToImages(sourcefile, parameters.WorkingPath, progression);
+        if (pageFiles == null)
         {
-            // STEP 1 : Get pages from file
-            var pageFiles = await archiveService.ConvertToImages(sourcefile, parameters.WorkingPath, job.CallbackHandler);
-            if (pageFiles == null)
-            {
-                EndJob(false);
-                return null;
-            }
-
-            // STEP 2 : Add ComicsInfo
-            var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, job.CallbackHandler);
-
-            // STEP 3 : Generage CBZ
-            var archive = await archiveService.CreateCbzFile(parameters.WorkingPath, parameters.Volume, parameters.Issue, comicsInfo, pageFiles, job.CallbackHandler);
-
-            // STEP 4 : Delete files
-            comicsInfo.Delete();
-            pageFiles.ForEach(c => c.Delete());
-
-            EndJob(job.Progress.Error < job.Progress.Total);
-
-            return archive;
-        }
-        catch (Exception ex)
-        {
-            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
-            EndJob(false);
             return null;
         }
 
+        // STEP 2 : Add ComicsInfo
+        var comicsInfo = await archiveService.CreateComicInfo(parameters.Volume, parameters.Issue, parameters.WorkingPath, progression);
 
+        // STEP 3 : Generage CBZ
+        var archive = await archiveService.CreateCbzFile(parameters.WorkingPath, parameters.Volume, parameters.Issue, comicsInfo, pageFiles, progression);
 
+        // STEP 4 : Delete files
+        comicsInfo.Delete();
+        pageFiles.ForEach(c => c.Delete());
+
+        return archive;
     }
 
     private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];
@@ -1612,7 +1632,10 @@ public class InkhoundManager : BaseServiceManager
 
                     var importSubDir = Directory.CreateDirectory(Path.Combine(archiveService.ImportPath, download.Id.ToString("N")));
                     var importedFilePath = Path.Combine(importSubDir.FullName, Path.GetFileName(matchedFile.Name));
-                    File.Copy(downloadedFilePath, importedFilePath, overwrite: true);
+                    var downloadedFileSizeMb = new FileInfo(downloadedFilePath).Length / 1024.0 / 1024.0;
+                    JobRunTimed(
+                        $"[Downloads] Copying '{matchedFile.Name}' ({downloadedFileSizeMb:F1} MB) from downloads to import folder",
+                        () => File.Copy(downloadedFilePath, importedFilePath, overwrite: true));
 
                     var workingSubPath = Path.Combine(tempDir.FullName, download.Id.ToString("N"));
                     var importParams = new ArchiveConverterPdfJobParameters
@@ -1625,7 +1648,7 @@ public class InkhoundManager : BaseServiceManager
                     };
 
                     JobSendTrace($"[Downloads] Importing '{matchedFile.Name}' for issue #{issue.IssueNumber} — {volume.Title}");
-                    var archive = await LaunchJobImportArchive(importParams);
+                    var archive = await ImportArchiveAsync(importParams, job.CallbackHandler);
 
                     Directory.Delete(importSubDir.FullName, recursive: true);
 
@@ -1639,7 +1662,10 @@ public class InkhoundManager : BaseServiceManager
 
                     var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
                     var dest = Path.Combine(volumeDir.FullName, archive.Name);
-                    File.Copy(archive.FullName, dest, overwrite: true);
+                    var archiveSizeMb = archive.Length / 1024.0 / 1024.0;
+                    JobRunTimed(
+                        $"[Downloads] Copying '{archive.Name}' ({archiveSizeMb:F1} MB) to library folder",
+                        () => File.Copy(archive.FullName, dest, overwrite: true));
 
                     issue.CbzFilename = archive.Name;
                     issue.FileSizeBytes = (int)archive.Length;
@@ -1670,8 +1696,9 @@ public class InkhoundManager : BaseServiceManager
 
                 var kavita = GetService<KavitaService, KavitaOptions>();
                 var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
-                JobSendTrace($"[Downloads] Triggering Kavita folder scan: {kavitaFolderPath}");
-                await kavita.ScanFolderAsync(kavitaFolderPath);
+                await JobRunTimedAsync(
+                    $"[Downloads] Triggering Kavita folder scan: {kavitaFolderPath}",
+                    () => kavita.ScanFolderAsync(kavitaFolderPath));
             }
 
             EndJob(job.Progress.Error == 0);

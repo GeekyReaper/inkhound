@@ -57,6 +57,48 @@ public abstract class BaseService<T> : IService where T : IOptionList, new()
         _onTrace.Invoke(trace);
     }
 
+    // Trace de début/fin (avec durée) autour d'une étape longue (I/O, appel réseau, etc.),
+    // pour que le job appelant montre une vraie progression au lieu de sembler bloqué.
+    protected async Task<TResult> RunTimedAsync<TResult>(string operationName, Func<Task<TResult>> action)
+    {
+        SendTrace($"{operationName}…");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var result = await action();
+            SendTrace($"{operationName} — done in {TimeFormat.Elapsed(sw.Elapsed)}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"{operationName} — failed after {TimeFormat.Elapsed(sw.Elapsed)}", ex);
+            throw;
+        }
+    }
+
+    protected Task RunTimedAsync(string operationName, Func<Task> action) =>
+        RunTimedAsync(operationName, async () => { await action(); return true; });
+
+    protected TResult RunTimed<TResult>(string operationName, Func<TResult> action)
+    {
+        SendTrace($"{operationName}…");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var result = action();
+            SendTrace($"{operationName} — done in {TimeFormat.Elapsed(sw.Elapsed)}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"{operationName} — failed after {TimeFormat.Elapsed(sw.Elapsed)}", ex);
+            throw;
+        }
+    }
+
+    protected void RunTimed(string operationName, Action action) =>
+        RunTimed(operationName, () => { action(); return true; });
+
 
     public virtual async Task<bool> LoadOptions(List<OptionDefinition> optionList)
     {

@@ -112,6 +112,14 @@ public class DbStorageService : BaseService<DbStorageOption>
                     UpdatedAt   TEXT
                 )
                 """);
+
+        // AllowedValues ajouté en juillet 2026 — choix disponibles pour les options de type SELECT
+        var hasAllowedValues = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Options') WHERE name='AllowedValues'")
+            .AnyAsync();
+        if (!hasAllowedValues)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Options ADD COLUMN AllowedValues TEXT NOT NULL DEFAULT '[]'");
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)

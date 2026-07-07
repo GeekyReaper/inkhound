@@ -1,5 +1,5 @@
 export type EState = 'NOTINIT' | 'INVALID' | 'OK' | 'WARNING' | 'ERROR';
-export type EValueType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOL' | 'PASSWORD' | 'TEXT' | 'PATH';
+export type EValueType = 'STRING' | 'INT' | 'DOUBLE' | 'BOOL' | 'PASSWORD' | 'TEXT' | 'PATH' | 'SELECT';
 
 export interface OptionDefinition {
   id: string;
@@ -11,6 +11,7 @@ export interface OptionDefinition {
   regexValidator: string;
   defaultValue: string;
   serviceName: string;
+  allowedValues: string[];
 }
 
 export type ETraceLevel = 'INFO' | 'DEBUG' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'NONE';
