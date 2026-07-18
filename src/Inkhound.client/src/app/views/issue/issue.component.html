@@ -251,6 +251,84 @@
       </c-col>
     </c-row>
 
+    <!-- CBZ Quality Analysis -->
+    <c-row class="mt-3">
+      <c-col>
+        <c-card>
+          <c-card-body>
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <h5 class="mb-0">CBZ Quality Analysis</h5>
+              <button cButton color="primary" size="sm" [disabled]="analyzing() || !issue()!.cbzFilename" (click)="onAnalyze()">
+                @if (analyzing()) {
+                  <c-spinner size="sm" class="me-1"></c-spinner>
+                } @else {
+                  <svg cIcon name="cilSpeedometer" size="sm" class="me-1"></svg>
+                }
+                Analyze
+              </button>
+            </div>
+
+            @if (analyzing() && currentJob()) {
+              <div class="mb-3">
+                <div class="text-body-secondary small mb-1">{{ currentJob()!.title }}</div>
+                <c-progress class="mb-1">
+                  <c-progress-bar
+                    color="primary"
+                    [value]="currentJob()!.progress.percentage"
+                    [animated]="true">
+                    {{ currentJob()!.progress.percentage | number:'1.0-0' }}%
+                  </c-progress-bar>
+                </c-progress>
+              </div>
+            }
+
+            @if (analyzeError()) {
+              <c-alert color="danger" class="mb-3">{{ analyzeError() }}</c-alert>
+            }
+
+            @if (issue()!.analyzedAt) {
+              <dl class="row mb-0">
+                <dt class="col-sm-4 col-lg-3">Score</dt>
+                <dd class="col-sm-8 col-lg-9">
+                  <span [class]="'badge bg-' + scoreBandColor(issue()!.analysisScoreBand)">
+                    {{ issue()!.analysisScore }}/100 — {{ issue()!.analysisScoreBand }}
+                  </span>
+                </dd>
+                <dt class="col-sm-4 col-lg-3">Resolution</dt>
+                <dd class="col-sm-8 col-lg-9">{{ issue()!.analysisDominantResolutionWidth }} × {{ issue()!.analysisDominantResolutionHeight }} px</dd>
+                <dt class="col-sm-4 col-lg-3">Format</dt>
+                <dd class="col-sm-8 col-lg-9">{{ issue()!.analysisDominantImageFormat }}</dd>
+                <dt class="col-sm-4 col-lg-3">Pages</dt>
+                <dd class="col-sm-8 col-lg-9">{{ issue()!.analysisPageCount }}</dd>
+                <dt class="col-sm-4 col-lg-3">ComicInfo.xml</dt>
+                <dd class="col-sm-8 col-lg-9">
+                  <span [class]="'badge bg-' + (issue()!.analysisHasComicInfo ? 'success' : 'warning')">
+                    {{ issue()!.analysisHasComicInfo ? 'Present' : 'Missing' }}
+                  </span>
+                </dd>
+                <dt class="col-sm-4 col-lg-3">Zip compression</dt>
+                <dd class="col-sm-8 col-lg-9">
+                  <span [class]="'badge bg-' + (issue()!.analysisZipCompressionPercent === 0 ? 'success' : 'warning')">
+                    {{ issue()!.analysisZipCompressionPercent }}%
+                  </span>
+                </dd>
+                <dt class="col-sm-4 col-lg-3">Total size</dt>
+                <dd class="col-sm-8 col-lg-9">{{ formatBytes(issue()!.analysisFileSizeBytes) }}</dd>
+                <dt class="col-sm-4 col-lg-3">Avg. page size</dt>
+                <dd class="col-sm-8 col-lg-9">{{ formatBytes(issue()!.analysisAveragePageSizeBytes) }}</dd>
+                <dt class="col-sm-4 col-lg-3">File hash</dt>
+                <dd class="col-sm-8 col-lg-9"><code class="small">{{ issue()!.analysisFileHash | slice:0:16 }}…</code></dd>
+                <dt class="col-sm-4 col-lg-3">Analyzed</dt>
+                <dd class="col-sm-8 col-lg-9">{{ issue()!.analyzedAt | date:'medium' }}</dd>
+              </dl>
+            } @else {
+              <p class="text-body-secondary mb-0 small">No analysis yet — click "Analyze" to score this issue's CBZ file.</p>
+            }
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
   }
 
 </c-container>

@@ -33,6 +33,18 @@ export interface Issue {
   image:       VolumeImage | null;
   cbzFilename: string | null;
   publishedAt: string | null;
+  analysisScore:                     number | null;
+  analysisScoreBand:                 string | null;
+  analysisDominantImageFormat:       string | null;
+  analysisDominantResolutionWidth:   number | null;
+  analysisDominantResolutionHeight:  number | null;
+  analysisPageCount:                 number | null;
+  analysisHasComicInfo:              boolean | null;
+  analysisZipCompressionPercent:     number | null;
+  analysisFileSizeBytes:             number | null;
+  analysisAveragePageSizeBytes:      number | null;
+  analysisFileHash:                  string | null;
+  analyzedAt:                        string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -55,5 +67,9 @@ export class IssueService {
 
   update(issueId: string, request: UpdateIssueManuallyRequest) {
     return this.http.put<void>(`/api/issues/${issueId}`, request);
+  }
+
+  analyze(issueId: string) {
+    return this.http.post<Issue>(`/api/issues/${issueId}/analyze`, null);
   }
 }

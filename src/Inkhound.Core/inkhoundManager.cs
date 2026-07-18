@@ -13,6 +13,8 @@ using Inkhound.Core.Prowlarr;
 using Inkhound.Core.QBittorrent;
 using Inkhound.Core.Scoring;
 using Inkhound.Core.Analysis;
+using Inkhound.Core.CbzQuality.Analysis;
+using Inkhound.Core.CbzQuality.Models;
 
 using SharpCompress.Compressors.ZStandard.Unsafe;
 using System.Text.Json;
@@ -1299,6 +1301,101 @@ public class InkhoundManager : BaseServiceManager
             JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
             return [];
+        }
+    }
+
+    public async Task<Issue?> LaunchJobAnalyzeIssue(AnalyzeIssueJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync(parameters.IssueId);
+        var jobTitle = issue is not null
+            ? $"Analyse CBZ — Issue #{issue.IssueNumber}"
+            : $"Analyse CBZ — {parameters.IssueId}";
+
+        var job = StartJob(jobTitle, parameters);
+        job.SetState(JobState.RUNNING);
+
+        try
+        {
+            if (issue is null || string.IsNullOrEmpty(issue.CbzFilename))
+            {
+                JobSendTrace("[Analyze] Issue introuvable ou sans fichier CBZ", ETraceLevel.ERROR);
+                EndJob(false);
+                return null;
+            }
+
+            var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
+            if (volume is null)
+            {
+                JobSendTrace("[Analyze] Volume introuvable", ETraceLevel.ERROR);
+                EndJob(false);
+                return null;
+            }
+
+            var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+            if (library is null)
+            {
+                JobSendTrace("[Analyze] Library introuvable", ETraceLevel.ERROR);
+                EndJob(false);
+                return null;
+            }
+
+            var archiveService = GetService<ArchiveService, ArchiveOption>();
+            var kavitaService = GetService<KavitaService, KavitaOptions>();
+            var scoringSettings = kavitaService.BuildScoringSettings();
+
+            var cbzPath = ArchiveService.GetPath(issue, volume, library);
+            if (!File.Exists(cbzPath))
+            {
+                JobSendTrace($"[Analyze] Fichier CBZ introuvable : {cbzPath}", ETraceLevel.ERROR);
+                EndJob(false);
+                return null;
+            }
+
+            JobSendTrace($"[Analyze] Calcul du hash SHA-256 de {Path.GetFileName(cbzPath)}");
+            var hash = await ArchiveService.ComputeFileHashAsync(cbzPath);
+
+            var progress = new Progress<CbzAnalysisProgress>(p =>
+            {
+                job.CallbackHandler.UpdateTotal(p.TotalEntries);
+                job.CallbackHandler.Callback(new Progression { Total = p.TotalEntries, Completed = p.EntriesProcessed });
+            });
+
+            JobSendTrace($"[Analyze] Analyse de {Path.GetFileName(cbzPath)}");
+            var analysis = await archiveService.AnalyzeCbzAsync(cbzPath, scoringSettings, progress);
+            var report = ArchiveService.ScoreCbz(analysis, scoringSettings);
+
+            var dominant = analysis.Entries
+                .Where(e => e.IsImage && e.Image is { DecodeSucceeded: true })
+                .GroupBy(e => (e.Image!.WidthPx, e.Image!.HeightPx))
+                .OrderByDescending(g => g.Count())
+                .FirstOrDefault();
+
+            issue.AnalysisScore = report.Score;
+            issue.AnalysisScoreBand = report.ScoreBand;
+            issue.AnalysisDominantImageFormat = analysis.FormatBreakdown.FirstOrDefault()?.Format;
+            issue.AnalysisDominantResolutionWidth = dominant?.Key.WidthPx;
+            issue.AnalysisDominantResolutionHeight = dominant?.Key.HeightPx;
+            issue.AnalysisPageCount = analysis.ImageEntryCount;
+            issue.AnalysisHasComicInfo = analysis.HasComicInfoXml;
+            issue.AnalysisZipCompressionPercent = Math.Round((1 - analysis.ZipCompressionRatio) * 100, 1);
+            issue.AnalysisFileSizeBytes = analysis.FileSizeBytes;
+            issue.AnalysisAveragePageSizeBytes = analysis.AverageImageBytes;
+            issue.AnalysisFileHash = hash;
+            issue.AnalyzedAt = DateTime.UtcNow;
+
+            await ctx.SaveChangesAsync();
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+
+            JobSendTrace($"[Analyze] Score {report.Score}/100 ({report.ScoreBand}) — {analysis.ImageEntryCount} page(s)");
+            EndJob(true);
+            return issue;
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Analyze] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+            return null;
         }
     }
 

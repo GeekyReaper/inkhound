@@ -2,7 +2,7 @@ import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, finalize, switchMap } from 'rxjs';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, SlicePipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
@@ -31,7 +31,7 @@ import { UpdatedData } from '../../core/models/hub.models';
     TableDirective, ProgressComponent, ProgressBarComponent,
     ModalModule,
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
-    DatePipe, DecimalPipe
+    DatePipe, DecimalPipe, SlicePipe
   ]
 })
 export class IssueComponent {
@@ -57,6 +57,8 @@ export class IssueComponent {
   grabbingGuid  = signal<string | null>(null);
   grabSuccess   = signal<string | null>(null);
   currentPage   = signal(1);
+  analyzing     = signal(false);
+  analyzeError  = signal<string | null>(null);
 
   // --- État de la modale d'édition ---
   editModalVisible = signal(false);
@@ -182,6 +184,32 @@ export class IssueComponent {
         next:  results => { this.searchResults.set(results); this.currentPage.set(1); },
         error: err     => this.searchError.set(err?.error?.message ?? 'Search failed.')
       });
+  }
+
+  onAnalyze(): void {
+    this.analyzing.set(true);
+    this.analyzeError.set(null);
+
+    this.issueService.analyze(this.issueId)
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.analyzing.set(false))
+      )
+      .subscribe({
+        next:  issue => this.issue.set(issue),
+        error: err   => this.analyzeError.set(err?.error?.message ?? 'Analysis failed.')
+      });
+  }
+
+  scoreBandColor(band: string | null): string {
+    switch (band) {
+      case 'Excellent': return 'success';
+      case 'Bon':        return 'info';
+      case 'Correct':    return 'warning';
+      case 'Faible':
+      case 'Illisible':  return 'danger';
+      default:           return 'secondary';
+    }
   }
 
   onGrab(result: ScoredSearchResult): void {
@@ -332,6 +360,14 @@ export class IssueComponent {
     if (bytes <= 0) return '—';
     const mb = bytes / 1_048_576;
     return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+  }
+
+  formatBytes(bytes: number | null): string {
+    if (bytes === null || bytes <= 0) return '—';
+    if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+    if (bytes < 1_048_576) return `${(bytes / 1024).toFixed(1)} KB`;
+    const mb = bytes / 1_048_576;
+    return mb >= 1000 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
   }
 
   detectFormat(title: string): string {

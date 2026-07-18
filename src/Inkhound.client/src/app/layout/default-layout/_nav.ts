@@ -33,6 +33,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-settings' }
   },
   {
+    name: 'Kavita',
+    url: '/settings/kavita',
+    iconComponent: { name: 'cil-settings' }
+  },
+  {
     name: 'Libraries',
     url: '/libraries',
     iconComponent: { name: 'cil-library' }

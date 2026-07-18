@@ -1,11 +1,12 @@
 using System;
+using System.IO.Compression;
 using System.Linq;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
 
 namespace Inkhound.Core.ComicArchiveGenerator;
 
-public enum PdfPageFormat { Jpeg, Png }
+public enum ImageConversionFormat { Jpeg, WebP, Png }
 
 public class ArchiveOption : IOptionList
 {
@@ -13,9 +14,11 @@ public class ArchiveOption : IOptionList
     public string ImportPath { get; set; } = "data/import";
     public string ImagesPath { get; set; } = "data/images";
     public string DownloadsPath { get; set; } = "data/downloads";
-    public int PdfDpi { get; set; } = 150;
-    public PdfPageFormat PdfImageFormat { get; set; } = PdfPageFormat.Jpeg;
-    public int PdfJpegQuality { get; set; } = 90;
+
+    public ImageConversionFormat ImageFormatConversion { get; set; } = ImageConversionFormat.WebP;
+    public int ImageQuality { get; set; } = 85;
+    public int MaxImageHeightPx { get; set; } = 4000;
+    public CompressionLevel ZipCompressionLevel { get; set; } = CompressionLevel.NoCompression;
 
     public List<OptionDefinition> GetOptions()
     {
@@ -64,35 +67,46 @@ public class ArchiveOption : IOptionList
             },
             new OptionDefinition
             {
-                Name = nameof(PdfDpi),
-                Section = "PDF Conversion",
+                Name = nameof(ImageFormatConversion),
+                Section = "Image Conversion",
                 SortOrder = 40,
-                Value = PdfDpi.ToString(),
-                Description = "DPI used to rasterize PDF pages into images. Higher values produce larger, heavier files without adding real detail beyond the source scan resolution.",
-                ValueType = EValueType.INT,
-                DefaultValue = "150"
-            },
-            new OptionDefinition
-            {
-                Name = nameof(PdfImageFormat),
-                Section = "PDF Conversion",
-                SortOrder = 50,
-                Value = PdfImageFormat.ToString(),
-                Description = "Image format used for pages rendered from PDF sources. JPEG is recommended for scanned/photographic content — much smaller files with no perceptible quality loss.",
+                Value = ImageFormatConversion.ToString(),
+                Description = "Image format used to (re-)encode every page, for PDF, CBR and CBZ sources alike. WebP gives the best Kavita compatibility score.",
                 ValueType = EValueType.SELECT,
-                DefaultValue = nameof(PdfPageFormat.Jpeg),
-                AllowedValues = Enum.GetNames(typeof(PdfPageFormat)).ToList()
+                DefaultValue = nameof(ImageConversionFormat.WebP),
+                AllowedValues = Enum.GetNames(typeof(ImageConversionFormat)).ToList()
             },
             new OptionDefinition
             {
-                Name = nameof(PdfJpegQuality),
-                Section = "PDF Conversion",
-                SortOrder = 60,
-                Value = PdfJpegQuality.ToString(),
-                Description = "JPEG quality (1-100) used when encoding PDF pages. Ignored when PNG is used.",
+                Name = nameof(ImageQuality),
+                Section = "Image Conversion",
+                SortOrder = 50,
+                Value = ImageQuality.ToString(),
+                Description = "Encode quality (1-100) used for JPEG and WebP pages. Ignored when the target format is PNG (lossless).",
                 ValueType = EValueType.INT,
-                DefaultValue = "90",
+                DefaultValue = "85",
                 RegexValidator = @"^(100|[1-9]?[0-9])$"
+            },
+            new OptionDefinition
+            {
+                Name = nameof(MaxImageHeightPx),
+                Section = "Image Conversion",
+                SortOrder = 60,
+                Value = MaxImageHeightPx.ToString(),
+                Description = "Maximum page height in pixels. Taller pages are downscaled to this height (never upscaled). For PDF sources, pages are rendered directly at this height.",
+                ValueType = EValueType.INT,
+                DefaultValue = "4000"
+            },
+            new OptionDefinition
+            {
+                Name = nameof(ZipCompressionLevel),
+                Section = "Image Conversion",
+                SortOrder = 70,
+                Value = ZipCompressionLevel.ToString(),
+                Description = "Zip compression applied to the .cbz container itself. Pages are already lossy-compressed, so NoCompression (default) avoids wasting CPU on every Kavita read.",
+                ValueType = EValueType.SELECT,
+                DefaultValue = nameof(CompressionLevel.NoCompression),
+                AllowedValues = Enum.GetNames(typeof(CompressionLevel)).ToList()
             }
         };
     }
@@ -121,14 +135,14 @@ public class ArchiveOption : IOptionList
             errors.Add("Downloads path is null.");
         }
 
-        if (PdfDpi <= 0)
+        if (ImageQuality < 1 || ImageQuality > 100)
         {
-            errors.Add("PDF DPI must be greater than 0.");
+            errors.Add("Image quality must be between 1 and 100.");
         }
 
-        if (PdfJpegQuality < 1 || PdfJpegQuality > 100)
+        if (MaxImageHeightPx <= 0)
         {
-            errors.Add("PDF JPEG quality must be between 1 and 100.");
+            errors.Add("Max image height must be greater than 0.");
         }
 
         return errors.Count == 0;
@@ -159,18 +173,23 @@ public class ArchiveOption : IOptionList
                 {
                     DownloadsPath = option.Value;
                 }
-                else if (option.Name == nameof(PdfDpi))
+                else if (option.Name == nameof(ImageFormatConversion))
                 {
-                    PdfDpi = option.GetInt();
+                    if (Enum.TryParse<ImageConversionFormat>(option.Value, true, out var format))
+                        ImageFormatConversion = format;
                 }
-                else if (option.Name == nameof(PdfImageFormat))
+                else if (option.Name == nameof(ImageQuality))
                 {
-                    if (Enum.TryParse<PdfPageFormat>(option.Value, true, out var format))
-                        PdfImageFormat = format;
+                    ImageQuality = option.GetInt();
                 }
-                else if (option.Name == nameof(PdfJpegQuality))
+                else if (option.Name == nameof(MaxImageHeightPx))
                 {
-                    PdfJpegQuality = option.GetInt();
+                    MaxImageHeightPx = option.GetInt();
+                }
+                else if (option.Name == nameof(ZipCompressionLevel))
+                {
+                    if (Enum.TryParse<CompressionLevel>(option.Value, true, out var level))
+                        ZipCompressionLevel = level;
                 }
             }
             errors.AddRange(optionErrors);

@@ -27,6 +27,7 @@ public class OptionDefinition
 
     public int GetInt() => int.TryParse(Value, out var result) ? result : 0;
     public bool GetBool() => bool.TryParse(Value, out var result) && result;
+    public double GetDouble() => double.TryParse(Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var result) ? result : 0;
 
     public DateTime LastValue { get; set; } = DateTime.MinValue;
 
@@ -49,7 +50,7 @@ public class OptionDefinition
         }
         else if (ValueType == EValueType.DOUBLE)
         {
-            if (!double.TryParse(Value, out _))
+            if (!double.TryParse(Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
                 errors.Add($"{Name} must be a valid double.");
         }
         else if (ValueType == EValueType.SELECT)

@@ -22,4 +22,18 @@ public class Issue
     public DateTime DownloadedAt { get; set; }
     public DateTime? PublishedAt { get; set; }
     public IssueStatus Status { get; set; } = IssueStatus.MISSING;
+
+    // Résultat de la dernière analyse CBZ (score de compatibilité Kavita) — null tant qu'aucune analyse n'a été lancée
+    public int? AnalysisScore { get; set; }
+    public string? AnalysisScoreBand { get; set; }
+    public string? AnalysisDominantImageFormat { get; set; }
+    public int? AnalysisDominantResolutionWidth { get; set; }
+    public int? AnalysisDominantResolutionHeight { get; set; }
+    public int? AnalysisPageCount { get; set; }
+    public bool? AnalysisHasComicInfo { get; set; }
+    public double? AnalysisZipCompressionPercent { get; set; }
+    public long? AnalysisFileSizeBytes { get; set; }
+    public double? AnalysisAveragePageSizeBytes { get; set; }
+    public string? AnalysisFileHash { get; set; }
+    public DateTime? AnalyzedAt { get; set; }
 }

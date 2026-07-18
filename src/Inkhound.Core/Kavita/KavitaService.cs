@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Foundation.Core;
 using Foundation.Core.Model;
+using Inkhound.Core.CbzQuality.Models;
 using Inkhound.Core.Kavita.Models;
 
 namespace Inkhound.Core.Kavita;
@@ -120,6 +121,86 @@ public class KavitaService : BaseService<KavitaOptions>
             return false;
         }
     }
+
+    /// <summary>
+    /// Materializes a full <see cref="ScoringSettings"/> instance from the flat/JSON fields stored on
+    /// <see cref="KavitaOptions"/> — used by the CBZ "Analyze" job. Falls back to a field's own default
+    /// (fresh <see cref="ScoringSettings"/>) if a stored list-shaped JSON value fails to parse.
+    /// </summary>
+    public ScoringSettings BuildScoringSettings()
+    {
+        var d = new ScoringSettings();
+        return new ScoringSettings
+        {
+            UnsupportedFormatPenaltyPerFormat = Options.UnsupportedFormatPenaltyPerFormat,
+            UnsupportedFormatPenaltyCap = Options.UnsupportedFormatPenaltyCap,
+            CorruptedImagePenaltyPerImage = Options.CorruptedImagePenaltyPerImage,
+            CorruptedImagePenaltyCap = Options.CorruptedImagePenaltyCap,
+            NoImagesFoundPenalty = Options.NoImagesFoundPenalty,
+            ExtensionMismatchPenaltyPerEntry = Options.ExtensionMismatchPenaltyPerEntry,
+            ExtensionMismatchPenaltyCap = Options.ExtensionMismatchPenaltyCap,
+            NoComicInfoPenalty = Options.NoComicInfoPenalty,
+            ComicInfoNotAtRootPenalty = Options.ComicInfoNotAtRootPenalty,
+            ComicInfoMalformedPenalty = Options.ComicInfoMalformedPenalty,
+            LocalizedSeriesMatchesFilenamePenalty = Options.LocalizedSeriesMatchesFilenamePenalty,
+            PageSortOrderMismatchPenalty = Options.PageSortOrderMismatchPenalty,
+            InconsistentZeroPaddingPenalty = Options.InconsistentZeroPaddingPenalty,
+            PageNumberGapsPenalty = Options.PageNumberGapsPenalty,
+            PageNumberDuplicatesPenalty = Options.PageNumberDuplicatesPenalty,
+            JunkFilePenaltyPerEntry = Options.JunkFilePenaltyPerEntry,
+            JunkFilePenaltyCap = Options.JunkFilePenaltyCap,
+            NestedFolderDepth1Penalty = Options.NestedFolderDepth1Penalty,
+            NestedFolderDepth2PlusPenalty = Options.NestedFolderDepth2PlusPenalty,
+            ExtraneousFilePenaltyPerEntry = Options.ExtraneousFilePenaltyPerEntry,
+            ExtraneousFilePenaltyCap = Options.ExtraneousFilePenaltyCap,
+            ParenthesesInFilenamePenalty = Options.ParenthesesInFilenamePenalty,
+
+            ResolutionIdealMin = Options.ResolutionIdealMin,
+            ResolutionIdealMax = Options.ResolutionIdealMax,
+            ResolutionTooLow = Options.ResolutionTooLow,
+            ResolutionTooHigh = Options.ResolutionTooHigh,
+            ResolutionSeverePenaltyPerImage = Options.ResolutionSeverePenaltyPerImage,
+            ResolutionSeverePenaltyCap = Options.ResolutionSeverePenaltyCap,
+            ResolutionMinorPenaltyPerImage = Options.ResolutionMinorPenaltyPerImage,
+            ResolutionMinorPenaltyCap = Options.ResolutionMinorPenaltyCap,
+
+            JpegQualityIdealMin = Options.JpegQualityIdealMin,
+            JpegQualityIdealMax = Options.JpegQualityIdealMax,
+            JpegQualityLow = Options.JpegQualityLow,
+            JpegQualityHigh = Options.JpegQualityHigh,
+            WebpBppIdealMin = Options.WebpBppIdealMin,
+            WebpBppIdealMax = Options.WebpBppIdealMax,
+            WebpBppTooLow = Options.WebpBppTooLow,
+            WebpBppTooHigh = Options.WebpBppTooHigh,
+            QualitySeverePenaltyPerImage = Options.QualitySeverePenaltyPerImage,
+            QualitySeverePenaltyCap = Options.QualitySeverePenaltyCap,
+            QualityMinorPenaltyPerImage = Options.QualityMinorPenaltyPerImage,
+            QualityMinorPenaltyCap = Options.QualityMinorPenaltyCap,
+            WebpLosslessPenaltyPerImage = Options.WebpLosslessPenaltyPerImage,
+            WebpLosslessPenaltyCap = Options.WebpLosslessPenaltyCap,
+
+            FormatScoreByFormat = TryParseScoringList<List<FormatScoreRow>>(Options.FormatScoreByFormatJson)
+                ?.ToDictionary(r => r.Format, r => r.Score, StringComparer.OrdinalIgnoreCase) ?? d.FormatScoreByFormat,
+            PageWeightTiers = TryParseScoringList<List<PageWeightTier>>(Options.PageWeightTiersJson) ?? d.PageWeightTiers,
+            ZipCompressionTiers = TryParseScoringList<List<ZipCompressionTier>>(Options.ZipCompressionTiersJson) ?? d.ZipCompressionTiers,
+            ScoreBands = TryParseScoringList<List<ScoreBandDefinition>>(Options.ScoreBandsJson) ?? d.ScoreBands
+        };
+    }
+
+    private T? TryParseScoringList<T>(string json) where T : class
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json, JsonOpts);
+        }
+        catch (JsonException ex)
+        {
+            SendTrace("Failed to parse a stored scoring JSON field — falling back to its default.", ex);
+            return null;
+        }
+    }
+
+    private sealed record FormatScoreRow(string Format, int Score);
 
     // Returns true if token is valid, false if authentication failed
     private async Task<bool> EnsureTokenAsync()

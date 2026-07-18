@@ -23,11 +23,28 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         List<VolumeAuthor> Authors,
         VolumeImage? Image,
         string? CbzFilename,
-        DateTime? PublishedAt);
+        DateTime? PublishedAt,
+        int? AnalysisScore,
+        string? AnalysisScoreBand,
+        string? AnalysisDominantImageFormat,
+        int? AnalysisDominantResolutionWidth,
+        int? AnalysisDominantResolutionHeight,
+        int? AnalysisPageCount,
+        bool? AnalysisHasComicInfo,
+        double? AnalysisZipCompressionPercent,
+        long? AnalysisFileSizeBytes,
+        double? AnalysisAveragePageSizeBytes,
+        string? AnalysisFileHash,
+        DateTime? AnalyzedAt);
 
     private static IssueDto ToDto(Issue i)
         => new(i.Id, i.VolumeId, i.ComicVineId, i.IssueNumber, i.Title, i.Year,
-               i.Description, i.Status, i.Authors, i.Image, i.CbzFilename, i.PublishedAt);
+               i.Description, i.Status, i.Authors, i.Image, i.CbzFilename, i.PublishedAt,
+               i.AnalysisScore, i.AnalysisScoreBand, i.AnalysisDominantImageFormat,
+               i.AnalysisDominantResolutionWidth, i.AnalysisDominantResolutionHeight,
+               i.AnalysisPageCount, i.AnalysisHasComicInfo, i.AnalysisZipCompressionPercent,
+               i.AnalysisFileSizeBytes, i.AnalysisAveragePageSizeBytes,
+               i.AnalysisFileHash, i.AnalyzedAt);
 
     private record CvIssueDto(
         string Id, string? IssueNumber, string? Name,
@@ -73,6 +90,14 @@ public class IssueController(InkhoundManager manager) : ControllerBase
     {
         var updated = await manager.UpdateIssueManuallyAsync(issueId, req.Title, req.Year, req.Description, req.Status);
         return updated ? NoContent() : NotFound();
+    }
+
+    // POST /api/issues/{issueId}/analyze
+    [HttpPost("/api/issues/{issueId:guid}/analyze")]
+    public async Task<IActionResult> Analyze(Guid issueId)
+    {
+        var issue = await manager.LaunchJobAnalyzeIssue(new AnalyzeIssueJobParameters { IssueId = issueId });
+        return issue is null ? BadRequest(new { message = "Analysis failed." }) : Ok(ToDto(issue));
     }
 
     // GET /api/volumes/{volumeId}/issues

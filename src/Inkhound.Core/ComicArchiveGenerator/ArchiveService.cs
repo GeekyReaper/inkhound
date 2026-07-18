@@ -5,6 +5,9 @@ using System.Text;
 using System.Xml.Linq;
 using Foundation.Core;
 using Foundation.Core.Model;
+using Inkhound.Core.CbzQuality.Analysis;
+using Inkhound.Core.CbzQuality.Models;
+using Inkhound.Core.CbzQuality.Scoring;
 using Inkhound.Core.Models;
 using PDFtoImage;
 using SharpCompress.Archives.Rar;
@@ -120,6 +123,52 @@ public class ArchiveService : BaseService<ArchiveOption>
     public string WorkingPath => Options.WorkingPath;
 
     #region Conversion Methods
+
+    private (SKEncodedImageFormat Format, string Extension) GetTargetImageFormat() => Options.ImageFormatConversion switch
+    {
+        ImageConversionFormat.WebP => (SKEncodedImageFormat.Webp, ".webp"),
+        ImageConversionFormat.Png => (SKEncodedImageFormat.Png, ".png"),
+        _ => (SKEncodedImageFormat.Jpeg, ".jpg")
+    };
+
+    /// <summary>
+    /// Decodes, downscales (if taller than <see cref="ArchiveOption.MaxImageHeightPx"/>) and re-encodes
+    /// an image entry extracted from a CBR/CBZ to the configured target format. Falls back to copying
+    /// the raw bytes as-is under their original extension when the entry can't be decoded by SkiaSharp
+    /// (corrupted/unsupported source image) — same behavior a plain extraction would have had.
+    /// </summary>
+    private async Task<FileInfo> ConvertImageEntryAsync(Stream sourceStream, string originalExtension, string fullDestPath, int pageIndex)
+    {
+        using var ms = new MemoryStream();
+        await sourceStream.CopyToAsync(ms);
+        ms.Position = 0;
+
+        using var bitmap = SKBitmap.Decode(ms);
+        if (bitmap is null)
+        {
+            var rawPath = Path.Combine(fullDestPath, $"page_{pageIndex:D3}{originalExtension}");
+            ms.Position = 0;
+            await using var rawOut = File.Create(rawPath);
+            await ms.CopyToAsync(rawOut);
+            SendTrace($"Page {pageIndex} could not be decoded — copied as-is ({originalExtension})", new TraceDefinition() { Level = ETraceLevel.WARNING });
+            return new FileInfo(rawPath);
+        }
+
+        var toEncode = bitmap;
+        if (bitmap.Height > Options.MaxImageHeightPx)
+        {
+            var newWidth = (int)Math.Round(bitmap.Width * (Options.MaxImageHeightPx / (double)bitmap.Height));
+            toEncode = bitmap.Resize(new SKImageInfo(newWidth, Options.MaxImageHeightPx), SKFilterQuality.High);
+        }
+
+        var (format, ext) = GetTargetImageFormat();
+        var filePath = Path.Combine(fullDestPath, $"page_{pageIndex:D3}{ext}");
+        await using var output = File.Create(filePath);
+        toEncode.Encode(output, format, Options.ImageQuality);
+        if (!ReferenceEquals(toEncode, bitmap)) toEncode.Dispose();
+        return new FileInfo(filePath);
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     [System.Runtime.Versioning.SupportedOSPlatform("osx")]
@@ -148,9 +197,11 @@ public class ArchiveService : BaseService<ArchiveOption>
         progression?.UpdateTotal(internalprogress.Total);
 
 
-        var renderOptions = new RenderOptions(Dpi: Options.PdfDpi);
-        var useJpeg = Options.PdfImageFormat == PdfPageFormat.Jpeg;
-        var jpegQuality = Options.PdfJpegQuality;
+        // Render directly at the target page height (PDFium rasterizes precisely at this size, no
+        // downscale-after-the-fact needed) and encode directly to the configured target format —
+        // never through an intermediate JPEG hop.
+        var renderOptions = new RenderOptions(Height: Options.MaxImageHeightPx, WithAspectRatio: true);
+        var (targetFormat, targetExt) = GetTargetImageFormat();
 
         await using var stream = File.OpenRead(source.FullName);
         int index = 0;
@@ -159,14 +210,11 @@ public class ArchiveService : BaseService<ArchiveOption>
             try
             {
                 ++index;
-                var fileName = useJpeg ? $"page_{index:D3}.jpg" : $"page_{index:D3}.png";
+                var fileName = $"page_{index:D3}{targetExt}";
                 var filePath = Path.Combine(fullDestPath, fileName);
 
                 await using var output = File.OpenWrite(filePath);
-                if (useJpeg)
-                    page.Encode(output, SKEncodedImageFormat.Jpeg, jpegQuality);
-                else
-                    page.Encode(output, SKEncodedImageFormat.Png, 100);
+                page.Encode(output, targetFormat, Options.ImageQuality);
                 imagePaths.Add(new FileInfo(filePath));
                 internalprogress.Increment();
                 SendTrace($"Successfully converted page {index}/{totalPages}");
@@ -213,15 +261,12 @@ public class ArchiveService : BaseService<ArchiveOption>
         {
             try
             {
+                ++index;
                 var ext = Path.GetExtension(entry.Key!).ToLowerInvariant();
-                var fileName = $"page_{++index:D3}{ext}";
-                var filePath = Path.Combine(fullDestPath, fileName);
-
-                await using var output = File.Create(filePath);
                 await using var entryStream = entry.OpenEntryStream();
-                await entryStream.CopyToAsync(output);
+                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
 
-                imagePaths.Add(new FileInfo(filePath));
+                imagePaths.Add(converted);
                 internalProgress.Increment();
                 SendTrace($"Successfully extracted page {index}/{entries.Count}");
             }
@@ -264,15 +309,12 @@ public class ArchiveService : BaseService<ArchiveOption>
         {
             try
             {
+                ++index;
                 var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
-                var fileName = $"page_{++index:D3}{ext}";
-                var filePath = Path.Combine(fullDestPath, fileName);
-
-                await using var output = File.Create(filePath);
                 await using var entryStream = entry.Open();
-                await entryStream.CopyToAsync(output);
+                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
 
-                imagePaths.Add(new FileInfo(filePath));
+                imagePaths.Add(converted);
                 internalProgress.Increment();
                 SendTrace($"Successfully extracted page {index}/{entries.Count}");
             }
@@ -406,14 +448,14 @@ public class ArchiveService : BaseService<ArchiveOption>
         await using var zipStream = File.Create(cbzPath);
         using var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false);
 
-        archive.CreateEntryFromFile(comicInfo.FullName, comicInfo.Name, CompressionLevel.NoCompression);
+        archive.CreateEntryFromFile(comicInfo.FullName, comicInfo.Name, Options.ZipCompressionLevel);
         progress.Increment(true);
         SendTrace($"Successfully zip page {progress.Completed}/{progress.Total}");
         progression?.Callback(progress);
 
         foreach (var page in filepages)
         {
-            archive.CreateEntryFromFile(page.FullName, page.Name, CompressionLevel.NoCompression);
+            archive.CreateEntryFromFile(page.FullName, page.Name, Options.ZipCompressionLevel);
             progress.Increment(true);
             SendTrace($"Successfully zip page {progress.Completed}/{progress.Total}");
             progression?.Callback(progress);
@@ -421,6 +463,30 @@ public class ArchiveService : BaseService<ArchiveOption>
         var file = new FileInfo(cbzPath);
         SendTrace($"CBZ created to {file.Name} (size {file.Length / 1024.0:F1} KB)");
         return new FileInfo(cbzPath);
+    }
+
+    #endregion
+
+    #region Quality Analysis
+
+    /// <summary>
+    /// Read-only measurement of an existing .cbz file's Kavita compatibility — used solely by the
+    /// "Analyze" feature (never by the conversion pipeline above, which always writes deterministically
+    /// per <see cref="ArchiveOption"/>, not by chasing a maximum score).
+    /// </summary>
+    public async Task<CbzAnalysisResult> AnalyzeCbzAsync(string cbzPath, ScoringSettings scoringSettings,
+        IProgress<CbzAnalysisProgress>? progress = null, CancellationToken cancellationToken = default)
+        => await new CbzAnalyzer().AnalyzeAsync(cbzPath, options: null, scoringSettings, progress, cancellationToken);
+
+    public static KavitaCompatibilityReport ScoreCbz(CbzAnalysisResult analysis, ScoringSettings scoringSettings)
+        => KavitaCompatibilityScorer.Score(analysis, scoringSettings);
+
+    public static async Task<string> ComputeFileHashAsync(string path, CancellationToken cancellationToken = default)
+    {
+        await using var stream = File.OpenRead(path);
+        using var sha256 = System.Security.Cryptography.SHA256.Create();
+        var hash = await sha256.ComputeHashAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash);
     }
 
     #endregion

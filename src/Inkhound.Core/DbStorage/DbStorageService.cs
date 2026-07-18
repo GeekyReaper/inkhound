@@ -136,6 +136,30 @@ public class DbStorageService : BaseService<DbStorageOption>
         if (!hasSection)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Options ADD COLUMN Section TEXT NOT NULL DEFAULT ''");
+
+        // Colonnes d'analyse CBZ ajoutées en juillet 2026 — résultat de la dernière analyse de compatibilité Kavita par issue
+        // Toutes nullables (NULL = pas encore analysé), donc pas de DEFAULT nécessaire.
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisScore", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisScoreBand", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisDominantImageFormat", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisDominantResolutionWidth", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisDominantResolutionHeight", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisPageCount", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisHasComicInfo", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisZipCompressionPercent", "REAL NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisFileSizeBytes", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisAveragePageSizeBytes", "REAL NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalysisFileHash", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "AnalyzedAt", "TEXT NULL");
+    }
+
+    private static async Task AddColumnIfMissingAsync(DbStorageContext db, string table, string column, string sqlTypeAndConstraint)
+    {
+        var hasColumn = await db.Database
+            .SqlQueryRaw<string>($"SELECT name FROM pragma_table_info('{table}') WHERE name='{column}'")
+            .AnyAsync();
+        if (!hasColumn)
+            await db.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} ADD COLUMN {column} {sqlTypeAndConstraint}");
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)
