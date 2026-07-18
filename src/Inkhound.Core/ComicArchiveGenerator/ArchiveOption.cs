@@ -20,6 +20,12 @@ public class ArchiveOption : IOptionList
     public int MaxImageHeightPx { get; set; } = 4000;
     public CompressionLevel ZipCompressionLevel { get; set; } = CompressionLevel.NoCompression;
 
+    /// <summary>Unix chmod mode (e.g. 666) applied to every written CBZ/ComicInfo.xml file, written the traditional way (owner/group/other digits). 0 disables chmod-ing entirely.</summary>
+    public int FileChmodMode { get; set; } = 666;
+
+    /// <summary>Unix chmod mode (e.g. 777) applied to every volume directory created under a library, written the traditional way. Directories need the execute bit to be traversable, hence a different default than <see cref="FileChmodMode"/>. 0 disables chmod-ing entirely.</summary>
+    public int DirectoryChmodMode { get; set; } = 777;
+
     public List<OptionDefinition> GetOptions()
     {
         return new List<OptionDefinition>
@@ -107,6 +113,28 @@ public class ArchiveOption : IOptionList
                 ValueType = EValueType.SELECT,
                 DefaultValue = nameof(CompressionLevel.NoCompression),
                 AllowedValues = Enum.GetNames(typeof(CompressionLevel)).ToList()
+            },
+            new OptionDefinition
+            {
+                Name = nameof(FileChmodMode),
+                Section = "Filesystem",
+                SortOrder = 80,
+                Value = FileChmodMode.ToString(),
+                Description = "On Linux (Docker/NFS deployments), chmod every written CBZ/ComicInfo.xml file to this Unix mode (e.g. 666 = read/write for everyone) right after writing it, so it stays writable later even if a future container run uses a different user. Set to 0 to disable. No effect on Windows.",
+                ValueType = EValueType.INT,
+                DefaultValue = "666",
+                RegexValidator = @"^[0-7]{1,3}$"
+            },
+            new OptionDefinition
+            {
+                Name = nameof(DirectoryChmodMode),
+                Section = "Filesystem",
+                SortOrder = 90,
+                Value = DirectoryChmodMode.ToString(),
+                Description = "On Linux (Docker/NFS deployments), chmod every volume directory created under a library to this Unix mode (e.g. 777 = read/write/traverse for everyone) right after creating it. Set to 0 to disable. No effect on Windows.",
+                ValueType = EValueType.INT,
+                DefaultValue = "777",
+                RegexValidator = @"^[0-7]{1,3}$"
             }
         };
     }
@@ -143,6 +171,16 @@ public class ArchiveOption : IOptionList
         if (MaxImageHeightPx <= 0)
         {
             errors.Add("Max image height must be greater than 0.");
+        }
+
+        if (FileChmodMode < 0 || FileChmodMode > 777)
+        {
+            errors.Add("File chmod mode must be between 0 and 777.");
+        }
+
+        if (DirectoryChmodMode < 0 || DirectoryChmodMode > 777)
+        {
+            errors.Add("Directory chmod mode must be between 0 and 777.");
         }
 
         return errors.Count == 0;
@@ -190,6 +228,14 @@ public class ArchiveOption : IOptionList
                 {
                     if (Enum.TryParse<CompressionLevel>(option.Value, true, out var level))
                         ZipCompressionLevel = level;
+                }
+                else if (option.Name == nameof(FileChmodMode))
+                {
+                    FileChmodMode = option.GetInt();
+                }
+                else if (option.Name == nameof(DirectoryChmodMode))
+                {
+                    DirectoryChmodMode = option.GetInt();
                 }
             }
             errors.AddRange(optionErrors);

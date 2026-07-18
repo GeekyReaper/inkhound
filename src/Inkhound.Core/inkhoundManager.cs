@@ -1088,6 +1088,7 @@ public class InkhoundManager : BaseServiceManager
                 var dest = Path.Combine(volumeDir.FullName, archive.Name);
                 JobSendTrace($"Moving archive file {archive.FullName} to final destination {dest}", ETraceLevel.INFO);
                 File.Copy(archive.FullName, dest, overwrite: true);
+                archiveService.EnsurePermissiveFileMode(dest);
                 JobSendTrace($"Moving Done", ETraceLevel.INFO);
 
                 issue.CbzFilename = archive.Name;
@@ -1794,6 +1795,7 @@ public class InkhoundManager : BaseServiceManager
                     JobRunTimed(
                         $"[Downloads] Copying '{archive.Name}' ({archiveSizeMb:F1} MB) to library folder",
                         () => File.Copy(archive.FullName, dest, overwrite: true));
+                    archiveService.EnsurePermissiveFileMode(dest);
 
                     issue.CbzFilename = archive.Name;
                     issue.FileSizeBytes = (int)archive.Length;

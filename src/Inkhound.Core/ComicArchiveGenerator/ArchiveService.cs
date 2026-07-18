@@ -433,8 +433,70 @@ public class ArchiveService : BaseService<ArchiveOption>
         var entry = zip.CreateEntry("ComicInfo.xml", CompressionLevel.NoCompression);
         await using var entryStream = entry.Open();
         await doc.SaveAsync(entryStream, SaveOptions.None, CancellationToken.None);
+        entryStream.Close();
 
         SendTrace($"ComicInfo.xml injected into {Path.GetFileName(cbzPath)}");
+        EnsurePermissiveFileMode(cbzPath);
+    }
+
+    /// <summary>
+    /// On Linux/NFS deployments (e.g. a Docker container mounting a NAS share), a CBZ written by one
+    /// container UID can end up unreadable/unwritable by a later run under a different UID (image
+    /// update, different compose config, ...) because of the default umask (typically 644 — writable
+    /// only by its owner). Chmod-ing every written file to <see cref="ArchiveOption.FileChmodMode"/>
+    /// right after writing it keeps it accessible going forward. No-op on Windows (NTFS has no POSIX
+    /// mode bits) or when <see cref="ArchiveOption.FileChmodMode"/> is 0, and best-effort: if the
+    /// process isn't the file's owner (and isn't root), the OS itself will refuse the chmod — that's a
+    /// pre-existing permission problem on that specific file, not something this call can fix, so
+    /// failures are logged as a warning rather than thrown.
+    /// </summary>
+    public void EnsurePermissiveFileMode(string path)
+    {
+        if (Options.FileChmodMode <= 0 || OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            File.SetUnixFileMode(path, ToUnixFileMode(Options.FileChmodMode));
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Could not set file mode {Options.FileChmodMode} on {path}: {ex.Message}", ETraceLevel.WARNING);
+        }
+    }
+
+    /// <summary>Same as <see cref="EnsurePermissiveFileMode"/>, but for a directory (using <see cref="ArchiveOption.DirectoryChmodMode"/> — directories need the execute bit to be traversable, hence the separate, more permissive default).</summary>
+    public void EnsurePermissiveDirectoryMode(string path)
+    {
+        if (Options.DirectoryChmodMode <= 0 || OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            File.SetUnixFileMode(path, ToUnixFileMode(Options.DirectoryChmodMode));
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Could not set directory mode {Options.DirectoryChmodMode} on {path}: {ex.Message}", ETraceLevel.WARNING);
+        }
+    }
+
+    /// <summary>Converts a traditional chmod number (e.g. 666, digits read as owner/group/other) into <see cref="UnixFileMode"/> flags.</summary>
+    private static UnixFileMode ToUnixFileMode(int chmod)
+    {
+        int owner = (chmod / 100) % 10;
+        int group = (chmod / 10) % 10;
+        int other = chmod % 10;
+
+        UnixFileMode mode = 0;
+        if ((owner & 4) != 0) mode |= UnixFileMode.UserRead;
+        if ((owner & 2) != 0) mode |= UnixFileMode.UserWrite;
+        if ((owner & 1) != 0) mode |= UnixFileMode.UserExecute;
+        if ((group & 4) != 0) mode |= UnixFileMode.GroupRead;
+        if ((group & 2) != 0) mode |= UnixFileMode.GroupWrite;
+        if ((group & 1) != 0) mode |= UnixFileMode.GroupExecute;
+        if ((other & 4) != 0) mode |= UnixFileMode.OtherRead;
+        if ((other & 2) != 0) mode |= UnixFileMode.OtherWrite;
+        if ((other & 1) != 0) mode |= UnixFileMode.OtherExecute;
+        return mode;
     }
 
     public async Task<FileInfo> CreateCbzFile(string workingPath, Volume volume, Issue issue, FileInfo comicInfo, List<FileInfo> filepages, ProgressionCallback? progression = null)
@@ -462,6 +524,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         }
         var file = new FileInfo(cbzPath);
         SendTrace($"CBZ created to {file.Name} (size {file.Length / 1024.0:F1} KB)");
+        EnsurePermissiveFileMode(cbzPath);
         return new FileInfo(cbzPath);
     }
 
@@ -606,9 +669,12 @@ public class ArchiveService : BaseService<ArchiveOption>
         if (Directory.Exists(path))
         {
             SendTrace($"Directory already exists for volume '{volume.Title}' at {path}", new TraceDefinition() { Level = ETraceLevel.WARNING });
+            EnsurePermissiveDirectoryMode(path);
             return new DirectoryInfo(path);
         }
-        return Directory.CreateDirectory(path);
+        var dir = Directory.CreateDirectory(path);
+        EnsurePermissiveDirectoryMode(path);
+        return dir;
     }
 
     #endregion
