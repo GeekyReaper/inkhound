@@ -49,12 +49,12 @@ public class ComicVineOptions : IOptionList
     {
         return new List<OptionDefinition>
         {
-            new OptionDefinition { Name = "ApiKey", Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Mandatory = true },
-            new OptionDefinition { Name = "UserAgent", ValueType = EValueType.STRING, Value = UserAgent, DefaultValue = "Inkhound/1.0", Mandatory = false },
-            new OptionDefinition { Name = "BaseUrl", ValueType =EValueType.STRING, Value = BaseUrl, DefaultValue = "https://comicvine.gamespot.com/api/", RegexValidator = @"^https://.*$", Mandatory = true },
-            new OptionDefinition { Name = "TimeoutSeconds", ValueType = EValueType.INT, Value = TimeoutSeconds.ToString(), DefaultValue = "30", Mandatory = false },
-            new OptionDefinition { Name = "PageSize", ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false },
-            new OptionDefinition { Name = "RateLimitMs", ValueType = EValueType.INT, Value = RateLimitMs.ToString(), DefaultValue = "250", Mandatory = false }
+            new OptionDefinition { Name = "ApiKey", Section = "Connection", SortOrder = 0, Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Mandatory = true },
+            new OptionDefinition { Name = "UserAgent", Section = "Connection", SortOrder = 10, ValueType = EValueType.STRING, Value = UserAgent, DefaultValue = "Inkhound/1.0", Mandatory = false },
+            new OptionDefinition { Name = "BaseUrl", Section = "Connection", SortOrder = 20, ValueType =EValueType.STRING, Value = BaseUrl, DefaultValue = "https://comicvine.gamespot.com/api/", RegexValidator = @"^https://.*$", Mandatory = true },
+            new OptionDefinition { Name = "TimeoutSeconds", Section = "Connection", SortOrder = 30, ValueType = EValueType.INT, Value = TimeoutSeconds.ToString(), DefaultValue = "30", Mandatory = false },
+            new OptionDefinition { Name = "PageSize", Section = "Search Behavior", SortOrder = 40, ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false },
+            new OptionDefinition { Name = "RateLimitMs", Section = "Search Behavior", SortOrder = 50, ValueType = EValueType.INT, Value = RateLimitMs.ToString(), DefaultValue = "250", Mandatory = false }
         };
     }
 

@@ -11,6 +11,9 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
+import { HubService } from '../../core/services/hub.service';
+import { JobContext } from '../../core/models/hub.models';
+import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
 
 @Component({
   selector: 'app-downloads',
@@ -20,12 +23,14 @@ import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/ser
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
-    DatePipe, DecimalPipe, IconDirective
+    DatePipe, DecimalPipe, IconDirective,
+    JobConsoleModalComponent,
   ],
   templateUrl: './downloads.component.html'
 })
 export class DownloadsComponent implements OnInit {
   private qbService    = inject(QBittorrentService);
+  private hub          = inject(HubService);
   readonly #destroyRef = inject(DestroyRef);
 
   downloads  = signal<DownloadItem[]>([]);
@@ -35,6 +40,9 @@ export class DownloadsComponent implements OnInit {
   processing    = signal(false);
   processingIds = signal<Set<string>>(new Set());
 
+  selectedJob    = signal<JobContext | null>(null);
+  consoleVisible = signal(false);
+
   readonly activeCount = computed(() =>
     this.downloads().filter(d => d.status === 'Downloading' || d.status === 'Unknown').length
   );
@@ -43,6 +51,12 @@ export class DownloadsComponent implements OnInit {
   );
   readonly doneCount = computed(() =>
     this.downloads().filter(d => d.status === 'Done').length
+  );
+  readonly activeJobs = computed(() =>
+    this.hub.jobs().filter(j =>
+      (j.state === 'RUNNING' || j.state === 'INITIALIZING') &&
+      (j.title === 'Process downloads' || j.title.startsWith('Process download '))
+    )
   );
 
   ngOnInit() {
@@ -79,6 +93,11 @@ export class DownloadsComponent implements OnInit {
 
   canProcess(item: DownloadItem): boolean {
     return item.status === 'Finished' || item.status === 'Syncing';
+  }
+
+  openConsole(job: JobContext): void {
+    this.selectedJob.set(job);
+    this.consoleVisible.set(true);
   }
 
   processAll(): void {

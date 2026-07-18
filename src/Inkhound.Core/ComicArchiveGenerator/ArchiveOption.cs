@@ -24,6 +24,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(WorkingPath),
+                Section = "Paths",
+                SortOrder = 0,
                 Value = WorkingPath,
                 Description = "The path where the working files will be stored.",
                 ValueType = EValueType.PATH,
@@ -33,6 +35,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(ImportPath),
+                Section = "Paths",
+                SortOrder = 10,
                 Value = ImportPath,
                 Description = "The path where the import files will be stored.",
                 ValueType = EValueType.PATH,
@@ -41,6 +45,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(ImagesPath),
+                Section = "Paths",
+                SortOrder = 20,
                 Value = ImagesPath,
                 Description = "The path where uploaded cover images will be stored.",
                 ValueType = EValueType.PATH,
@@ -49,6 +55,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(DownloadsPath),
+                Section = "Paths",
+                SortOrder = 30,
                 Value = DownloadsPath,
                 Description = "The path where files downloaded by qBittorrent will land.",
                 ValueType = EValueType.PATH,
@@ -57,6 +65,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(PdfDpi),
+                Section = "PDF Conversion",
+                SortOrder = 40,
                 Value = PdfDpi.ToString(),
                 Description = "DPI used to rasterize PDF pages into images. Higher values produce larger, heavier files without adding real detail beyond the source scan resolution.",
                 ValueType = EValueType.INT,
@@ -65,6 +75,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(PdfImageFormat),
+                Section = "PDF Conversion",
+                SortOrder = 50,
                 Value = PdfImageFormat.ToString(),
                 Description = "Image format used for pages rendered from PDF sources. JPEG is recommended for scanned/photographic content — much smaller files with no perceptible quality loss.",
                 ValueType = EValueType.SELECT,
@@ -74,6 +86,8 @@ public class ArchiveOption : IOptionList
             new OptionDefinition
             {
                 Name = nameof(PdfJpegQuality),
+                Section = "PDF Conversion",
+                SortOrder = 60,
                 Value = PdfJpegQuality.ToString(),
                 Description = "JPEG quality (1-100) used when encoding PDF pages. Ignored when PNG is used.",
                 ValueType = EValueType.INT,

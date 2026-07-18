@@ -92,7 +92,9 @@ public class DbStorageContext : DbContext
     #region Option Management
     public List<OptionDefinition> GetOptionsForService(string serviceName)
     {
-        return Options.Where(o => o.ServiceName == serviceName).ToList();
+        return Options.Where(o => o.ServiceName == serviceName)
+            .OrderBy(o => o.SortOrder).ThenBy(o => o.Name)
+            .ToList();
     }
 
     public void SetOptionsForService(List<OptionDefinition> options, string serviceName)
@@ -109,6 +111,8 @@ public class DbStorageContext : DbContext
                 existing.ValueType = option.ValueType;
                 existing.DefaultValue = option.DefaultValue;
                 existing.AllowedValues = option.AllowedValues;
+                existing.SortOrder = option.SortOrder;
+                existing.Section = option.Section;
 
                 existing.Mandatory = option.Mandatory;
                 existing.LastValue = DateTime.UtcNow;

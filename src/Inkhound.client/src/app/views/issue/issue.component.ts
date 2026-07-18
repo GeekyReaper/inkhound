@@ -3,10 +3,12 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, finalize, switchMap } from 'rxjs';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
+  FormControlDirective, FormLabelDirective, FormSelectDirective,
   ModalModule,
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
@@ -28,6 +30,7 @@ import { UpdatedData } from '../../core/models/hub.models';
     SpinnerComponent, AlertComponent, ButtonDirective, BadgeComponent, IconDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
     ModalModule,
+    FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, DecimalPipe
   ]
 })
@@ -38,9 +41,12 @@ export class IssueComponent {
   private prowlarrService    = inject(ProwlarrService);
   private qbittorrentService = inject(QBittorrentService);
   private hub                = inject(HubService);
+  private fb                 = inject(FormBuilder);
   readonly #destroyRef       = inject(DestroyRef);
 
   readonly issueId = this.route.snapshot.paramMap.get('issueId')!;
+
+  readonly ISSUE_STATUSES: IssueStatus[] = ['MISSING', 'DOWNLOADING', 'DOWNLOADED'];
 
   issue         = signal<Issue | null>(null);
   loading       = signal(true);
@@ -51,6 +57,18 @@ export class IssueComponent {
   grabbingGuid  = signal<string | null>(null);
   grabSuccess   = signal<string | null>(null);
   currentPage   = signal(1);
+
+  // --- État de la modale d'édition ---
+  editModalVisible = signal(false);
+  editSaving        = signal(false);
+  editError         = signal<string | null>(null);
+
+  editForm = this.fb.group({
+    title:       [''],
+    year:        [null as number | null],
+    description: [''],
+    status:      ['MISSING' as IssueStatus, Validators.required]
+  });
 
   // --- État de la modale PACK ---
   packModalVisible    = signal(false);
@@ -94,6 +112,59 @@ export class IssueComponent {
 
   goBack(): void {
     this.router.navigate(['.'], { relativeTo: this.route.parent });
+  }
+
+  // --- Actions de la modale d'édition ---
+
+  openEditModal(): void {
+    const issue = this.issue();
+    if (!issue) return;
+
+    this.editForm.setValue({
+      title:       issue.title ?? '',
+      year:        issue.year,
+      description: issue.description ?? '',
+      status:      issue.status
+    });
+    this.editError.set(null);
+    this.editModalVisible.set(true);
+  }
+
+  onEditModalVisibleChange(visible: boolean): void {
+    if (!visible) this.closeEditModal();
+  }
+
+  closeEditModal(): void {
+    this.editModalVisible.set(false);
+    this.editError.set(null);
+  }
+
+  onSaveEdit(): void {
+    if (this.editForm.invalid) return;
+
+    const val = this.editForm.getRawValue();
+    this.editSaving.set(true);
+    this.editError.set(null);
+
+    this.issueService.update(this.issueId, {
+      title:       val.title?.trim() || null,
+      year:        val.year,
+      description: val.description?.trim() || null,
+      status:      val.status!
+    })
+      .pipe(
+        takeUntilDestroyed(this.#destroyRef),
+        finalize(() => this.editSaving.set(false))
+      )
+      .subscribe({
+        next: () => {
+          this.issueService.getById(this.issueId)
+            .pipe(takeUntilDestroyed(this.#destroyRef))
+            .subscribe(issue => this.issue.set(issue));
+          this.closeEditModal();
+        },
+        error: err => this.editError.set(err?.error?.message ?? 'Failed to save issue.')
+      });
   }
 
   onSearch(): void {

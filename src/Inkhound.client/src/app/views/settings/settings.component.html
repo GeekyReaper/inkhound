@@ -28,62 +28,72 @@
                 } @else {
                   <form cForm [formGroup]="form()" (ngSubmit)="saveOptions()" novalidate>
 
-                    @for (def of options(); track def.id) {
-                      <div class="mb-3">
+                    @for (group of groupedOptions(); track group.section + '-' + $index) {
 
-                        @if (def.valueType !== 'BOOL') {
-                          <label cLabel [for]="def.id">
-                            {{ def.name }}
-                            @if (def.mandatory) { <span class="text-danger">*</span> }
-                          </label>
-                        }
+                      @if (showSectionHeaders()) {
+                        <h6 class="text-uppercase fw-bold text-primary pb-2 mb-3 border-bottom border-primary-subtle"
+                            [class.mt-4]="!$first">
+                          {{ group.section }}
+                        </h6>
+                      }
 
-                        @if (def.valueType === 'TEXT') {
-                          <textarea cFormControl [id]="def.id" [formControlName]="def.name" rows="4"
-                                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
-                          </textarea>
-                        } @else if (def.valueType === 'BOOL') {
-                          <c-form-check>
-                            <input cFormCheckInput type="checkbox" [id]="def.id" [formControlName]="def.name" />
-                            <label cFormCheckLabel [for]="def.id">
+                      @for (def of group.options; track def.id) {
+                        <div class="mb-3">
+
+                          @if (def.valueType !== 'BOOL') {
+                            <label cLabel [for]="def.id">
                               {{ def.name }}
                               @if (def.mandatory) { <span class="text-danger">*</span> }
                             </label>
-                          </c-form-check>
-                        } @else if (def.valueType === 'PATH') {
-                          <c-input-group>
-                            <input cFormControl [id]="def.id" [formControlName]="def.name" type="text" readonly
+                          }
+
+                          @if (def.valueType === 'TEXT') {
+                            <textarea cFormControl [id]="def.id" [formControlName]="def.name" rows="4"
+                                      [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                            </textarea>
+                          } @else if (def.valueType === 'BOOL') {
+                            <c-form-check>
+                              <input cFormCheckInput type="checkbox" [id]="def.id" [formControlName]="def.name" />
+                              <label cFormCheckLabel [for]="def.id">
+                                {{ def.name }}
+                                @if (def.mandatory) { <span class="text-danger">*</span> }
+                              </label>
+                            </c-form-check>
+                          } @else if (def.valueType === 'PATH') {
+                            <c-input-group>
+                              <input cFormControl [id]="def.id" [formControlName]="def.name" type="text" readonly
+                                     [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                              <button cButton color="secondary" type="button" (click)="openPathPicker(def.name)">
+                                <svg cIcon name="cilFolder"></svg>
+                              </button>
+                            </c-input-group>
+                          } @else if (def.valueType === 'SELECT') {
+                            <select cSelect [id]="def.id" [formControlName]="def.name"
+                                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                              @for (v of def.allowedValues; track v) {
+                                <option [value]="v">{{ v }}</option>
+                              }
+                            </select>
+                          } @else {
+                            <input cFormControl [id]="def.id" [formControlName]="def.name"
+                                   [type]="getInputType(def.valueType)"
+                                   [attr.step]="def.valueType === 'DOUBLE' ? 'any' : null"
                                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
-                            <button cButton color="secondary" type="button" (click)="openPathPicker(def.name)">
-                              <svg cIcon name="cilFolder"></svg>
-                            </button>
-                          </c-input-group>
-                        } @else if (def.valueType === 'SELECT') {
-                          <select cSelect [id]="def.id" [formControlName]="def.name"
-                                  [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
-                            @for (v of def.allowedValues; track v) {
-                              <option [value]="v">{{ v }}</option>
-                            }
-                          </select>
-                        } @else {
-                          <input cFormControl [id]="def.id" [formControlName]="def.name"
-                                 [type]="getInputType(def.valueType)"
-                                 [attr.step]="def.valueType === 'DOUBLE' ? 'any' : null"
-                                 [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
-                        }
+                          }
 
-                        @if (def.description) {
-                          <div class="form-text text-muted">{{ def.description }}</div>
-                        }
+                          @if (def.description) {
+                            <div class="form-text text-muted">{{ def.description }}</div>
+                          }
 
-                        @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
-                          <c-form-feedback [valid]="false">
-                            @if (form().get(def.name)?.hasError('required')) { This field is required. }
-                            @else if (form().get(def.name)?.hasError('pattern')) { Invalid format. }
-                          </c-form-feedback>
-                        }
+                          @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
+                            <c-form-feedback [valid]="false">
+                              @if (form().get(def.name)?.hasError('required')) { This field is required. }
+                              @else if (form().get(def.name)?.hasError('pattern')) { Invalid format. }
+                            </c-form-feedback>
+                          }
 
-                      </div>
+                        </div>
+                      }
                     }
 
                     @if (saveStatus() === 'success') {

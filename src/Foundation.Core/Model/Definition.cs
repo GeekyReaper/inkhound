@@ -19,6 +19,10 @@ public class OptionDefinition
 
     public string DefaultValue { get; set; } = string.Empty;
 
+    public int SortOrder { get; set; }
+
+    public string Section { get; set; } = string.Empty;
+
     public List<string> AllowedValues { get; set; } = new();
 
     public int GetInt() => int.TryParse(Value, out var result) ? result : 0;

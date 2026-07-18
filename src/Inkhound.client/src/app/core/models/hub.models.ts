@@ -12,6 +12,8 @@ export interface OptionDefinition {
   defaultValue: string;
   serviceName: string;
   allowedValues: string[];
+  sortOrder: number;
+  section: string;
 }
 
 export type ETraceLevel = 'INFO' | 'DEBUG' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'NONE';

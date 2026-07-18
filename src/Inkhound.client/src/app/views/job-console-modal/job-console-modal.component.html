@@ -1,0 +1,34 @@
+<c-modal
+  [visible]="visible()"
+  (visibleChange)="visible.set($event)"
+  size="xl"
+  [scrollable]="true"
+>
+  <c-modal-header>
+    <h5 cModalTitle>
+      Logs — {{ job()?.title ?? '' }}
+      <c-badge [color]="statusColor(job()?.state ?? '')" class="ms-2">
+        {{ job()?.state }}
+      </c-badge>
+    </h5>
+    <button cButtonClose (click)="close()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    @if (traces().length === 0) {
+      <p class="text-muted mb-0">Aucune trace capturée pour ce job.</p>
+    } @else {
+      <div class="job-console" #consoleEl>
+        @for (trace of traces(); track $index) {
+          <div [class]="'trace-line ' + traceLevelClass(trace.level)">
+            <span class="trace-ts">{{ trace.date | date:'HH:mm:ss' }}</span>
+            <span class="trace-level">[{{ trace.level }}]</span>
+            <span class="trace-svc">{{ trace.serviceName }}</span>
+            @for (msg of trace.message; track $index) {
+              <span class="trace-msg">{{ msg }}</span>
+            }
+          </div>
+        }
+      </div>
+    }
+  </c-modal-body>
+</c-modal>

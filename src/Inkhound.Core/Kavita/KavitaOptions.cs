@@ -30,10 +30,10 @@ public class KavitaOptions : IOptionList
     {
         return new List<OptionDefinition>
         {
-            new OptionDefinition { Name = nameof(BaseUrl), Value = BaseUrl, ValueType = EValueType.STRING, DefaultValue = "http://localhost:5000", Description = "Base URL of the local Kavita instance.", Mandatory = true },
-            new OptionDefinition { Name = nameof(ApiKey), Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from Kavita → User Settings → API Key.", Mandatory = true },
-            new OptionDefinition { Name = nameof(PluginName), Value = PluginName, ValueType = EValueType.STRING, DefaultValue = "Inkhound", Description = "Plugin name sent to Kavita during authentication.", Mandatory = false },
-            new OptionDefinition { Name = nameof(TimeoutSeconds), Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false }
+            new OptionDefinition { Name = nameof(BaseUrl), Section = "Connection", SortOrder = 0, Value = BaseUrl, ValueType = EValueType.STRING, DefaultValue = "http://localhost:5000", Description = "Base URL of the local Kavita instance.", Mandatory = true },
+            new OptionDefinition { Name = nameof(ApiKey), Section = "Connection", SortOrder = 10, Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from Kavita → User Settings → API Key.", Mandatory = true },
+            new OptionDefinition { Name = nameof(TimeoutSeconds), Section = "Connection", SortOrder = 20, Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false },
+            new OptionDefinition { Name = nameof(PluginName), Section = "Integration", SortOrder = 30, Value = PluginName, ValueType = EValueType.STRING, DefaultValue = "Inkhound", Description = "Plugin name sent to Kavita during authentication.", Mandatory = false }
         };
     }
 

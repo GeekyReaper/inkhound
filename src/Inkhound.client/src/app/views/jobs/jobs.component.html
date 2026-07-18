@@ -67,37 +67,4 @@
   }
 </c-container>
 
-<c-modal
-  [visible]="modalVisible()"
-  (visibleChange)="modalVisible.set($event)"
-  size="xl"
-  [scrollable]="true"
->
-  <c-modal-header>
-    <h5 cModalTitle>
-      Logs — {{ selectedJob()?.title ?? '' }}
-      <c-badge [color]="statusColor(selectedJob()?.state ?? '')" class="ms-2">
-        {{ selectedJob()?.state }}
-      </c-badge>
-    </h5>
-    <button cButtonClose (click)="closeModal()"></button>
-  </c-modal-header>
-  <c-modal-body>
-    @if (selectedTraces().length === 0) {
-      <p class="text-muted mb-0">Aucune trace capturée pour ce job.</p>
-    } @else {
-      <div class="job-console">
-        @for (trace of selectedTraces(); track $index) {
-          <div [class]="'trace-line ' + traceLevelClass(trace.level)">
-            <span class="trace-ts">{{ trace.date | date:'HH:mm:ss' }}</span>
-            <span class="trace-level">[{{ trace.level }}]</span>
-            <span class="trace-svc">{{ trace.serviceName }}</span>
-            @for (msg of trace.message; track $index) {
-              <span class="trace-msg">{{ msg }}</span>
-            }
-          </div>
-        }
-      </div>
-    }
-  </c-modal-body>
-</c-modal>
+<app-job-console-modal [job]="selectedJob()" [(visible)]="modalVisible" />

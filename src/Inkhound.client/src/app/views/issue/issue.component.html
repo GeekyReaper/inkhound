@@ -25,7 +25,11 @@
           <span [class]="issueStatusBadgeClass(issue()!.status)">{{ issue()!.status }}</span>
         </div>
       </c-col>
-      <c-col [xs]="'auto'">
+      <c-col [xs]="'auto'" class="d-flex gap-2">
+        <button cButton color="primary" variant="outline" size="sm" (click)="openEditModal()">
+          <svg cIcon name="cilPencil" size="sm"></svg>
+          Edit
+        </button>
         <button cButton color="secondary" variant="outline" size="sm" (click)="goBack()">
           <svg cIcon name="cilChevronLeft" size="sm"></svg>
           Back
@@ -364,6 +368,69 @@
         Cancel
       </button>
     }
+  </c-modal-footer>
+
+</c-modal>
+
+<!-- Modale d'édition de l'issue -->
+<c-modal
+  id="editIssueModal"
+  [visible]="editModalVisible()"
+  (visibleChange)="onEditModalVisibleChange($event)"
+  backdrop="static">
+
+  <c-modal-header>
+    <h5 cModalTitle>Edit issue</h5>
+    <button cButtonClose (click)="closeEditModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+    <form [formGroup]="editForm">
+
+      @if (editError()) {
+        <c-alert color="danger" class="mb-3">{{ editError() }}</c-alert>
+      }
+
+      <div class="mb-3">
+        <label cLabel for="editTitle">Title</label>
+        <input cFormControl id="editTitle" type="text" formControlName="title" />
+      </div>
+
+      <div class="mb-3">
+        <label cLabel for="editYear">Year</label>
+        <input cFormControl id="editYear" type="number" formControlName="year" />
+      </div>
+
+      <div class="mb-3">
+        <label cLabel for="editDescription">Description</label>
+        <textarea cFormControl id="editDescription" rows="4" formControlName="description"></textarea>
+      </div>
+
+      <div class="mb-3">
+        <label cLabel for="editStatus">Status</label>
+        <select cSelect id="editStatus" formControlName="status">
+          @for (s of ISSUE_STATUSES; track s) {
+            <option [value]="s">{{ s }}</option>
+          }
+        </select>
+      </div>
+
+    </form>
+  </c-modal-body>
+
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" (click)="closeEditModal()">
+      Cancel
+    </button>
+    <button cButton color="primary" [disabled]="editForm.invalid || editSaving()" (click)="onSaveEdit()">
+      @if (editSaving()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Saving...
+      } @else {
+        <svg cIcon name="cilSave" size="sm" class="me-1"></svg>
+        Save
+      }
+    </button>
   </c-modal-footer>
 
 </c-modal>

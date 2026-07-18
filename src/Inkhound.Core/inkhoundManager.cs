@@ -113,7 +113,21 @@ public class InkhoundManager : BaseServiceManager
                         var missingOptions = currentOptions.Where(c => !storedOptions.Any(s => s.Name == c.Name)).ToList();
                         var obsoleteOptions = storedOptions.Where(s => !currentOptions.Any(c => c.Name == s.Name)).ToList();
 
-                        if (missingOptions.Count > 0 || obsoleteOptions.Count > 0)
+                        // SortOrder et Section sont pilotés par le code, pas par l'utilisateur : on les
+                        // resynchronise sur les options déjà stockées à chaque démarrage, même en
+                        // l'absence d'ajout/suppression.
+                        var driftedOptions = storedOptions
+                            .Join(currentOptions, s => s.Name, c => c.Name, (stored, current) => (stored, current))
+                            .Where(pair => pair.stored.SortOrder != pair.current.SortOrder
+                                        || pair.stored.Section != pair.current.Section)
+                            .ToList();
+                        foreach (var (stored, current) in driftedOptions)
+                        {
+                            stored.SortOrder = current.SortOrder;
+                            stored.Section = current.Section;
+                        }
+
+                        if (missingOptions.Count > 0 || obsoleteOptions.Count > 0 || driftedOptions.Count > 0)
                         {
                             var merged = storedOptions.Except(obsoleteOptions).Concat(missingOptions).ToList();
                             databaseService.Database?.SetOptionsForService(merged, service.Value.GetServiceName());
@@ -987,6 +1001,23 @@ public class InkhoundManager : BaseServiceManager
         volume.UpdatedAt = DateTime.UtcNow;
         await ctx.SaveChangesAsync(ct);
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
+    public async Task<bool> UpdateIssueManuallyAsync(
+        Guid issueId, string? title, int? year, string? description, IssueStatus status, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync([issueId], ct);
+        if (issue is null) return false;
+
+        issue.Title       = title;
+        issue.Year        = year;
+        issue.Description = description;
+        issue.Status      = status;
+
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
         return true;
     }
 

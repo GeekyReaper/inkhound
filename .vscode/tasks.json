@@ -102,6 +102,24 @@
           "endsPattern": "Local:   http://localhost:4200"
         }
       }
+    },
+    {
+      "label": "docker-release",
+      "detail": "Build the full project via Docker and push geekyreaper/inkhound:<yyyy.MM.dd> + :latest to Docker Hub",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/scripts/docker-release.ps1"
+      ],
+      "group": "build",
+      "presentation": {
+        "group": "release",
+        "panel": "dedicated",
+        "reveal": "always"
+      },
+      "problemMatcher": []
     }
   ]
 }

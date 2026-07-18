@@ -44,6 +44,19 @@ export class SettingsComponent implements OnInit {
   pathPickerVisible = signal(false);
   activePathOption  = signal<string | null>(null);
 
+  readonly groupedOptions = computed(() => {
+    const groups: { section: string; options: OptionDefinition[] }[] = [];
+    for (const def of this.options()) {
+      const last = groups.at(-1);
+      if (last && last.section === def.section) last.options.push(def);
+      else groups.push({ section: def.section, options: [def] });
+    }
+    return groups;
+  });
+
+  readonly showSectionHeaders = computed(() =>
+    new Set(this.options().map(o => o.section)).size > 1);
+
   constructor() {
     effect(() => {
       const name = this.activeTab();

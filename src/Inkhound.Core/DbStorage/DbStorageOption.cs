@@ -23,6 +23,8 @@ public class DbStorageOption : IOptionList
             new OptionDefinition
             {
                 Name = "Path",
+                Section = "Storage",
+                SortOrder = 0,
                 Value = Path,
                 ValueType = EValueType.STRING,
                 DefaultValue = "/data/dbstorage.db",
@@ -32,6 +34,8 @@ public class DbStorageOption : IOptionList
             new OptionDefinition
             {
                 Name = "UseInMemory",
+                Section = "Storage",
+                SortOrder = 10,
                 Value = UseInMemory.ToString(),
                 ValueType = EValueType.BOOL,
                 DefaultValue = "false",

@@ -13,6 +13,13 @@ export interface ComicVineIssue {
   siteDetailUrl: string | null;
 }
 
+export interface UpdateIssueManuallyRequest {
+  title:       string | null;
+  year:        number | null;
+  description: string | null;
+  status:      IssueStatus;
+}
+
 export interface Issue {
   id:          string;
   volumeId:    string;
@@ -44,5 +51,9 @@ export class IssueService {
     return this.http.get<PageResult<ComicVineIssue>>(`/api/issues/comicvine`, {
       params: { comicVineVolumeId: cvVolumeId, page, pageSize }
     });
+  }
+
+  update(issueId: string, request: UpdateIssueManuallyRequest) {
+    return this.http.put<void>(`/api/issues/${issueId}`, request);
   }
 }

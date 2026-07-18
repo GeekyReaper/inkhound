@@ -120,6 +120,22 @@ public class DbStorageService : BaseService<DbStorageOption>
         if (!hasAllowedValues)
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE Options ADD COLUMN AllowedValues TEXT NOT NULL DEFAULT '[]'");
+
+        // SortOrder ajouté en juillet 2026 — ordre d'affichage des options, piloté par le code
+        var hasSortOrder = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Options') WHERE name='SortOrder'")
+            .AnyAsync();
+        if (!hasSortOrder)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Options ADD COLUMN SortOrder INTEGER NOT NULL DEFAULT 0");
+
+        // Section ajouté en juillet 2026 — regroupement visuel des options, piloté par le code
+        var hasSection = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Options') WHERE name='Section'")
+            .AnyAsync();
+        if (!hasSection)
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE Options ADD COLUMN Section TEXT NOT NULL DEFAULT ''");
     }
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)

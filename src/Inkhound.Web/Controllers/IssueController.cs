@@ -65,6 +65,16 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
+    public record UpdateIssueManuallyRequest(string? Title, int? Year, string? Description, IssueStatus Status);
+
+    // PUT /api/issues/{issueId}
+    [HttpPut("/api/issues/{issueId:guid}")]
+    public async Task<IActionResult> Update(Guid issueId, [FromBody] UpdateIssueManuallyRequest req)
+    {
+        var updated = await manager.UpdateIssueManuallyAsync(issueId, req.Title, req.Year, req.Description, req.Status);
+        return updated ? NoContent() : NotFound();
+    }
+
     // GET /api/volumes/{volumeId}/issues
     [HttpGet]
     public async Task<IActionResult> GetByVolume(Guid volumeId)

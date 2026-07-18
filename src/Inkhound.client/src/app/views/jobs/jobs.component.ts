@@ -3,16 +3,11 @@ import { DatePipe } from '@angular/common';
 import {
   AlertComponent,
   BadgeComponent,
-  ButtonCloseDirective,
   ButtonDirective,
   CardBodyComponent,
   CardComponent,
   ColComponent,
   ContainerComponent,
-  ModalBodyComponent,
-  ModalComponent,
-  ModalHeaderComponent,
-  ModalTitleDirective,
   ProgressBarComponent,
   ProgressComponent,
   RowComponent,
@@ -20,7 +15,8 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { HubService } from '../../core/services/hub.service';
-import { ETraceLevel, JobContext } from '../../core/models/hub.models';
+import { JobContext } from '../../core/models/hub.models';
+import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
 
 @Component({
   selector: 'app-jobs',
@@ -30,33 +26,21 @@ import { ETraceLevel, JobContext } from '../../core/models/hub.models';
     CardComponent, CardBodyComponent,
     BadgeComponent, ButtonDirective, AlertComponent, DatePipe, TableDirective,
     ProgressComponent, ProgressBarComponent,
-    ModalComponent, ModalHeaderComponent, ModalTitleDirective,
-    ModalBodyComponent, ButtonCloseDirective,
     IconDirective,
+    JobConsoleModalComponent,
   ],
   templateUrl: './jobs.component.html',
-  styleUrl: './jobs.component.scss',
 })
 export class JobsComponent {
   private hub = inject(HubService);
 
-  readonly jobs           = computed(() => this.hub.jobs());
-  readonly selectedJob    = signal<JobContext | null>(null);
-  readonly modalVisible   = signal(false);
-  readonly selectedTraces = computed(() => {
-    const job = this.selectedJob();
-    if (!job) return [];
-    return this.hub.jobTraces().get(job.jobId) ?? [];
-  });
+  readonly jobs         = computed(() => this.hub.jobs());
+  readonly selectedJob  = signal<JobContext | null>(null);
+  readonly modalVisible = signal(false);
 
   openTraces(job: JobContext): void {
     this.selectedJob.set(job);
     this.modalVisible.set(true);
-  }
-
-  closeModal(): void {
-    this.modalVisible.set(false);
-    this.selectedJob.set(null);
   }
 
   statusColor(state: string): string {
@@ -73,15 +57,5 @@ export class JobsComponent {
     if (state === 'ERROR')   return 'danger';
     if (state === 'SUCCESS') return 'success';
     return 'primary';
-  }
-
-  traceLevelClass(level: ETraceLevel): string {
-    switch (level) {
-      case 'ERROR':    return 'trace-error';
-      case 'CRITICAL': return 'trace-critical';
-      case 'WARNING':  return 'trace-warning';
-      case 'DEBUG':    return 'trace-debug';
-      default:         return 'trace-info';
-    }
   }
 }
