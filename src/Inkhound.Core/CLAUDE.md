@@ -18,7 +18,7 @@ Inkhound.Core/
 │   ├── SynchronizeLibraryJobParameters.cs
 │   └── RegenerateComicInfoJobParameters.cs
 ├── ComicVine/           # Intégration API ComicVine
-│   ├── ComicVineService.cs
+│   ├── ComicVineSourceService.cs
 │   ├── ComicVineModels.cs
 │   └── ComicVineOptions.cs
 ├── Kavita/              # Intégration API Kavita

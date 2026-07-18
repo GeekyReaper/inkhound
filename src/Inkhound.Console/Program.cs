@@ -103,7 +103,6 @@ while (!stop)
     }
     if (option == 3)
     {
-        var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
         var stop2 = false;
         while (!stop2)
         {
@@ -114,14 +113,14 @@ while (!stop)
 
             if (!stop2)
             {
-                var result2 = await comicvineService.AutomaticSearchVolume(volumename, "FR");
+                var result2 = await manager.AutomaticSearchVolume(volumename, "FR");
                 if (result2 != null)
                 {
                     Console.WriteLine($"Volume Indentified \r\n{result2}");
                     Console.Write("ImportPath : ");
                     var importfile = Console.ReadLine();
 
-                    var findissue = await comicvineService.FindVolume(importfile, "FR", result2);
+                    var findissue = await manager.FindVolume(importfile, "FR", result2);
                     if (findissue.Issue != null && findissue.Volume != null)
                     {
                         Console.Write("WorkingPath : ");
@@ -159,8 +158,7 @@ while (!stop)
         Console.Write("Issue file : ");
         var issuefile = Console.ReadLine();
 
-        var comicvineService = manager.GetService<ComicVineService, ComicVineOptions>();
-        var result2 = await comicvineService.FindVolume(issuefile, "FR");
+        var result2 = await manager.FindVolume(issuefile, "FR");
         if (result2.Volume != null)
         {
             Console.WriteLine($"Volume Indentified \r\n{result2.Volume}");
@@ -182,7 +180,7 @@ while (!stop)
 
 
 
-//var result = await manager.GetService<ComicVineService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
+//var result = await manager.GetService<ComicVineSourceService, ComicVineOptions>().FindVolume("Bouncer/Tome 04 - La Vengeance du manchot.pdf", "FR");
 //Console.WriteLine($"{result.Volume?.Name} ({result.Volume?.Publisher}) - {result.Volume?.StartYear}");
 //Console.WriteLine($"\t{result.Issue?.IssueNumber} ({result.Issue?.Name})");
 

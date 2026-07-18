@@ -44,7 +44,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
                r.Categories?.Select(c => new ProwlarrCategoryDto(c.Id, c.Name)).ToList() ?? [],
                analysis.Type, analysis.Label);
 
-    private static ScoredResultDto ToScoredDto(ScoredSearchResult s)
+    private static ScoredResultDto ToScoredDto(ScoredSearchResultTorrent s)
         => new(
             ToResultDto(s.Result, s.Analysis),
             s.Score,

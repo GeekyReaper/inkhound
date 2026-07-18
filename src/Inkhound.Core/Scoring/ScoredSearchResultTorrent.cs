@@ -3,7 +3,7 @@ using Inkhound.Core.Prowlarr;
 
 namespace Inkhound.Core.Scoring;
 
-public record ScoreDetails(
+public record ScoreDetailsTorrent(
     float TitleMatch,
     float IssueNumberMatch,
     float YearMatch,
@@ -11,8 +11,8 @@ public record ScoreDetails(
     float SeederScore,
     float FormatScore);
 
-public record ScoredSearchResult(
+public record ScoredSearchResultTorrent(
     ProwlarrSearchResult Result,
     float Score,
-    ScoreDetails Details,
+    ScoreDetailsTorrent Details,
     TorrentAnalysis Analysis);

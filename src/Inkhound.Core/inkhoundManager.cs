@@ -85,7 +85,7 @@ public class InkhoundManager : BaseServiceManager
     {
         // Instantiate services
         var databaseService = GetService<DbStorageService, DbStorageOption>();
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var kavitaService = GetService<KavitaService, KavitaOptions>();
         GetService<ProwlarrService, ProwlarrOptions>();
@@ -152,7 +152,7 @@ public class InkhoundManager : BaseServiceManager
 
     public async Task ManuelLoadServiceComicvine(ComicVineOptions options)
     {
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         await comicVine.LoadOptions(options.GetOptions());
 
     }
@@ -274,7 +274,7 @@ public class InkhoundManager : BaseServiceManager
         int? pageSize = null,
         CancellationToken ct = default)
     {
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
             throw new InvalidOperationException("ComicVine service is not available");
 
@@ -292,7 +292,7 @@ public class InkhoundManager : BaseServiceManager
     public async Task<Page<CvIssue>> ComicVineGetIssuesByVolumeAsync(
         int comicVineVolumeId, int page = 1, int pageSize = 10, CancellationToken ct = default)
     {
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
             throw new InvalidOperationException("ComicVine service is not available");
 
@@ -307,8 +307,126 @@ public class InkhoundManager : BaseServiceManager
         };
     }
 
+    private const int ComicVineMaxPageSize = 100;
+
+    private record CvLinkCandidateVolume(CvVolume volume, List<ParsedVolumeName> candidates);
+
+    // Recherche automatique du volume ComicVine correspondant le mieux à un nom de dossier/fichier :
+    // extrait des candidats (SourceAnalyzer), interroge l'API pour chacun, puis note chaque paire
+    // volume/candidat (ScoringSource) pour ne garder que le meilleur score.
+    public async Task<CvVolume?> AutomaticSearchVolume(string volumeName, string favoriteCountryCode,
+        ProgressionCallback? progression = null, CancellationToken ct = default)
+    {
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
+
+        // Calculate all candidates
+        var candidates = SourceAnalyzer.ExtractVolumeNameCandidates(volumeName);
+        JobSendTrace($"Volume name canditates {candidates.Count}", ETraceLevel.DEBUG);
+        if (candidates.Count == 0)
+            return null;
+
+        // 2. Search and get Volume details
+        var result = new Dictionary<int, CvLinkCandidateVolume>();
+        foreach (var candidate in candidates)
+        {
+            var resultpage = await comicVine.SearchVolumesByNameAsync(candidate.Title, limit: 20, ct: ct); // Take only first page
+
+            JobSendTrace($"Search for {candidate.Title}  and found {resultpage.Results.Count} results", ETraceLevel.DEBUG);
+            foreach (var item in resultpage.Results)
+            {
+                if (result.ContainsKey(item.Id))
+                {
+                    result[item.Id].candidates.Add(candidate);
+                }
+                else
+                {
+                    var v = await comicVine.GetVolumeAsync(item.Id, ct);
+                    if (v != null)
+                    {
+                        result.Add(item.Id, new CvLinkCandidateVolume(v, [candidate]));
+                    }
+                }
+            }
+        }
+
+        JobSendTrace($"{result.Count} volumes could be candidate", ETraceLevel.DEBUG);
+
+        if (result.Count == 0)
+            return null;
+
+        if (result.Count == 1)
+            return result.First().Value.volume;
 
 
+        double bestScore = 0;
+        double maxScore = 100;
+        CvVolume? BestVolume = null;
+        // 3. Calculate scoring
+        foreach (var item in result)
+        {
+            foreach (var candidate in item.Value.candidates)
+            {
+                var score = ScoringSource.ScoreVolume(item.Value.volume, candidate, favoriteCountryCode);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    BestVolume = item.Value.volume;
+                    JobSendTrace($"Update best score {bestScore} for volume {item.Value.volume.Name}", ETraceLevel.DEBUG);
+                }
+            }
+            if (bestScore > maxScore)
+            {
+                return BestVolume;
+            }
+        }
+        return BestVolume;
+    }
+
+    // Résout un volume ComicVine (si non fourni) puis retrouve l'issue correspondant au numéro
+    // extrait du nom de fichier.
+    public async Task<CvFindResult> FindVolume(string issueFilename, string favoriteCountryCode, CvVolume? cvVolume = null,
+        CancellationToken ct = default)
+    {
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
+
+        var parts = issueFilename.Replace('\\', '/').Split('/', 2);
+        var folderName = parts.Length == 2 ? parts[0] : Path.GetFileNameWithoutExtension(parts[0]);
+        var fileName = parts.Length == 2 ? Path.GetFileNameWithoutExtension(parts[1]) : folderName;
+
+        var issueNum = SourceAnalyzer.ParseIssueNumber(fileName);
+
+        if (cvVolume == null)
+        {
+            cvVolume = await AutomaticSearchVolume(folderName, favoriteCountryCode, ct: ct);
+            if (cvVolume == null)
+                return new CvFindResult(null, null);
+        }
+
+        if (issueNum is null)
+            return new CvFindResult(cvVolume, null);
+
+        // Find the matching issue — paginate if needed
+        var page = 1;
+        while (true)
+        {
+            var issuePage = await comicVine.GetIssuesPageAsync(cvVolume.Id, page, ComicVineMaxPageSize, ELevelDetail.SUMMARY, ct);
+            var match = issuePage.Results.FirstOrDefault(
+                i => int.TryParse(i.IssueNumber, out var n) && n == issueNum);
+
+            if (match is not null)
+            {
+                var issue = await comicVine.GetIssueAsync(match.Id, ct);
+                return new CvFindResult(cvVolume, issue);
+            }
+
+            if (issuePage.Results.Count + issuePage.Offset >= issuePage.NumberOfTotalResults)
+                break;
+
+            page++;
+        }
+
+        return new CvFindResult(cvVolume, null);
+    }
 
 
     #endregion
@@ -366,7 +484,7 @@ public class InkhoundManager : BaseServiceManager
             return null;
         }
 
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
         {
             EndJob(false);
@@ -407,7 +525,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 // Try to find a ComicVine volume match for this directory name
                 JobSendTrace($"[Sync] Searching for ComicVine volume for directory: {dir.Name}");
-                var cvVolume = await comicVine.AutomaticSearchVolume(dir.Name, parameters.CountryCode, job.CallbackHandler);
+                var cvVolume = await AutomaticSearchVolume(dir.Name, parameters.CountryCode, job.CallbackHandler);
                 if (cvVolume is null)
                 {
                     JobSendTrace($"[Sync] No ComicVine match for directory: {dir.Name}", ETraceLevel.DEBUG);
@@ -489,7 +607,7 @@ public class InkhoundManager : BaseServiceManager
 
 
 
-                var issueNum = ComicVineService.ParseIssueNumber(cbzFile.Name);
+                var issueNum = SourceAnalyzer.ParseIssueNumber(cbzFile.Name);
                 if (issueNum is null)
                 {
                     JobSendTrace($"[Sync] Unable to parse issue number from CBZ file {cbzFile.Name}", ETraceLevel.WARNING);
@@ -627,7 +745,7 @@ public class InkhoundManager : BaseServiceManager
         if (duplicate is not null)
             throw new InvalidOperationException($"Volume {comicVineVolumeId} already exists in this library.");
 
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
             throw new InvalidOperationException("ComicVine service is not available");
 
@@ -689,7 +807,7 @@ public class InkhoundManager : BaseServiceManager
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
         if (volume is null) return false;
 
-        var comicVine = GetService<ComicVineService, ComicVineOptions>();
+        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
             throw new InvalidOperationException("ComicVine service is not available");
 
@@ -1056,7 +1174,7 @@ public class InkhoundManager : BaseServiceManager
             foreach (var file in files)
             {
                 JobSendTrace($"Processing file {file.Name}", ETraceLevel.INFO);
-                var issueNumber = ComicVineService.ParseIssueNumber(file.Name);
+                var issueNumber = SourceAnalyzer.ParseIssueNumber(file.Name);
                 if (issueNumber is null) continue;
 
                 var issue = issues.FirstOrDefault(i => i.IssueNumber == issueNumber);
@@ -1227,7 +1345,7 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<List<ScoredSearchResult>> LaunchJobSearchMissingIssue(ProwlarrSearchJobParameters parameters)
+    public async Task<List<ScoredSearchResultTorrent>> LaunchJobSearchMissingIssue(ProwlarrSearchJobParameters parameters)
     {
         var ctx = GetDb();
         var issue = await ctx.Issues.FindAsync(parameters.IssueId);
@@ -1272,7 +1390,7 @@ public class InkhoundManager : BaseServiceManager
 
             JobSendTrace($"[Prowlarr] {queries.Count} requête(s) à tenter pour \"{volume.Title} #{issue.IssueNumber}\"");
 
-            List<ScoredSearchResult> results = [];
+            List<ScoredSearchResultTorrent> results = [];
 
             foreach (var query in queries)
             {
@@ -1284,7 +1402,7 @@ public class InkhoundManager : BaseServiceManager
                 if (raw.Count > 0)
                 {
                     JobSendTrace($"[Prowlarr] {raw.Count} résultat(s) trouvé(s) avec \"{query}\"");
-                    results = ScoringService.ScoreAndSort(volume, issue, raw);
+                    results = ScoringTorrent.ScoreAndSort(volume, issue, raw);
                     break;
                 }
 
