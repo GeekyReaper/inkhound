@@ -11,6 +11,7 @@ using Inkhound.Core.Kavita;
 using Inkhound.Core.Kavita.Models;
 using Inkhound.Core.Prowlarr;
 using Inkhound.Core.QBittorrent;
+using Inkhound.Core.WebshareProxy;
 using Inkhound.Core.Scoring;
 using Inkhound.Core.Analysis;
 using Inkhound.Core.CbzQuality.Analysis;
@@ -84,6 +85,9 @@ public class InkhoundManager : BaseServiceManager
     public async Task AutomaticLoadServices()
     {
         // Instantiate services
+        // WebshareProxy first so it's already registered as the active proxy provider before the
+        // other services build their first HttpClient.
+        GetService<WebshareProxyService, WebshareProxyOptions>();
         var databaseService = GetService<DbStorageService, DbStorageOption>();
         var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
@@ -466,6 +470,31 @@ public class InkhoundManager : BaseServiceManager
         var kavita = GetService<KavitaService, KavitaOptions>();
         return await kavita.ScanLibraryAsync(libraryId, force);
     }
+
+    #endregion
+
+    #region WebshareProxy
+
+    public IReadOnlyList<ProxyInfo> GetWebshareProxies()
+        => GetService<WebshareProxyService, WebshareProxyOptions>().Proxies;
+
+    public ProxyInfo? GetCurrentWebshareProxy()
+        => GetService<WebshareProxyService, WebshareProxyOptions>().CurrentProxy;
+
+    public ProxyInfo? RotateWebshareProxy()
+        => GetService<WebshareProxyService, WebshareProxyOptions>().NextProxy();
+
+    public Task<WebshareStatistics> GetWebshareProxyStatisticsAsync(CancellationToken ct = default)
+        => GetService<WebshareProxyService, WebshareProxyOptions>().GetStatisticsAsync(ct);
+
+    // Inspecte les options déjà chargées de chaque service enregistré et retourne ceux dont le
+    // booléen UseProxy est actif. WebshareProxyService lui-même n'a pas cette option, il est donc
+    // naturellement exclu du résultat.
+    public List<string> GetServicesUsingProxy()
+        => Services.Values
+            .Where(s => s.GetOptions().Any(o => o.Name == "UseProxy" && o.GetBool()))
+            .Select(s => s.GetServiceName())
+            .ToList();
 
     #endregion
 

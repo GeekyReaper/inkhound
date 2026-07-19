@@ -258,7 +258,7 @@ public class QBittorrentService : BaseService<QBittorrentOptions>
     private HttpClient BuildHttpClient()
     {
         var baseUrl = Options.BaseUrl.TrimEnd('/') + '/';
-        var client = new HttpClient
+        var client = new HttpClient(CreateHttpHandler(Options.UseProxy))
         {
             BaseAddress = new Uri(baseUrl),
             Timeout = TimeSpan.FromSeconds(Options.TimeoutSeconds > 0 ? Options.TimeoutSeconds : 30)

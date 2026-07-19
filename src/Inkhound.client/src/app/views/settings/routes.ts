@@ -20,5 +20,10 @@ export const routes: Routes = [
     path: 'kavita',
     loadComponent: () => import('./kavita.component').then(m => m.KavitaSettingsComponent),
     data: { title: 'Kavita' }
+  },
+  {
+    path: 'proxy',
+    loadComponent: () => import('./proxy.component').then(m => m.ProxySettingsComponent),
+    data: { title: 'Proxy' }
   }
 ];

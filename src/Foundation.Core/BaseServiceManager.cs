@@ -10,6 +10,7 @@ public abstract class BaseServiceManager
 {
     protected readonly ConcurrentDictionary<Type, IService> Services = new();
     private CancellationTokenSource? _monitoringCts;
+    private IProxyProviderService? _proxyProvider;
 
     public Action<StateServiceManager>? OnHealthcheck { get; set; }
     public Action<JobContext>? OnJobUpdated { get; set; }
@@ -37,11 +38,23 @@ public abstract class BaseServiceManager
         else
         {
             var newService = new T();
-            newService.InitializeAction(GlobalTraceHandler, GlobalStateServiceHandler);
+            newService.InitializeAction(GlobalTraceHandler, GlobalStateServiceHandler, GetActiveProxy, RequestProxyRotation);
             Services[typeof(T)] = newService;
+
+            if (newService is IProxyProviderService proxyProvider)
+                _proxyProvider = proxyProvider;
+
             return newService;
         }
 
+    }
+
+    private ProxyEndpoint? GetActiveProxy() => _proxyProvider?.CurrentProxy;
+
+    private ProxyEndpoint? RequestProxyRotation()
+    {
+        JobSendTrace("Proxy rotation requested (possible IP ban)", ETraceLevel.WARNING);
+        return _proxyProvider?.RotateToNext();
     }
 
     public List<OptionDefinition> GetServiceOptions(Type typeOfService)

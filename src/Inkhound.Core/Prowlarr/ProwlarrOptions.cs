@@ -8,6 +8,7 @@ public class ProwlarrOptions : IOptionList
     public string BaseUrl { get; set; } = "http://localhost:9696";
     public string ApiKey { get; set; } = string.Empty;
     public int TimeoutSeconds { get; set; } = 30;
+    public bool UseProxy { get; set; } = false;
 
     public bool IsValid(out List<string> errors)
     {
@@ -31,7 +32,8 @@ public class ProwlarrOptions : IOptionList
         {
             new OptionDefinition { Name = nameof(BaseUrl), Section = "Connection", SortOrder = 0, Value = BaseUrl, ValueType = EValueType.STRING, DefaultValue = "http://localhost:9696", Description = "Base URL of the Prowlarr instance.", Mandatory = true },
             new OptionDefinition { Name = nameof(ApiKey), Section = "Connection", SortOrder = 10, Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from Prowlarr → Settings → General → Security.", Mandatory = true },
-            new OptionDefinition { Name = nameof(TimeoutSeconds), Section = "Connection", SortOrder = 20, Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false }
+            new OptionDefinition { Name = nameof(TimeoutSeconds), Section = "Connection", SortOrder = 20, Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false },
+            new OptionDefinition { Name = nameof(UseProxy), Section = "Connection", SortOrder = 30, Value = UseProxy.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Route HTTP requests through the active Webshare proxy, if available.", Mandatory = false }
         };
     }
 
@@ -53,6 +55,9 @@ public class ProwlarrOptions : IOptionList
                         break;
                     case nameof(TimeoutSeconds):
                         TimeoutSeconds = option.GetInt();
+                        break;
+                    case nameof(UseProxy):
+                        UseProxy = option.GetBool();
                         break;
                 }
             }

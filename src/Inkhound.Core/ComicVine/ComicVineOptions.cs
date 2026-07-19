@@ -17,6 +17,8 @@ public class ComicVineOptions : IOptionList
 
     public int RateLimitMs { get; set; } = 250;
 
+    public bool UseProxy { get; set; } = false;
+
     public bool IsValid(out List<string> errors)
     {
         errors = new List<string>();
@@ -54,7 +56,8 @@ public class ComicVineOptions : IOptionList
             new OptionDefinition { Name = "BaseUrl", Section = "Connection", SortOrder = 20, ValueType =EValueType.STRING, Value = BaseUrl, DefaultValue = "https://comicvine.gamespot.com/api/", RegexValidator = @"^https://.*$", Mandatory = true },
             new OptionDefinition { Name = "TimeoutSeconds", Section = "Connection", SortOrder = 30, ValueType = EValueType.INT, Value = TimeoutSeconds.ToString(), DefaultValue = "30", Mandatory = false },
             new OptionDefinition { Name = "PageSize", Section = "Search Behavior", SortOrder = 40, ValueType = EValueType.INT, Value = PageSize.ToString(), DefaultValue = "20", Mandatory = false },
-            new OptionDefinition { Name = "RateLimitMs", Section = "Search Behavior", SortOrder = 50, ValueType = EValueType.INT, Value = RateLimitMs.ToString(), DefaultValue = "250", Mandatory = false }
+            new OptionDefinition { Name = "RateLimitMs", Section = "Search Behavior", SortOrder = 50, ValueType = EValueType.INT, Value = RateLimitMs.ToString(), DefaultValue = "250", Mandatory = false },
+            new OptionDefinition { Name = "UseProxy", Section = "Connection", SortOrder = 60, Value = UseProxy.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Route HTTP requests through the active Webshare proxy, if available.", Mandatory = false }
         };
     }
 
@@ -87,6 +90,9 @@ public class ComicVineOptions : IOptionList
                         break;
                     case "RateLimitMs":
                         RateLimitMs = option.GetInt();
+                        break;
+                    case "UseProxy":
+                        UseProxy = option.GetBool();
                         break;
                 }
             }

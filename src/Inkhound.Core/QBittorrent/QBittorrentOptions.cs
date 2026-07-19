@@ -11,6 +11,7 @@ public class QBittorrentOptions : IOptionList
     public string DefaultSavePath { get; set; } = string.Empty;
     public bool AddPaused { get; set; } = false;
     public int TimeoutSeconds { get; set; } = 30;
+    public bool UseProxy { get; set; } = false;
 
     public bool IsValid(out List<string> errors)
     {
@@ -35,6 +36,7 @@ public class QBittorrentOptions : IOptionList
             new() { Name = nameof(BaseUrl), Section = "Connection", SortOrder = 0, Value = BaseUrl, ValueType = EValueType.STRING, DefaultValue = "http://localhost:8080", Description = "Base URL of the QBittorrent Web UI.", Mandatory = true },
             new() { Name = nameof(ApiKey), Section = "Connection", SortOrder = 10, Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from QBittorrent → Preferences → Web UI → API Key.", Mandatory = true },
             new() { Name = nameof(TimeoutSeconds), Section = "Connection", SortOrder = 20, Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false },
+            new() { Name = nameof(UseProxy), Section = "Connection", SortOrder = 25, Value = UseProxy.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Route HTTP requests through the active Webshare proxy, if available.", Mandatory = false },
             new() { Name = nameof(DefaultCategory), Section = "Download Behavior", SortOrder = 30, Value = DefaultCategory, ValueType = EValueType.STRING, DefaultValue = string.Empty, Description = "Default QBittorrent category applied to downloaded torrents (optional).", Mandatory = false },
             new() { Name = nameof(DefaultSavePath), Section = "Download Behavior", SortOrder = 40, Value = DefaultSavePath, ValueType = EValueType.PATH, DefaultValue = string.Empty, Description = "Default save path for downloaded torrents (optional, overrides category path).", Mandatory = false },
             new() { Name = nameof(AddPaused), Section = "Download Behavior", SortOrder = 50, Value = AddPaused.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Add torrents in paused state without starting the download immediately.", Mandatory = false }
@@ -57,6 +59,7 @@ public class QBittorrentOptions : IOptionList
                     case nameof(DefaultSavePath): DefaultSavePath = option.Value; break;
                     case nameof(AddPaused): AddPaused = option.GetBool(); break;
                     case nameof(TimeoutSeconds): TimeoutSeconds = option.GetInt(); break;
+                    case nameof(UseProxy): UseProxy = option.GetBool(); break;
                 }
             }
             else

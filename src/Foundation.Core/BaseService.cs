@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
@@ -10,6 +11,8 @@ public abstract class BaseService<T> : IService where T : IOptionList, new()
 {
     private Action<TraceDefinition>? _onTrace;
     private Action<StateService>? _onServiceStateUpdated;
+    private Func<ProxyEndpoint?>? _getActiveProxy;
+    private Func<ProxyEndpoint?>? _requestProxyRotation;
     protected TimeSpan StateRefreshDelay { get; set; } = new TimeSpan(0);
 
     public StateService CurrentState { get; protected set; } = new StateService();
@@ -17,12 +20,38 @@ public abstract class BaseService<T> : IService where T : IOptionList, new()
     protected readonly T Options = new();
 
     public virtual string GetServiceName() => "unknow";
-    public virtual void InitializeAction(Action<TraceDefinition> onTraceAction, Action<StateService> onServiceStateUpdated)
+    public virtual void InitializeAction(
+        Action<TraceDefinition> onTraceAction,
+        Action<StateService> onServiceStateUpdated,
+        Func<ProxyEndpoint?> getActiveProxy,
+        Func<ProxyEndpoint?> requestProxyRotation)
     {
         _onTrace = onTraceAction;
         _onServiceStateUpdated = onServiceStateUpdated;
+        _getActiveProxy = getActiveProxy;
+        _requestProxyRotation = requestProxyRotation;
         SendTrace("Service initialized - State: " + CurrentState.State);
     }
+
+    // Construit un HttpClientHandler prêt à passer à `new HttpClient(handler)`. Si useProxy est vrai et qu'un
+    // proxy actif est disponible (via le service qui implémente IProxyProviderService), le handler route le
+    // trafic à travers ce proxy ; sinon connexion directe, silencieusement.
+    protected HttpClientHandler CreateHttpHandler(bool useProxy)
+    {
+        var handler = new HttpClientHandler();
+        var proxy = useProxy ? _getActiveProxy?.Invoke() : null;
+        if (proxy is not null)
+        {
+            handler.UseProxy = true;
+            handler.Proxy = proxy.ToWebProxy();
+        }
+        return handler;
+    }
+
+    // À appeler par un service qui détecte que son IP sortante s'est fait bannir : demande au manager de
+    // faire tourner le service de proxy actif vers le proxy suivant. Retourne le nouveau proxy actif (ou null
+    // si aucun n'est disponible / aucun fournisseur de proxy n'est enregistré).
+    protected ProxyEndpoint? NotifyProxyBanned() => _requestProxyRotation?.Invoke();
 
     protected virtual void SendTrace(string title, Exception ex, TraceDefinition? trace = null)
     {

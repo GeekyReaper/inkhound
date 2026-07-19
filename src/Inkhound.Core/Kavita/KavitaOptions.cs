@@ -34,6 +34,7 @@ public class KavitaOptions : IOptionList
     public string ApiKey { get; set; } = string.Empty;
     public string PluginName { get; set; } = "Inkhound";
     public int TimeoutSeconds { get; set; } = 30;
+    public bool UseProxy { get; set; } = false;
 
     // --- Scoring: Compatibility ---
     public int UnsupportedFormatPenaltyPerFormat { get; set; } = Defaults.UnsupportedFormatPenaltyPerFormat;
@@ -122,6 +123,7 @@ public class KavitaOptions : IOptionList
             new OptionDefinition { Name = nameof(ApiKey), Section = "Connection", SortOrder = 10, Value = ApiKey, ValueType = EValueType.PASSWORD, DefaultValue = string.Empty, Description = "API key from Kavita → User Settings → API Key.", Mandatory = true },
             new OptionDefinition { Name = nameof(TimeoutSeconds), Section = "Connection", SortOrder = 20, Value = TimeoutSeconds.ToString(), ValueType = EValueType.INT, DefaultValue = "30", Description = "HTTP request timeout in seconds.", Mandatory = false },
             new OptionDefinition { Name = nameof(PluginName), Section = "Integration", SortOrder = 30, Value = PluginName, ValueType = EValueType.STRING, DefaultValue = "Inkhound", Description = "Plugin name sent to Kavita during authentication.", Mandatory = false },
+            new OptionDefinition { Name = nameof(UseProxy), Section = "Connection", SortOrder = 40, Value = UseProxy.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Route HTTP requests through the active Webshare proxy, if available.", Mandatory = false },
 
             IntOption(nameof(UnsupportedFormatPenaltyPerFormat), compat, 100, UnsupportedFormatPenaltyPerFormat, Defaults.UnsupportedFormatPenaltyPerFormat, "Points deducted per unsupported image format detected (e.g. BMP, TIFF)."),
             IntOption(nameof(UnsupportedFormatPenaltyCap), compat, 110, UnsupportedFormatPenaltyCap, Defaults.UnsupportedFormatPenaltyCap, "Maximum total deduction from unsupported formats."),
@@ -197,6 +199,7 @@ public class KavitaOptions : IOptionList
                     case nameof(ApiKey): ApiKey = option.Value; break;
                     case nameof(PluginName): PluginName = option.Value; break;
                     case nameof(TimeoutSeconds): TimeoutSeconds = option.GetInt(); break;
+                    case nameof(UseProxy): UseProxy = option.GetBool(); break;
 
                     case nameof(UnsupportedFormatPenaltyPerFormat): UnsupportedFormatPenaltyPerFormat = option.GetInt(); break;
                     case nameof(UnsupportedFormatPenaltyCap): UnsupportedFormatPenaltyCap = option.GetInt(); break;

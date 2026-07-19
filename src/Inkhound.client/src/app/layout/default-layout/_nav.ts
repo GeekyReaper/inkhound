@@ -38,6 +38,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-settings' }
   },
   {
+    name: 'Proxy',
+    url: '/settings/proxy',
+    iconComponent: { name: 'cil-globe-alt' }
+  },
+  {
     name: 'Libraries',
     url: '/libraries',
     iconComponent: { name: 'cil-library' }

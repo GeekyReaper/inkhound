@@ -289,7 +289,7 @@ public class KavitaService : BaseService<KavitaOptions>
     private HttpClient BuildHttpClient()
     {
         var baseUrl = Options.BaseUrl.TrimEnd('/') + '/';
-        return new HttpClient
+        return new HttpClient(CreateHttpHandler(Options.UseProxy))
         {
             BaseAddress = new Uri(baseUrl),
             Timeout = TimeSpan.FromSeconds(Options.TimeoutSeconds > 0 ? Options.TimeoutSeconds : 30)

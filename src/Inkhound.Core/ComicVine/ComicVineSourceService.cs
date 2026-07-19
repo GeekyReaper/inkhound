@@ -108,7 +108,7 @@ public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceServ
 
     private HttpClient BuildHttpClient()
     {
-        var client = new HttpClient
+        var client = new HttpClient(CreateHttpHandler(Options.UseProxy))
         {
             BaseAddress = new Uri(Options.BaseUrl),
             Timeout = TimeSpan.FromSeconds(Options.TimeoutSeconds)
