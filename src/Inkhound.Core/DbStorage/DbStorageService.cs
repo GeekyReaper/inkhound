@@ -8,7 +8,14 @@ namespace Inkhound.Core.DbStorage;
 
 public class DbStorageService : BaseService<DbStorageOption>
 {
-    public DbStorageContext? Database { get; private set; }
+    private DbContextOptions<DbStorageContext>? _contextOptions;
+
+    // DbContext n'est pas thread-safe : DbStorageService est un singleton partagé par toutes les requêtes,
+    // donc chaque accès à Database crée une nouvelle instance plutôt que d'en réutiliser une seule à l'échelle
+    // de l'application (ce qui provoquait un InvalidOperationException "A second operation was started..." dès
+    // que deux requêtes concurrentes touchaient la base). Les appelants doivent stocker la valeur retournée dans
+    // une variable locale et ne pas la faire persister au-delà d'une seule opération.
+    public DbStorageContext? Database => _contextOptions is null ? null : new DbStorageContext(_contextOptions);
 
     public DbStorageService()
     {
@@ -24,7 +31,7 @@ public class DbStorageService : BaseService<DbStorageOption>
     protected override async Task<EState> CheckInternalState()
     {
 
-        if (Database != null)
+        if (_contextOptions != null)
         {
             return EState.OK;
         }
@@ -35,12 +42,13 @@ public class DbStorageService : BaseService<DbStorageOption>
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            var options = new DbContextOptionsBuilder<DbStorageContext>()
+            _contextOptions = new DbContextOptionsBuilder<DbStorageContext>()
                 .UseSqlite($"Data Source={Options.Path}")
                 .Options;
-            Database = new DbStorageContext(options);
-            Database.Database.EnsureCreated();
-            await ApplyPendingMigrationsAsync(Database);
+
+            using var db = new DbStorageContext(_contextOptions);
+            db.Database.EnsureCreated();
+            await ApplyPendingMigrationsAsync(db);
         }
         catch (Exception ex)
         {
@@ -151,6 +159,27 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "Issues", "AnalysisAveragePageSizeBytes", "REAL NULL");
         await AddColumnIfMissingAsync(db, "Issues", "AnalysisFileHash", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "AnalyzedAt", "TEXT NULL");
+
+        // ApiTokens ajouté en juillet 2026 — tokens API pour authentification externe (header X-Api-Key)
+        var hasApiTokens = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='ApiTokens'")
+            .AnyAsync();
+        if (!hasApiTokens)
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS ApiTokens (
+                    Id          TEXT NOT NULL PRIMARY KEY,
+                    Name        TEXT NOT NULL,
+                    Prefix      TEXT NOT NULL,
+                    TokenHash   TEXT NOT NULL,
+                    CreatedAt   TEXT NOT NULL,
+                    ExpiresAt   TEXT NULL,
+                    LastUsedAt  TEXT NULL
+                )
+                """);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS IX_ApiTokens_TokenHash ON ApiTokens(TokenHash)");
+        }
     }
 
     private static async Task AddColumnIfMissingAsync(DbStorageContext db, string table, string column, string sqlTypeAndConstraint)
@@ -164,21 +193,23 @@ public class DbStorageService : BaseService<DbStorageOption>
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)
     {
-        if (CurrentState.State != EState.OK || Database == null)
+        var db = Database;
+        if (CurrentState.State != EState.OK || db == null)
             return new List<OptionDefinition>();
 
-        return Database.GetOptionsForService(serviceName);
+        return db.GetOptionsForService(serviceName);
     }
 
     public bool SetOptionsForService(List<OptionDefinition> optionDefinitions)
     {
-        if (CurrentState.State != EState.OK || Database == null)
+        var db = Database;
+        if (CurrentState.State != EState.OK || db == null)
             return false;
 
         try
         {
             foreach (var group in optionDefinitions.GroupBy(o => o.ServiceName))
-                Database.SetOptionsForService([.. group], group.Key);
+                db.SetOptionsForService([.. group], group.Key);
             return true;
         }
         catch

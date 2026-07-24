@@ -71,8 +71,13 @@ builder.Services.AddSingleton(signingKey);
 builder.Services.AddSingleton<IUserStore, FileUserStore>();
 builder.Services.AddSingleton<JwtService>();
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = "Smart";
+        options.DefaultAuthenticateScheme = "Smart";
+        options.DefaultChallengeScheme = "Smart";
+    })
+    .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -97,6 +102,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 return Task.CompletedTask;
             }
         };
+    })
+    .AddScheme<ApiKeyAuthenticationSchemeOptions, ApiKeyAuthenticationHandler>("ApiKey", _ => { })
+    .AddPolicyScheme("Smart", "JWT or API Key", options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.ContainsKey("X-Api-Key") ? "ApiKey" : JwtBearerDefaults.AuthenticationScheme;
     });
 
 builder.Services.AddAuthorization();

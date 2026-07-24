@@ -17,6 +17,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<IssueDownload> IssueDownloads => Set<IssueDownload>();
 
+    public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
+
     public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

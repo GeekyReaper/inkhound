@@ -25,5 +25,10 @@ export const routes: Routes = [
     path: 'proxy',
     loadComponent: () => import('./proxy.component').then(m => m.ProxySettingsComponent),
     data: { title: 'Proxy' }
+  },
+  {
+    path: 'api-tokens',
+    loadComponent: () => import('./api-tokens.component').then(m => m.ApiTokensComponent),
+    data: { title: 'API Tokens' }
   }
 ];

@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 import { NgScrollbar } from 'ngx-scrollbar';
 
@@ -19,6 +19,7 @@ import {
 import { DefaultFooterComponent, DefaultHeaderComponent } from './';
 import { navItemsTop, navItemsBottom } from './_nav';
 import { LibraryService } from '../../core/services/library.service';
+import { ApiTokenService } from '../../core/services/api-token.service';
 
 function isOverflown(element: HTMLElement) {
   return (
@@ -51,9 +52,13 @@ function isOverflown(element: HTMLElement) {
 })
 export class DefaultLayoutComponent {
   private libraryService = inject(LibraryService);
+  private apiTokenService = inject(ApiTokenService);
+
+  apiTokensEnabled = signal(false);
 
   constructor() {
     this.libraryService.loadLibraries().subscribe();
+    this.apiTokenService.isEnabled().subscribe(enabled => this.apiTokensEnabled.set(enabled));
   }
 
   navItems = computed<INavData[]>(() => [
@@ -63,6 +68,6 @@ export class DefaultLayoutComponent {
       url: `/library/${lib.id}`,
       iconComponent: { name: 'cil-library' }
     })),
-    ...navItemsBottom
+    ...navItemsBottom.filter(item => item.name !== 'API Tokens' || this.apiTokensEnabled())
   ]);
 }

@@ -1,3 +1,4 @@
+using Inkhound.Core.ApiTokens;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
 using Foundation.Core.Model;
@@ -47,13 +48,11 @@ public class InkhoundManager : BaseServiceManager
         => [.. Services.Values.Select(s => s.GetServiceName())];
 
 
+    // Chaque appel retourne une nouvelle instance de DbStorageContext (voir DbStorageService.Database) —
+    // ne jamais la faire persister au-delà d'une seule méthode / d'une seule requête.
     private DbStorageContext GetDb()
-    {
-        var db = GetService<DbStorageService, DbStorageOption>();
-        if (db.Database is null)
-            throw new InvalidOperationException("Database is not initialized.");
-        return db.Database;
-    }
+        => GetService<DbStorageService, DbStorageOption>().Database
+           ?? throw new InvalidOperationException("Database is not initialized.");
 
 
     public List<OptionDefinition> GetOptionsForService(string serviceName)
@@ -94,6 +93,7 @@ public class InkhoundManager : BaseServiceManager
         var kavitaService = GetService<KavitaService, KavitaOptions>();
         GetService<ProwlarrService, ProwlarrOptions>();
         GetService<QBittorrentService, QBittorrentOptions>();
+        GetService<ApiTokenService, ApiTokenOptions>();
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };
@@ -495,6 +495,57 @@ public class InkhoundManager : BaseServiceManager
             .Where(s => s.GetOptions().Any(o => o.Name == "UseProxy" && o.GetBool()))
             .Select(s => s.GetServiceName())
             .ToList();
+
+    #endregion
+
+    #region ApiTokens
+
+    public Task<List<ApiToken>> GetApiTokensAsync()
+        => GetDb().ApiTokens.OrderByDescending(t => t.CreatedAt).ToListAsync();
+
+    public async Task<(ApiToken Token, string RawValue)> CreateApiTokenAsync(string name, int? expiresInDays)
+    {
+        var (raw, prefix, hash) = ApiTokenGenerator.Generate();
+        var token = new ApiToken
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Prefix = prefix,
+            TokenHash = hash,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = expiresInDays is null ? null : DateTime.UtcNow.AddDays(expiresInDays.Value)
+        };
+
+        var db = GetDb();
+        db.ApiTokens.Add(token);
+        await db.SaveChangesAsync();
+        return (token, raw);
+    }
+
+    public async Task DeleteApiTokenAsync(Guid id)
+    {
+        var db = GetDb();
+        var token = await db.ApiTokens.FindAsync(id) ?? throw new KeyNotFoundException($"ApiToken '{id}' not found.");
+        db.ApiTokens.Remove(token);
+        await db.SaveChangesAsync();
+    }
+
+    // Appelée par ApiKeyAuthenticationHandler à chaque requête portant un header X-Api-Key.
+    public async Task<ApiToken?> ValidateApiTokenAsync(string rawToken)
+    {
+        if (!GetService<ApiTokenService, ApiTokenOptions>().Enabled) return null;
+        if (string.IsNullOrWhiteSpace(rawToken) || !ApiTokenGenerator.HasPrefix(rawToken)) return null;
+
+        var hash = ApiTokenGenerator.Hash(rawToken);
+        var db = GetDb();
+        var token = await db.ApiTokens.FirstOrDefaultAsync(t => t.TokenHash == hash);
+        if (token is null) return null;
+        if (token.ExpiresAt is not null && token.ExpiresAt <= DateTime.UtcNow) return null;
+
+        token.LastUsedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return token;
+    }
 
     #endregion
 

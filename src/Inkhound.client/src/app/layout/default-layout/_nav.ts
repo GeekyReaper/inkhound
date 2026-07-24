@@ -43,6 +43,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-globe-alt' }
   },
   {
+    name: 'API Tokens',
+    url: '/settings/api-tokens',
+    iconComponent: { name: 'cil-lock-locked' }
+  },
+  {
     name: 'Libraries',
     url: '/libraries',
     iconComponent: { name: 'cil-library' }
