@@ -6,6 +6,7 @@ using Inkhound.Web.Hubs;
 using Inkhound.Web.Middleware;
 using Inkhound.Web.Startup;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -133,7 +134,15 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // Le manifest PWA (favicon Android/Chrome) doit être servi avec le bon content-type
+    // pour être reconnu comme installable sur mobile.
+    ContentTypeProvider = new FileExtensionContentTypeProvider
+    {
+        Mappings = { [".webmanifest"] = "application/manifest+json" }
+    }
+});
 
 var imagesDir = Path.Combine(app.Environment.ContentRootPath, "data", "images");
 Directory.CreateDirectory(imagesDir);
