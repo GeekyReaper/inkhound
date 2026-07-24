@@ -1289,7 +1289,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 Id = Guid.NewGuid(),
                 VolumeId = volume.Id,
-                SourceId = Guid.NewGuid().ToString(),
+                SourceId = string.Empty,
                 IssueNumber = issueData.Number,
                 Title = issueData.Title,
                 Year = issueData.Year,
@@ -1373,7 +1373,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 Id           = Guid.NewGuid(),
                 VolumeId     = volumeId,
-                SourceId     = Guid.NewGuid().ToString(),
+                SourceId     = string.Empty,
                 IssueNumber  = req.Number,
                 Title        = req.Title,
                 Year         = req.Year,

@@ -214,7 +214,10 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     public async Task<BdSerie?> GetSerieAsync(int id, CancellationToken ct = default)
     {
-        var html = await GetHtmlAsync($"/serie-{id}-BD-x.html", ct: ct);
+        // Bedetheque pagine la liste des albums d'une série à 10 par page ; "__10000" est le
+        // suffixe utilisé par le lien "Tout" du site pour renvoyer la liste complète en un seul
+        // GET (vérifié : fonctionne aussi avec le slug générique "x" utilisé ici).
+        var html = await GetHtmlAsync($"/serie-{id}-BD-x__10000.html", ct: ct);
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
         return ParseSerie(doc, id, $"{Options.BaseUrl}/serie-{id}-BD-x.html");
@@ -311,8 +314,15 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             ?? doc.DocumentNode.SelectSingleNode("//div[contains(@class,'serie')]//p")?.InnerText.Trim();
         if (description is not null) description = WebUtility.HtmlDecode(description);
 
-        var coverUrl = $"{Options.BaseUrl}/cache/thb_series/PlancheS_{id}.jpg";
         var albums = ParseAlbumList(doc);
+
+        // Bedetheque n'a pas d'illustration dédiée à la série (le pattern "thb_series/PlancheS_"
+        // n'existe pas sur le site — vérifié, toujours 404) : le site lui-même utilise la
+        // couverture du premier album comme og:image sur la page série, donc on fait pareil,
+        // avec repli sur la vignette du premier album si la balise meta est absente.
+        var coverUrl = doc.DocumentNode.SelectSingleNode("//meta[@property='og:image']")?.GetAttributeValue("content", string.Empty);
+        if (string.IsNullOrEmpty(coverUrl))
+            coverUrl = albums.FirstOrDefault()?.CoverUrl;
 
         return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums);
     }
