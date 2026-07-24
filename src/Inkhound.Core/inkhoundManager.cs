@@ -1936,6 +1936,7 @@ public class InkhoundManager : BaseServiceManager
                     }
 
                     var downloadedFilePath = Path.Combine(archiveService.DownloadsPath, matchedFile.Name);
+                    JobSendTrace($"[Downloads] Looking for downloaded file at '{downloadedFilePath}'", ETraceLevel.DEBUG);
                     if (!File.Exists(downloadedFilePath))
                     {
                         JobSendTrace($"[Downloads] File '{matchedFile.Name}' not yet present in downloads folder for issue #{issue.IssueNumber} — marking Syncing");
