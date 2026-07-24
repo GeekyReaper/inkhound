@@ -66,18 +66,19 @@ export interface Volume {
   updatedAt:                string;
 }
 
+export type SourceKey = 'comicvine' | 'bedetheque';
+
 export interface VolumeSearchResult {
   sourceId:       string;
-  sourceType:     string;
+  source:         SourceKey;
   title:          string;
   year:           number | null;
   countOfIssues:  number;
   description:    string | null;
   publisher:      string | null;
-  image:          VolumeImage | null;
-  firstIssueName: string | null;
-  lastIssueName:  string | null;
-  siteDetailUrl:  string | null;
+  imageUrl:       string | null;
+  siteUrl:        string | null;
+  score:          number;
 }
 
 export interface PageResult<T> {
@@ -88,6 +89,19 @@ export interface PageResult<T> {
   totalPages: number;
   hasNext:    boolean;
   hasPrev:    boolean;
+}
+
+export interface SourceSearchStats {
+  source:       SourceKey;
+  resultCount:  number;
+  elapsedMs:    number;
+  success:      boolean;
+  errorMessage: string | null;
+}
+
+export interface SearchVolumesJobResult {
+  page:  PageResult<VolumeSearchResult>;
+  stats: SourceSearchStats[];
 }
 
 export interface ManualIssueRequest {
@@ -141,10 +155,15 @@ export class VolumeService {
     return this.http.get<Volume[]>(`/api/libraries/${libraryId}/volumes`);
   }
 
-  search(name: string, page = 1, pageSize = 16) {
-    return this.http.get<PageResult<VolumeSearchResult>>(`/api/volumes/search`, {
-      params: { name, page, pageSize }
-    });
+  // Lance la recherche multi-source comme un Job (peut prendre plusieurs secondes — scraping
+  // Bedetheque compris) et retourne son jobId. Le résultat se récupère ensuite via
+  // getSearchJobResult() une fois le job terminé (suivre sa progression via HubService).
+  startSearchJob(name: string, page = 1, pageSize = 16) {
+    return this.http.post<{ jobId: string }>(`/api/volumes/search`, { name, page, pageSize });
+  }
+
+  getSearchJobResult(jobId: string) {
+    return this.http.get<SearchVolumesJobResult>(`/api/volumes/search/${jobId}`);
   }
 
   importFromDirectory(volumeId: string, importDirectory: string) {
@@ -154,10 +173,10 @@ export class VolumeService {
     );
   }
 
-  addFromComicVine(libraryId: string, comicVineVolumeId: string) {
+  addFromSource(libraryId: string, source: SourceKey, sourceId: string) {
     return this.http.post<{ id: string }>(
       `/api/libraries/${libraryId}/volumes`,
-      { comicVineVolumeId: Number(comicVineVolumeId) }
+      { source, sourceId }
     );
   }
 
@@ -172,8 +191,8 @@ export class VolumeService {
     return this.http.put<void>(`/api/volumes/${volumeId}`, request);
   }
 
-  rematchFromComicVine(volumeId: string, comicVineVolumeId: string) {
-    return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { comicVineVolumeId: Number(comicVineVolumeId) });
+  rematchFromSource(volumeId: string, source: SourceKey, sourceId: string) {
+    return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { source, sourceId });
   }
 
   regenerateComicInfo(volumeId: string) {

@@ -1,10 +1,15 @@
 using Inkhound.Core.ApiTokens;
+using Inkhound.Core.Bedetheque;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
+using Inkhound.Core.Sources;
 using Foundation.Core.Model;
 using Foundation.Core;
+using Foundation.Core.Interface;
 
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Inkhound.Core.DbStorage;
 using Inkhound.Core.ComicArchiveGenerator;
@@ -89,6 +94,7 @@ public class InkhoundManager : BaseServiceManager
         GetService<WebshareProxyService, WebshareProxyOptions>();
         var databaseService = GetService<DbStorageService, DbStorageOption>();
         var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
+        GetService<BedethequeSourceService, BedethequeOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var kavitaService = GetService<KavitaService, KavitaOptions>();
         GetService<ProwlarrService, ProwlarrOptions>();
@@ -272,43 +278,125 @@ public class InkhoundManager : BaseServiceManager
 
 
     #region ComicVine Search and Import
-    public async Task<Page<CvVolumeStub>> ComicVineSearchVolumeByNameAsync(
-        string name,
-        int pageNumber = 1,
-        int? pageSize = null,
-        CancellationToken ct = default)
+
+    // Résultats de recherche multi-source en attente de récupération par le contrôleur, indexés
+    // par JobId — un Job ne peut pas porter de valeur de retour vers l'appelant HTTP d'origine
+    // (fire-and-forget), donc on garde le résultat final en mémoire le temps que le frontend
+    // vienne le chercher une fois le job terminé (cf. GetSearchJobResult).
+    private readonly ConcurrentDictionary<Guid, SearchVolumesJobResult> _searchResults = new();
+
+    public SearchVolumesJobResult? GetSearchJobResult(Guid jobId)
+        => _searchResults.TryGetValue(jobId, out var result) ? result : null;
+
+    // Lance la recherche multi-source en tâche de fond et retourne immédiatement le JobContext
+    // (donc son JobId) pour que le frontend puisse s'abonner à sa progression/ses traces via
+    // SignalR sans attendre la fin de la recherche.
+    public JobContext LaunchJobSearchVolumes(SearchVolumesJobParameters parameters)
     {
-        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
-        if (comicVine.CurrentState.State != EState.OK)
-            throw new InvalidOperationException("ComicVine service is not available");
-
-        var response = await comicVine.SearchVolumesByNameAsync(name, pageNumber, pageSize, ct: ct);
-
-        return new Page<CvVolumeStub>
+        var job = StartJob($"Search — {parameters.Name}", parameters);
+        if (job.State != JobState.ERROR)
         {
-            Items = response.Results,
-            PageNumber = pageNumber,
-            PageSize = response.Limit,
-            TotalItems = response.NumberOfTotalResults,
-        };
+            job.SetState(JobState.RUNNING);
+            _ = RunSearchVolumesJobAsync(job, parameters);
+        }
+        return job;
     }
 
-    public async Task<Page<CvIssue>> ComicVineGetIssuesByVolumeAsync(
-        int comicVineVolumeId, int page = 1, int pageSize = 10, CancellationToken ct = default)
+    private async Task RunSearchVolumesJobAsync(JobContext job, SearchVolumesJobParameters parameters)
     {
-        var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
-        if (comicVine.CurrentState.State != EState.OK)
-            throw new InvalidOperationException("ComicVine service is not available");
-
-        var response = await comicVine.GetIssuesPageAsync(comicVineVolumeId, page, pageSize, ELevelDetail.SUMMARY, ct: ct);
-
-        return new Page<CvIssue>
+        try
         {
-            Items = response.Results,
+            var result = await SearchVolumesAsync(parameters.Name, parameters.Page, parameters.PageSize, job);
+            _searchResults[job.JobId] = result;
+            EndJob(true);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"Unexpected error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+    }
+
+    // Interroge en parallèle toutes les sources de métadonnées enregistrées (ComicVine,
+    // Bedetheque, ...) et fusionne leurs résultats en une seule liste, chaque entrée indiquant
+    // sa source d'origine (SourceVolume.Source). Une source indisponible (état != OK) ou en
+    // erreur est simplement ignorée plutôt que de faire échouer la recherche entière.
+    // Le paramètre optionnel `job` (fourni par LaunchJobSearchVolumes) alimente la progression
+    // (un pas par source) et les traces au fil de l'eau ; sans lui, la méthode fonctionne comme
+    // un simple agrégateur silencieux.
+    public async Task<SearchVolumesJobResult> SearchVolumesAsync(
+        string name, int page = 1, int? pageSize = null, JobContext? job = null, CancellationToken ct = default)
+    {
+        var sources = Services.Values.OfType<ISourceService>().ToList();
+        job?.CallbackHandler.UpdateTotal(sources.Count);
+
+        var stats = new ConcurrentBag<SourceSearchStats>();
+        var tasks = sources.Select(async src =>
+        {
+            var sw = Stopwatch.StartNew();
+            var state = await ((IService)src).GetState();
+            if (state.State != EState.OK)
+            {
+                JobSendTrace($"[{src.SourceKey}] Source unavailable, skipped.", ETraceLevel.WARNING);
+                stats.Add(new SourceSearchStats(src.SourceKey, 0, 0, false, "Service unavailable"));
+                job?.Progress.Increment(false);
+                job?.CallbackHandler.Callback(job.Progress);
+                return null;
+            }
+            try
+            {
+                JobSendTrace($"[{src.SourceKey}] Searching \"{name}\"…");
+                var result = await src.SearchVolumesByNameAsync(name, page, pageSize, ct);
+                sw.Stop();
+                JobSendTrace($"[{src.SourceKey}] {result.Items.Count} result(s) in {sw.ElapsedMilliseconds} ms");
+                stats.Add(new SourceSearchStats(src.SourceKey, result.Items.Count, sw.ElapsedMilliseconds, true, null));
+                job?.Progress.Increment(true);
+                job?.CallbackHandler.Callback(job.Progress);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                JobSendTrace($"[{src.SourceKey}] Failed: {ex.Message}", ETraceLevel.WARNING);
+                stats.Add(new SourceSearchStats(src.SourceKey, 0, sw.ElapsedMilliseconds, false, ex.Message));
+                job?.Progress.Increment(false);
+                job?.CallbackHandler.Callback(job.Progress);
+                return null;
+            }
+        });
+
+        var results = (await Task.WhenAll(tasks))
+            .Where(p => p is not null)
+            .Select(p => p!)
+            .ToList();
+
+        // Score chaque résultat par pertinence par rapport à la requête (indépendamment de sa
+        // source), puis trie l'ensemble fusionné dessus — sinon les résultats apparaissent
+        // groupés par source (tous les ComicVine, puis tous les Bedetheque) plutôt que par
+        // pertinence réelle.
+        var scoredItems = results
+            .SelectMany(p => p.Items)
+            .Select(v => v with { Score = SearchScoring.ScoreTitleMatch(name, v.Name, v.CountOfIssues, v.Language) })
+            .OrderByDescending(v => v.Score)
+            .ToList();
+
+        var page2 = new Page<SourceVolume>
+        {
+            Items = scoredItems,
             PageNumber = page,
-            PageSize = response.Limit,
-            TotalItems = response.NumberOfTotalResults,
+            PageSize = pageSize ?? results.Select(p => p.PageSize).DefaultIfEmpty(20).Max(),
+            TotalItems = results.Sum(p => p.TotalItems),
         };
+
+        return new SearchVolumesJobResult { Page = page2, Stats = stats.OrderBy(s => s.Source).ToList() };
+    }
+
+    public async Task<Page<SourceIssue>> GetIssuesBySourceAsync(
+        string source, string sourceVolumeId, int page = 1, int? pageSize = null, CancellationToken ct = default)
+    {
+        var svc = Services.Values.OfType<ISourceService>().FirstOrDefault(s => s.SourceKey == source)
+            ?? throw new InvalidOperationException($"Unknown source '{source}'");
+        return await svc.GetIssuesPageAsync(sourceVolumeId, page, pageSize, ct);
     }
 
     private const int ComicVineMaxPageSize = 100;
@@ -821,7 +909,7 @@ public class InkhoundManager : BaseServiceManager
             ?? throw new KeyNotFoundException($"Library {libraryId} not found.");
 
         var duplicate = await ctx.Volumes.FirstOrDefaultAsync(
-            v => v.LibraryId == libraryId && v.SourceId == comicVineVolumeId.ToString(), ct);
+            v => v.LibraryId == libraryId && v.SourceType == "ComicVine" && v.SourceId == comicVineVolumeId.ToString(), ct);
         if (duplicate is not null)
             throw new InvalidOperationException($"Volume {comicVineVolumeId} already exists in this library.");
 
@@ -916,17 +1004,17 @@ public class InkhoundManager : BaseServiceManager
             var cvId = cvIssue.Id.ToString();
             int.TryParse(cvIssue.IssueNumber, out var issueNum);
 
-            // Correspondance par ComicVineId en priorité, puis par numéro d'issue
+            // Correspondance par SourceId en priorité, puis par numéro d'issue
             var existing =
-                existingIssues.FirstOrDefault(i => i.ComicVineId == cvId) ??
-                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.ComicVineId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
+                existingIssues.FirstOrDefault(i => i.SourceId == cvId) ??
+                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.SourceId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
 
             var mappedIssue = Mapper.Map(cvIssue);
 
             if (existing is not null)
             {
                 matchedExistingIds.Add(existing.Id);
-                existing.ComicVineId  = mappedIssue.ComicVineId;
+                existing.SourceId     = mappedIssue.SourceId;
                 existing.Title        = mappedIssue.Title;
                 existing.Year         = mappedIssue.Year;
                 existing.Description  = mappedIssue.Description;
@@ -962,6 +1050,177 @@ public class InkhoundManager : BaseServiceManager
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
         return true;
     }
+
+    // Miroir de AddVolumeFromComicVineAsync pour la source Bedetheque : utilise les modèles natifs
+    // riches de BedethequeSourceService (BdSerie/BdAlbum, avec auteurs) plutôt que le DTO mince
+    // SourceVolume/SourceIssue utilisé pour l'agrégation de recherche.
+    public async Task<Volume> AddVolumeFromBedethequeAsync(
+        Guid libraryId, int bdSerieId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        _ = await ctx.Libraries.FindAsync([libraryId], ct)
+            ?? throw new KeyNotFoundException($"Library {libraryId} not found.");
+
+        var duplicate = await ctx.Volumes.FirstOrDefaultAsync(
+            v => v.LibraryId == libraryId && v.SourceType == "bedetheque" && v.SourceId == bdSerieId.ToString(), ct);
+        if (duplicate is not null)
+            throw new InvalidOperationException($"Volume {bdSerieId} already exists in this library.");
+
+        var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
+        if (bedetheque.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("Bedetheque service is not available");
+
+        var bdSerie = await bedetheque.GetSerieAsync(bdSerieId, ct)
+            ?? throw new KeyNotFoundException($"Bedetheque serie {bdSerieId} not found.");
+
+        var now = DateTime.UtcNow;
+        var volume = Mapper.Map(bdSerie);
+        volume.Id = Guid.NewGuid();
+        volume.LibraryId = libraryId;
+        volume.Status = VolumeStatus.MONITORED;
+        volume.CreatedAt = now;
+        volume.UpdatedAt = now;
+        volume.CountOfIssues = 0;
+        ctx.Volumes.Add(volume);
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+
+        var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct);
+
+        List<VolumeAuthor> allIssueAuthors = [];
+
+        foreach (var bdAlbum in bdAlbums)
+        {
+            var issue = Mapper.Map(bdAlbum);
+            issue.Id = Guid.NewGuid();
+            issue.Status = IssueStatus.MISSING;
+            issue.VolumeId = volume.Id;
+            allIssueAuthors.AddRange(issue.Authors);
+            ctx.Issues.Add(issue);
+        }
+        if (bdAlbums.Count > 0)
+        {
+            var roleByName = allIssueAuthors
+                        .GroupBy(a => a.Name)
+                        .ToDictionary(g => g.Key, g => g.First().Role);
+
+            volume.Authors = volume.Authors
+                .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                    ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                    : a)
+                .ToList();
+
+            volume.CountOfIssues = bdAlbums.Count;
+            volume.UpdatedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync(ct);
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+        }
+
+        return volume;
+    }
+
+    // Miroir de RematchVolumeFromComicVineAsync pour la source Bedetheque.
+    public async Task<bool> RematchVolumeFromBedethequeAsync(
+        Guid volumeId, int bdSerieId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return false;
+
+        var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
+        if (bedetheque.CurrentState.State != EState.OK)
+            throw new InvalidOperationException("Bedetheque service is not available");
+
+        var bdSerie = await bedetheque.GetSerieAsync(bdSerieId, ct)
+            ?? throw new KeyNotFoundException($"Bedetheque serie {bdSerieId} not found.");
+
+        var mapped = Mapper.Map(bdSerie);
+        volume.SourceId     = mapped.SourceId;
+        volume.SourceType   = mapped.SourceType;
+        volume.Title        = mapped.Title;
+        volume.Year         = mapped.Year;
+        volume.Description  = mapped.Description;
+        volume.Image        = mapped.Image;
+        volume.Publisher    = mapped.Publisher;
+        volume.Authors      = mapped.Authors;
+        volume.Genres       = mapped.Genres;
+        volume.UpdatedAt    = DateTime.UtcNow;
+
+        var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct);
+        var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
+
+        var matchedExistingIds = new HashSet<Guid>();
+
+        foreach (var bdAlbum in bdAlbums)
+        {
+            var bdId = bdAlbum.Id.ToString();
+            int.TryParse(bdAlbum.NumeroAlbum, out var issueNum);
+
+            // Correspondance par SourceId en priorité, puis par numéro d'issue
+            var existing =
+                existingIssues.FirstOrDefault(i => i.SourceId == bdId) ??
+                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.SourceId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
+
+            var mappedIssue = Mapper.Map(bdAlbum);
+
+            if (existing is not null)
+            {
+                matchedExistingIds.Add(existing.Id);
+                existing.SourceId     = mappedIssue.SourceId;
+                existing.Title        = mappedIssue.Title;
+                existing.Year         = mappedIssue.Year;
+                existing.Description  = mappedIssue.Description;
+                existing.Image        = mappedIssue.Image;
+                existing.Authors      = mappedIssue.Authors;
+                if (existing.Status == IssueStatus.MISSING)
+                    existing.IssueNumber = issueNum;
+            }
+            else
+            {
+                var newIssue = mappedIssue;
+                newIssue.Id      = Guid.NewGuid();
+                newIssue.VolumeId = volumeId;
+                newIssue.Status  = IssueStatus.MISSING;
+                ctx.Issues.Add(newIssue);
+            }
+        }
+
+        // Supprimer les issues MISSING non appariées
+        foreach (var orphan in existingIssues.Where(i => !matchedExistingIds.Contains(i.Id)))
+        {
+            if (orphan.Status == IssueStatus.MISSING)
+                ctx.Issues.Remove(orphan);
+            // DOWNLOADED / DOWNLOADING → conservé
+        }
+
+        await ctx.SaveChangesAsync(ct);
+
+        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
+        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
+        await ctx.SaveChangesAsync(ct);
+
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
+    // Dispatchers génériques utilisés par les contrôleurs Web — routent vers l'implémentation
+    // dédiée à la source choisie par l'utilisateur dans les résultats de recherche.
+    public Task<Volume> AddVolumeFromSourceAsync(Guid libraryId, string source, string sourceId, CancellationToken ct = default) =>
+        source switch
+        {
+            "comicvine" => AddVolumeFromComicVineAsync(libraryId, int.Parse(sourceId), ct),
+            "bedetheque" => AddVolumeFromBedethequeAsync(libraryId, int.Parse(sourceId), ct),
+            _ => throw new InvalidOperationException($"Unknown source '{source}'"),
+        };
+
+    public Task<bool> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId, CancellationToken ct = default) =>
+        source switch
+        {
+            "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct),
+            "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct),
+            _ => throw new InvalidOperationException($"Unknown source '{source}'"),
+        };
 
     public async Task<string> UploadImageAsync(Stream content, string extension, CancellationToken ct = default)
     {
@@ -1030,7 +1289,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 Id = Guid.NewGuid(),
                 VolumeId = volume.Id,
-                ComicVineId = Guid.NewGuid().ToString(),
+                SourceId = Guid.NewGuid().ToString(),
                 IssueNumber = issueData.Number,
                 Title = issueData.Title,
                 Year = issueData.Year,
@@ -1114,7 +1373,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 Id           = Guid.NewGuid(),
                 VolumeId     = volumeId,
-                ComicVineId  = Guid.NewGuid().ToString(),
+                SourceId     = Guid.NewGuid().ToString(),
                 IssueNumber  = req.Number,
                 Title        = req.Title,
                 Year         = req.Year,

@@ -30,24 +30,24 @@ export class ScoringSettingsComponent implements OnInit {
 
   readonly formatScoreColumns: TierColumn[] = [
     { key: 'format', label: 'Format', type: 'text' },
-    { key: 'score', label: 'Bonus / pénalité', type: 'number' }
+    { key: 'score', label: 'Bonus / penalty', type: 'number' }
   ];
   readonly pageWeightColumns: TierColumn[] = [
     { key: 'format', label: 'Format', type: 'text', nullable: true },
-    { key: 'label', label: 'Libellé', type: 'text' },
-    { key: 'minMb', label: 'Min (Mo)', type: 'number' },
-    { key: 'maxMb', label: 'Max (Mo)', type: 'number' },
-    { key: 'score', label: 'Bonus / pénalité', type: 'number' }
+    { key: 'label', label: 'Label', type: 'text' },
+    { key: 'minMb', label: 'Min (MB)', type: 'number' },
+    { key: 'maxMb', label: 'Max (MB)', type: 'number' },
+    { key: 'score', label: 'Bonus / penalty', type: 'number' }
   ];
   readonly zipCompressionColumns: TierColumn[] = [
-    { key: 'label', label: 'Libellé', type: 'text' },
+    { key: 'label', label: 'Label', type: 'text' },
     { key: 'minPct', label: 'Min (%)', type: 'number' },
     { key: 'maxPct', label: 'Max (%)', type: 'number' },
-    { key: 'score', label: 'Bonus / pénalité', type: 'number' }
+    { key: 'score', label: 'Bonus / penalty', type: 'number' }
   ];
   readonly scoreBandColumns: TierColumn[] = [
-    { key: 'min', label: 'Score min', type: 'number' },
-    { key: 'band', label: 'Bande', type: 'text' }
+    { key: 'min', label: 'Min score', type: 'number' },
+    { key: 'band', label: 'Band', type: 'text' }
   ];
 
   options = signal<OptionDefinition[]>([]);

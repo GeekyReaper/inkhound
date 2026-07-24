@@ -22,23 +22,23 @@
 
       <!-- Volume info -->
       <c-card class="mb-4">
-        <c-card-header><strong>Informations du volume</strong></c-card-header>
+        <c-card-header><strong>Volume information</strong></c-card-header>
         <c-card-body>
           <c-row class="g-3">
 
             <c-col [md]="8">
-              <label cLabel for="title">Titre <span class="text-danger">*</span></label>
-              <input cFormControl id="title" formControlName="title" placeholder="Ex : Batman" />
+              <label cLabel for="title">Title <span class="text-danger">*</span></label>
+              <input cFormControl id="title" formControlName="title" placeholder="e.g. Batman" />
             </c-col>
 
             <c-col [md]="2">
-              <label cLabel for="year">Année</label>
+              <label cLabel for="year">Year</label>
               <input cFormControl id="year" type="number" formControlName="year" placeholder="2024" />
             </c-col>
 
             <c-col [md]="2">
-              <label cLabel for="publisher">Éditeur</label>
-              <input cFormControl id="publisher" formControlName="publisher" placeholder="Ex : DC Comics" />
+              <label cLabel for="publisher">Publisher</label>
+              <input cFormControl id="publisher" formControlName="publisher" placeholder="e.g. DC Comics" />
             </c-col>
 
             <c-col [md]="12">
@@ -52,7 +52,7 @@
 
       <!-- Cover image -->
       <c-card class="mb-4">
-        <c-card-header><strong>Image de couverture</strong></c-card-header>
+        <c-card-header><strong>Cover image</strong></c-card-header>
         <c-card-body>
           <div class="d-flex align-items-start gap-3 flex-wrap">
             <div>
@@ -62,13 +62,13 @@
                 accept="image/jpeg,image/png,image/webp"
                 (change)="onVolumeImageSelected($event)"
                 [disabled]="uploadingVolumeImage()" />
-              <div class="form-text">JPEG, PNG ou WebP — 5 Mo max</div>
+              <div class="form-text">JPEG, PNG or WebP — 5 MB max</div>
             </div>
             @if (uploadingVolumeImage()) {
               <c-spinner size="sm" class="mt-2"></c-spinner>
             }
             @if (volumeImagePreview()) {
-              <img [src]="volumeImagePreview()" alt="Couverture" class="cover-preview rounded" />
+              <img [src]="volumeImagePreview()" alt="Cover" class="cover-preview rounded" />
             }
           </div>
         </c-card-body>
@@ -76,14 +76,14 @@
 
       <!-- Authors -->
       <c-card class="mb-4">
-        <c-card-header><strong>Auteurs</strong></c-card-header>
+        <c-card-header><strong>Authors</strong></c-card-header>
         <c-card-body>
           <div formArrayName="authors">
             @for (ctrl of authorsArray.controls; track $index) {
               <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                <input cFormControl formControlName="name" placeholder="Nom" />
+                <input cFormControl formControlName="name" placeholder="Name" />
                 <select cSelect formControlName="role">
-                  <option value="" disabled>Rôle…</option>
+                  <option value="" disabled>Role…</option>
                   @for (r of AUTHOR_ROLES; track r) {
                     <option [value]="r">{{ r }}</option>
                   }
@@ -96,7 +96,7 @@
           </div>
           <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addAuthor()">
             <svg cIcon name="cilPlus" size="sm"></svg>
-            Ajouter un auteur
+            Add an author
           </button>
         </c-card-body>
       </c-card>
@@ -108,7 +108,7 @@
           <div formArrayName="genres">
             @for (ctrl of genresArray.controls; track $index) {
               <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                <input cFormControl formControlName="value" placeholder="Ex : Super-héros" />
+                <input cFormControl formControlName="value" placeholder="e.g. Superhero" />
                 <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeGenre($index)">
                   <svg cIcon name="cilTrash" size="sm"></svg>
                 </button>
@@ -117,7 +117,7 @@
           </div>
           <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addGenre()">
             <svg cIcon name="cilPlus" size="sm"></svg>
-            Ajouter un genre
+            Add a genre
           </button>
         </c-card-body>
       </c-card>
@@ -140,12 +140,12 @@
                     </c-col>
 
                     <c-col [sm]="5">
-                      <label cLabel>Titre</label>
-                      <input cFormControl formControlName="title" placeholder="Titre de l'issue" />
+                      <label cLabel>Title</label>
+                      <input cFormControl formControlName="title" placeholder="Issue title" />
                     </c-col>
 
                     <c-col [sm]="2">
-                      <label cLabel>Année</label>
+                      <label cLabel>Year</label>
                       <input cFormControl type="number" formControlName="year" placeholder="2024" />
                     </c-col>
 
@@ -168,10 +168,10 @@
                   <c-row class="g-2">
                     <c-col [sm]="12">
                       <label cLabel>Description</label>
-                      <textarea cFormControl formControlName="description" rows="2" placeholder="Synopsis de l'issue…"></textarea>
+                      <textarea cFormControl formControlName="description" rows="2" placeholder="Issue synopsis…"></textarea>
                     </c-col>
                     <c-col [sm]="12">
-                      <label cLabel>Vignette</label>
+                      <label cLabel>Thumbnail</label>
                       <div class="d-flex align-items-start gap-3 flex-wrap">
                         <input
                           type="file"
@@ -179,7 +179,7 @@
                           accept="image/jpeg,image/png,image/webp"
                           (change)="onIssueImageSelected($index, $event)" />
                         @if (issueImagePreviews()[$index]) {
-                          <img [src]="issueImagePreviews()[$index]" alt="Vignette" class="issue-preview rounded" />
+                          <img [src]="issueImagePreviews()[$index]" alt="Thumbnail" class="issue-preview rounded" />
                         }
                       </div>
                     </c-col>
@@ -191,7 +191,7 @@
           </div>
           <button type="button" cButton color="secondary" size="sm" variant="outline" (click)="addIssue()">
             <svg cIcon name="cilPlus" size="sm"></svg>
-            Ajouter une issue
+            Add an issue
           </button>
         </c-card-body>
       </c-card>

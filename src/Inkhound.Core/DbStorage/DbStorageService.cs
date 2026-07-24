@@ -160,6 +160,17 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "Issues", "AnalysisFileHash", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "AnalyzedAt", "TEXT NULL");
 
+        // Issues.ComicVineId renommé en SourceId en juillet 2026 — l'issue peut désormais provenir
+        // de n'importe quelle source (ComicVine, Bedetheque, ...), pas seulement ComicVine.
+        var hasOldSourceColumn = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Issues') WHERE name='ComicVineId'")
+            .AnyAsync();
+        var hasNewSourceColumn = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Issues') WHERE name='SourceId'")
+            .AnyAsync();
+        if (hasOldSourceColumn && !hasNewSourceColumn)
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE Issues RENAME COLUMN ComicVineId TO SourceId");
+
         // ApiTokens ajouté en juillet 2026 — tokens API pour authentification externe (header X-Api-Key)
         var hasApiTokens = await db.Database
             .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='ApiTokens'")

@@ -1,16 +1,17 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { VolumeAuthor, VolumeImage, PageResult } from './volume.service';
+import { VolumeAuthor, VolumeImage, PageResult, SourceKey } from './volume.service';
 
 export type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 
-export interface ComicVineIssue {
-  id:            string;
-  issueNumber:   string | null;
-  name:          string | null;
-  coverDate:     string | null;
-  thumbUrl:      string | null;
-  siteDetailUrl: string | null;
+export interface SourceIssue {
+  sourceId:   string;
+  source:     SourceKey;
+  name:       string | null;
+  issueNumber: string;
+  coverDate:  string | null;
+  imageUrl:   string | null;
+  siteUrl:    string | null;
 }
 
 export interface UpdateIssueManuallyRequest {
@@ -23,7 +24,7 @@ export interface UpdateIssueManuallyRequest {
 export interface Issue {
   id:          string;
   volumeId:    string;
-  comicVineId: string;
+  sourceId:    string;
   issueNumber: number;
   title:       string | null;
   year:        number | null;
@@ -59,9 +60,9 @@ export class IssueService {
     return this.http.get<Issue[]>(`/api/volumes/${volumeId}/issues`);
   }
 
-  getByComicVineVolume(cvVolumeId: string, page = 1, pageSize = 10) {
-    return this.http.get<PageResult<ComicVineIssue>>(`/api/issues/comicvine`, {
-      params: { comicVineVolumeId: cvVolumeId, page, pageSize }
+  getBySourceVolume(source: SourceKey, sourceVolumeId: string, page = 1, pageSize = 10) {
+    return this.http.get<PageResult<SourceIssue>>(`/api/issues/source`, {
+      params: { source, sourceVolumeId, page, pageSize }
     });
   }
 

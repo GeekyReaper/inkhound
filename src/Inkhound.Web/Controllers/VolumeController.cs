@@ -1,6 +1,6 @@
 using Inkhound.Core;
-using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
+using Inkhound.Core.Sources;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,40 +12,56 @@ namespace Inkhound.Web.Controllers;
 public class VolumeController(InkhoundManager manager) : ControllerBase
 {
     private record VolumeSearchDto(
-        string SourceId, string SourceType, string Title,
+        string SourceId, string Source, string Title,
         int? Year, int CountOfIssues, string? Description,
-        string? Publisher, VolumeImage? Image,
-        string? FirstIssueName, string? LastIssueName,
-        string? SiteDetailUrl);
+        string? Publisher, string? ImageUrl, string? SiteUrl, double Score);
 
     private record VolumeSearchPageDto(IEnumerable<VolumeSearchDto> Items, int PageNumber, int PageSize, int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
 
-    private static VolumeSearchDto ToSearchDto(CvVolumeStub cv)
+    private static VolumeSearchDto ToSearchDto(SourceVolume v) =>
+        new(v.SourceId, v.Source, v.Name, v.StartYear, v.CountOfIssues,
+            v.Description, v.Publisher, v.ImageUrl, v.SiteUrl, v.Score);
+
+    private record SourceSearchStatsDto(string Source, int ResultCount, long ElapsedMs, bool Success, string? ErrorMessage);
+
+    private record SearchVolumesJobResultDto(VolumeSearchPageDto Page, IEnumerable<SourceSearchStatsDto> Stats);
+
+    private static SourceSearchStatsDto ToStatsDto(SourceSearchStats s) =>
+        new(s.Source, s.ResultCount, s.ElapsedMs, s.Success, s.ErrorMessage);
+
+    public record StartSearchRequest(string Name, int Page = 1, int? PageSize = null);
+
+    // POST /api/volumes/search — lance la recherche multi-source en tant que Job et retourne
+    // immédiatement son JobId ; le frontend suit la progression/les traces via SignalR puis
+    // récupère le résultat final via GET /api/volumes/search/{jobId}.
+    [HttpPost("/api/volumes/search")]
+    public IActionResult StartSearch([FromBody] StartSearchRequest req)
     {
-        VolumeImage? image = cv.Image is { } img
-            ? new(img.IconUrl, img.MediumUrl, img.ScreenUrl, img.ScreenLargeUrl,
-                  img.SmallUrl, img.SuperUrl, img.ThumbUrl, img.TinyUrl, img.OriginalUrl, img.ImageTags)
-            : null;
-        int? year = cv.StartYear != null && int.TryParse(cv.StartYear, out var y) ? y : null;
-        return new(cv.Id.ToString(), "ComicVine", cv.Name, year, cv.CountOfIssues,
-                   cv.Description, cv.Publisher?.Name, image,
-                   cv.FirstIssue?.Name, cv.LastIssue?.Name, cv.SiteDetailUrl);
+        if (string.IsNullOrWhiteSpace(req.Name)) return BadRequest(new { message = "name is required." });
+
+        var job = manager.LaunchJobSearchVolumes(new SearchVolumesJobParameters
+        {
+            Name = req.Name,
+            Page = req.Page,
+            PageSize = req.PageSize
+        });
+        return Accepted(new { jobId = job.JobId });
     }
 
-    // GET /api/volumes/search?name=Batman&page=1&pageSize=10
-    [HttpGet("/api/volumes/search")]
-    public async Task<IActionResult> Search([FromQuery] string? name, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    // GET /api/volumes/search/{jobId} — résultat final d'une recherche lancée via StartSearch ;
+    // 404 tant que le job n'est pas terminé (ou s'il a échoué avant de produire un résultat).
+    [HttpGet("/api/volumes/search/{jobId:guid}")]
+    public IActionResult GetSearchResult(Guid jobId)
     {
-        if (string.IsNullOrWhiteSpace(name)) return BadRequest(new { message = "name is required." });
-        try
-        {
-            var result = await manager.ComicVineSearchVolumeByNameAsync(name, page, pageSize);
-            return Ok(new VolumeSearchPageDto(
-                result.Items.Select(ToSearchDto),
-                result.PageNumber, result.PageSize, result.TotalItems,
-                result.TotalPages, result.HasNext, result.HasPrev));
-        }
-        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+        var result = manager.GetSearchJobResult(jobId);
+        if (result is null) return NotFound();
+
+        return Ok(new SearchVolumesJobResultDto(
+            new VolumeSearchPageDto(
+                result.Page.Items.Select(ToSearchDto),
+                result.Page.PageNumber, result.Page.PageSize, result.Page.TotalItems,
+                result.Page.TotalPages, result.Page.HasNext, result.Page.HasPrev),
+            result.Stats.Select(ToStatsDto)));
     }
 
     private record VolumeDto(
@@ -144,15 +160,15 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return updated ? NoContent() : NotFound();
     }
 
-    public record RematchFromComicVineRequest(int ComicVineVolumeId);
+    public record RematchFromSourceRequest(string Source, string SourceId);
 
     // POST /api/volumes/{volumeId}/rematch
     [HttpPost("/api/volumes/{volumeId:guid}/rematch")]
-    public async Task<IActionResult> RematchFromComicVine(Guid volumeId, [FromBody] RematchFromComicVineRequest req)
+    public async Task<IActionResult> RematchFromSource(Guid volumeId, [FromBody] RematchFromSourceRequest req)
     {
         try
         {
-            var updated = await manager.RematchVolumeFromComicVineAsync(volumeId, req.ComicVineVolumeId);
+            var updated = await manager.RematchVolumeFromSourceAsync(volumeId, req.Source, req.SourceId);
             return updated ? NoContent() : NotFound();
         }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }

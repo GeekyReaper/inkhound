@@ -3,19 +3,19 @@
   <!-- Mode switcher -->
   <c-nav variant="tabs" class="mb-4">
     <c-nav-item>
-      <a cNavLink [active]="mode() === 'comicvine'" (click)="mode.set('comicvine')" style="cursor:pointer">
-        ComicVine
+      <a cNavLink [active]="mode() === 'search'" (click)="mode.set('search')" style="cursor:pointer">
+        Search
       </a>
     </c-nav-item>
     <c-nav-item>
       <a cNavLink [active]="mode() === 'manual'" (click)="mode.set('manual')" style="cursor:pointer">
-        Saisie manuelle
+        Manual entry
       </a>
     </c-nav-item>
   </c-nav>
 
-  <!-- ── ComicVine mode ──────────────────────────────────────────────────── -->
-  @if (mode() === 'comicvine') {
+  <!-- ── Search mode (ComicVine + Bedetheque) ────────────────────────────── -->
+  @if (mode() === 'search') {
 
     <!-- Search bar -->
     <c-row class="mb-4">
@@ -47,6 +47,45 @@
       </c-row>
     }
 
+    <!-- Job progress -->
+    @if (cvLoading() && searchJob(); as job) {
+      <c-row class="mb-3">
+        <c-col md="8" lg="6">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="text-body-secondary text-truncate">{{ job.title }}</small>
+            <button cButton color="ghost-secondary" size="sm" (click)="consoleVisible.set(true)">
+              <svg cIcon name="cilTask" size="sm"></svg>
+              Console
+            </button>
+          </div>
+          <c-progress>
+            <c-progress-bar [value]="job.progress.percentage" color="primary" [animated]="true"></c-progress-bar>
+          </c-progress>
+          <small class="text-body-secondary">{{ job.progress.completed }}/{{ job.progress.total }} sources</small>
+        </c-col>
+      </c-row>
+    }
+
+    <!-- Per-source stats -->
+    @if (stats(); as st) {
+      <c-row class="mb-3">
+        <c-col>
+          <div class="d-flex flex-wrap gap-2">
+            @for (s of st; track s.source) {
+              <span class="badge" [ngClass]="s.success ? 'bg-secondary' : 'bg-danger'">
+                {{ sourceLabel(s.source) }} :
+                @if (s.success) {
+                  {{ s.resultCount }} result(s) in {{ s.elapsedMs }} ms
+                } @else {
+                  failed — {{ s.errorMessage }}
+                }
+              </span>
+            }
+          </div>
+        </c-col>
+      </c-row>
+    }
+
     @if (results(); as page) {
       @if (page.items.length === 0) {
         <p class="text-body-secondary">No results found.</p>
@@ -54,18 +93,18 @@
 
         <!-- Results grid -->
         <c-row class="g-3 mb-4">
-          @for (volume of page.items; track volume.sourceId) {
-            <c-col [xs]="12" [sm]="6" [md]="4" [lg]="3" [xl]="2">
+          @for (volume of page.items; track volume.source + '-' + volume.sourceId) {
+            <c-col [xs]="12" [sm]="6" [md]="4" [xl]="3">
               <c-card
                 class="h-100"
                 style="cursor: pointer;"
-                [ngClass]="{ 'border-primary': selectedSourceId() === volume.sourceId }"
-                (click)="selectedSourceId.set(volume.sourceId)">
+                [ngClass]="{ 'border-primary': selected()?.source === volume.source && selected()?.sourceId === volume.sourceId }"
+                (click)="selected.set(volume)">
 
                 <div class="position-relative rounded-top overflow-hidden" style="aspect-ratio: 2/3;">
-                  @if (volume.image?.mediumUrl ?? volume.image?.smallUrl ?? volume.image?.thumbUrl; as imgUrl) {
+                  @if (volume.imageUrl) {
                     <img
-                      [src]="imgUrl"
+                      [src]="volume.imageUrl"
                       [alt]="volume.title"
                       style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
                   } @else {
@@ -73,9 +112,12 @@
                       <span class="text-body-tertiary small">No cover</span>
                     </div>
                   }
+                  <span class="position-absolute top-0 start-0 m-1 badge"
+                        [ngClass]="volume.source === 'comicvine' ? 'bg-info' : 'bg-warning text-dark'">{{ sourceLabel(volume.source) }}</span>
+                  <span class="position-absolute top-0 end-0 m-1 badge bg-dark bg-opacity-75"
+                        [title]="'Score de pertinence : ' + volume.score">{{ volume.score }}%</span>
                   @if (volume.year) {
-                    <span class="position-absolute bottom-0 end-0 m-1 badge bg-dark bg-opacity-75"
-                          style="font-size: 0.65rem;">{{ volume.year }}</span>
+                    <span class="position-absolute bottom-0 end-0 m-1 badge bg-dark bg-opacity-75">{{ volume.year }}</span>
                   }
                 </div>
 
@@ -85,14 +127,14 @@
                       type="radio"
                       class="form-check-input flex-shrink-0 mt-1"
                       name="volumeSelect"
-                      [checked]="selectedSourceId() === volume.sourceId"
-                      (change)="selectedSourceId.set(volume.sourceId)"
+                      [checked]="selected()?.source === volume.source && selected()?.sourceId === volume.sourceId"
+                      (change)="selected.set(volume)"
                       (click)="$event.stopPropagation()" />
-                    <div class="small fw-semibold lh-sm">{{ volume.title }}</div>
+                    <div class="fw-semibold lh-sm">{{ volume.title }}</div>
                   </div>
                   @if (volume.publisher) {
                     <div class="mt-1">
-                      <span class="badge bg-secondary" style="font-size: 0.65rem;">{{ volume.publisher }}</span>
+                      <span class="badge bg-secondary fw-normal">{{ volume.publisher }}</span>
                     </div>
                   }
                 </c-card-body>
@@ -106,13 +148,13 @@
                     Issues
                     <span class="badge bg-secondary ms-1">{{ volume.countOfIssues }}</span>
                   </button>
-                  @if (volume.siteDetailUrl) {
+                  @if (volume.siteUrl) {
                     <a
-                      [href]="volume.siteDetailUrl"
+                      [href]="volume.siteUrl"
                       target="_blank"
                       rel="noopener"
                       class="btn btn-outline-secondary btn-sm"
-                      title="View on ComicVine"
+                      [title]="'View on ' + sourceLabel(volume.source)"
                       (click)="$event.stopPropagation()">
                       <svg cIcon name="cil-external-link"></svg>
                     </a>
@@ -148,10 +190,10 @@
         <!-- Rematch button -->
         <c-row>
           <c-col class="d-flex justify-content-end">
-            <button cButton color="primary" [disabled]="!selectedSourceId() || rematching()" (click)="onRematch()">
+            <button cButton color="primary" [disabled]="!selected() || rematching()" (click)="onRematch()">
               @if (rematching()) { <c-spinner size="sm" class="me-1"></c-spinner> }
               <svg cIcon name="cilSync" class="me-1"></svg>
-              Rematche
+              Rematch
             </button>
           </c-col>
         </c-row>
@@ -186,23 +228,23 @@
 
         <!-- Volume info -->
         <c-card class="mb-4">
-          <c-card-header><strong>Informations du volume</strong></c-card-header>
+          <c-card-header><strong>Volume information</strong></c-card-header>
           <c-card-body>
             <c-row class="g-3">
 
               <c-col [md]="8">
-                <label cLabel for="title">Titre <span class="text-danger">*</span></label>
-                <input cFormControl id="title" formControlName="title" placeholder="Ex : Batman" />
+                <label cLabel for="title">Title <span class="text-danger">*</span></label>
+                <input cFormControl id="title" formControlName="title" placeholder="e.g. Batman" />
               </c-col>
 
               <c-col [md]="2">
-                <label cLabel for="year">Année</label>
+                <label cLabel for="year">Year</label>
                 <input cFormControl id="year" type="number" formControlName="year" placeholder="2024" />
               </c-col>
 
               <c-col [md]="2">
-                <label cLabel for="publisher">Éditeur</label>
-                <input cFormControl id="publisher" formControlName="publisher" placeholder="Ex : DC Comics" />
+                <label cLabel for="publisher">Publisher</label>
+                <input cFormControl id="publisher" formControlName="publisher" placeholder="e.g. DC Comics" />
               </c-col>
 
               <c-col [md]="12">
@@ -216,7 +258,7 @@
 
         <!-- Cover image -->
         <c-card class="mb-4">
-          <c-card-header><strong>Image de couverture</strong></c-card-header>
+          <c-card-header><strong>Cover image</strong></c-card-header>
           <c-card-body>
             <div class="d-flex align-items-start gap-3 flex-wrap">
               <div>
@@ -226,13 +268,13 @@
                   accept="image/jpeg,image/png,image/webp"
                   (change)="onVolumeImageSelected($event)"
                   [disabled]="uploadingVolumeImage()" />
-                <div class="form-text">JPEG, PNG ou WebP — 5 Mo max</div>
+                <div class="form-text">JPEG, PNG or WebP — 5 MB max</div>
               </div>
               @if (uploadingVolumeImage()) {
                 <c-spinner size="sm" class="mt-2"></c-spinner>
               }
               @if (volumeImagePreview()) {
-                <img [src]="volumeImagePreview()" alt="Couverture" class="cover-preview rounded" />
+                <img [src]="volumeImagePreview()" alt="Cover" class="cover-preview rounded" />
               }
             </div>
           </c-card-body>
@@ -240,14 +282,14 @@
 
         <!-- Authors -->
         <c-card class="mb-4">
-          <c-card-header><strong>Auteurs</strong></c-card-header>
+          <c-card-header><strong>Authors</strong></c-card-header>
           <c-card-body>
             <div formArrayName="authors">
               @for (ctrl of authorsArray.controls; track $index) {
                 <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                  <input cFormControl formControlName="name" placeholder="Nom" />
+                  <input cFormControl formControlName="name" placeholder="Name" />
                   <select cSelect formControlName="role">
-                    <option value="" disabled>Rôle…</option>
+                    <option value="" disabled>Role…</option>
                     @for (r of AUTHOR_ROLES; track r) {
                       <option [value]="r">{{ r }}</option>
                     }
@@ -260,7 +302,7 @@
             </div>
             <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addAuthor()">
               <svg cIcon name="cilPlus" size="sm"></svg>
-              Ajouter un auteur
+              Add an author
             </button>
           </c-card-body>
         </c-card>
@@ -272,7 +314,7 @@
             <div formArrayName="genres">
               @for (ctrl of genresArray.controls; track $index) {
                 <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                  <input cFormControl formControlName="value" placeholder="Ex : Super-héros" />
+                  <input cFormControl formControlName="value" placeholder="e.g. Superhero" />
                   <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeGenre($index)">
                     <svg cIcon name="cilTrash" size="sm"></svg>
                   </button>
@@ -281,7 +323,7 @@
             </div>
             <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addGenre()">
               <svg cIcon name="cilPlus" size="sm"></svg>
-              Ajouter un genre
+              Add a genre
             </button>
           </c-card-body>
         </c-card>
@@ -304,12 +346,12 @@
                       </c-col>
 
                       <c-col [sm]="5">
-                        <label cLabel>Titre</label>
-                        <input cFormControl formControlName="title" placeholder="Titre de l'issue" />
+                        <label cLabel>Title</label>
+                        <input cFormControl formControlName="title" placeholder="Issue title" />
                       </c-col>
 
                       <c-col [sm]="2">
-                        <label cLabel>Année</label>
+                        <label cLabel>Year</label>
                         <input cFormControl type="number" formControlName="year" placeholder="2024" />
                       </c-col>
 
@@ -332,10 +374,10 @@
                     <c-row class="g-2">
                       <c-col [sm]="12">
                         <label cLabel>Description</label>
-                        <textarea cFormControl formControlName="description" rows="2" placeholder="Synopsis de l'issue…"></textarea>
+                        <textarea cFormControl formControlName="description" rows="2" placeholder="Issue synopsis…"></textarea>
                       </c-col>
                       <c-col [sm]="12">
-                        <label cLabel>Vignette</label>
+                        <label cLabel>Thumbnail</label>
                         <div class="d-flex align-items-start gap-3 flex-wrap">
                           <input
                             type="file"
@@ -343,7 +385,7 @@
                             accept="image/jpeg,image/png,image/webp"
                             (change)="onIssueImageSelected($index, $event)" />
                           @if (issueImagePreviews()[$index]) {
-                            <img [src]="issueImagePreviews()[$index]" alt="Vignette" class="issue-preview rounded" />
+                            <img [src]="issueImagePreviews()[$index]" alt="Thumbnail" class="issue-preview rounded" />
                           }
                         </div>
                       </c-col>
@@ -355,7 +397,7 @@
             </div>
             <button type="button" cButton color="secondary" size="sm" variant="outline" (click)="addIssue()">
               <svg cIcon name="cilPlus" size="sm"></svg>
-              Ajouter une issue
+              Add an issue
             </button>
           </c-card-body>
         </c-card>
@@ -363,11 +405,11 @@
         <!-- Actions -->
         <div class="d-flex justify-content-end gap-2">
           <button type="button" cButton color="secondary" variant="outline" [disabled]="saving()" (click)="cancel()">
-            Annuler
+            Cancel
           </button>
           <button cButton color="primary" type="submit" [disabled]="form.invalid || saving()">
             @if (saving()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-            Sauvegarder
+            Save
           </button>
         </div>
 
@@ -378,7 +420,7 @@
 
 </c-container>
 
-<!-- Issues modal (ComicVine preview) -->
+<!-- Issues modal -->
 <c-modal
   [visible]="issuesModalVolume() !== null"
   (visibleChange)="!$event && closeIssuesModal()"
@@ -416,25 +458,25 @@
           <p class="text-body-secondary text-center">No issues found.</p>
         } @else {
           <c-row class="g-2">
-            @for (issue of ip.items; track issue.id) {
+            @for (issue of ip.items; track issue.sourceId) {
               <c-col [xs]="6" [sm]="4" [md]="3">
                 <c-card class="h-100">
                   <div class="text-center pt-2 px-2">
-                    @if (issue.thumbUrl) {
+                    @if (issue.imageUrl) {
                       <img
-                        [src]="issue.thumbUrl"
+                        [src]="issue.imageUrl"
                         [alt]="issue.name ?? ''"
                         class="img-fluid rounded"
                         style="max-height: 140px; object-fit: cover;" />
                     } @else {
                       <div class="bg-body-secondary rounded d-flex align-items-center justify-content-center"
                            style="height: 140px;">
-                        <span class="text-body-tertiary small">#{{ issue.issueNumber ?? '?' }}</span>
+                        <span class="text-body-tertiary small">#{{ issue.issueNumber }}</span>
                       </div>
                     }
                   </div>
                   <c-card-body class="p-2 text-center">
-                    <div class="small fw-semibold lh-sm">{{ issue.name ?? ('Issue #' + (issue.issueNumber ?? '?')) }}</div>
+                    <div class="small fw-semibold lh-sm">{{ issue.name ?? ('Issue #' + issue.issueNumber) }}</div>
                     @if (issue.coverDate) {
                       <div class="text-body-secondary" style="font-size: 0.75rem;">{{ issue.coverDate | slice:0:4 }}</div>
                     }
@@ -466,3 +508,5 @@
     }
   </c-modal-body>
 </c-modal>
+
+<app-job-console-modal [job]="searchJob()" [(visible)]="consoleVisible" />

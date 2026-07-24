@@ -20,7 +20,11 @@ export const navItemsBottom: INavData[] = [
   {
     name: 'Settings',
     url: '/settings',
-    iconComponent: { name: 'cil-settings' }
+    iconComponent: { name: 'cil-settings' },
+    // Sans ça, CoreUI surligne "Settings" comme actif dès que l'URL COMMENCE par /settings
+    // (ex: /settings/proxy) — puisque les autres items (Indexers, QBittorrent, ...) sont aussi
+    // sous /settings/*, "Settings" restait en surbrillance en même temps qu'eux.
+    linkProps: { routerLinkActiveOptions: { exact: true } }
   },
   {
     name: 'Indexers',

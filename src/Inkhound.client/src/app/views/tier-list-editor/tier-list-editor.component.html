@@ -18,7 +18,7 @@
                 [type]="col.type"
                 [step]="col.type === 'number' ? 'any' : null"
                 [value]="row[col.key] ?? ''"
-                [placeholder]="col.nullable ? '(toute source)' : ''"
+                [placeholder]="col.nullable ? '(any source)' : ''"
                 (change)="updateCell($index, col, $any($event.target).value)" />
             </td>
           }
@@ -31,7 +31,7 @@
       } @empty {
         <tr>
           <td [attr.colspan]="columns().length + 1" class="text-body-secondary fst-italic text-center py-3">
-            Aucune ligne.
+            No rows.
           </td>
         </tr>
       }
@@ -40,5 +40,5 @@
 </div>
 <button cButton color="secondary" variant="outline" size="sm" type="button" (click)="addRow()">
   <svg cIcon name="cilPlus" size="sm" class="me-1"></svg>
-  Ajouter une ligne
+  Add a row
 </button>

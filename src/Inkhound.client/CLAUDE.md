@@ -201,10 +201,10 @@ src/
 | `/dashboard` | `DashboardComponent` | Tableau de bord |
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes |
-| `/library/:id/add-volume` | `VolumeAddComponent` | Ajouter un volume (ComicVine ou manuel) |
+| `/library/:id/add-volume` | `VolumeAddComponent` | Ajouter un volume (recherche multi-source ou manuel) |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
-| `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch ComicVine |
+| `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
@@ -313,11 +313,12 @@ interface Volume {
   createdAt: string; updatedAt: string;
 }
 
+type SourceKey = 'comicvine' | 'bedetheque';
+
 interface VolumeSearchResult {
-  sourceId: string; sourceType: string; title: string; year: number | null;
+  sourceId: string; source: SourceKey; title: string; year: number | null;
   countOfIssues: number; description: string | null; publisher: string | null;
-  image: VolumeImage | null; firstIssueName: string | null;
-  lastIssueName: string | null; siteDetailUrl: string | null;
+  imageUrl: string | null; siteUrl: string | null;
 }
 
 interface PageResult<T> {
@@ -329,15 +330,15 @@ interface PageResult<T> {
 type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 
 interface Issue {
-  id: string; volumeId: string; comicVineId: string; issueNumber: number;
+  id: string; volumeId: string; sourceId: string; issueNumber: number;
   title: string | null; year: number | null; description: string | null;
   status: IssueStatus; authors: VolumeAuthor[]; image: VolumeImage | null;
   cbzFilename: string | null; publishedAt: string | null;
 }
 
-interface ComicVineIssue {
-  id: string; issueNumber: string | null; name: string | null;
-  coverDate: string | null; thumbUrl: string | null; siteDetailUrl: string | null;
+interface SourceIssue {
+  sourceId: string; source: SourceKey; name: string | null; issueNumber: string;
+  coverDate: string | null; imageUrl: string | null; siteUrl: string | null;
 }
 
 // ─── library.service.ts ──────────────────────────────────────────────────────
@@ -387,8 +388,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()` |
-| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromComicVine()`, `addManually()`, `update()`, `rematchFromComicVine()`, `regenerateComicInfo()`, `patchAgeRating()`, `delete()`, `importFromDirectory()` |
-| `IssueService` | — | `getByVolume()`, `getByComicVineVolume()` |
+| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `delete()`, `importFromDirectory()` |
+| `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |

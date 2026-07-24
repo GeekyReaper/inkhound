@@ -77,17 +77,17 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
-    public record AddVolumeFromComicVineRequest(int ComicVineVolumeId);
+    public record AddVolumeFromSourceRequest(string Source, string SourceId);
     private record AddedVolumeDto(Guid Id, Guid LibraryId, string SourceId, string Title, int? Year);
 
     // POST /api/libraries/{id}/volumes
     [HttpPost("{id:guid}/volumes")]
-    public async Task<IActionResult> AddVolumeFromComicVine(
-        Guid id, [FromBody] AddVolumeFromComicVineRequest request)
+    public async Task<IActionResult> AddVolumeFromSource(
+        Guid id, [FromBody] AddVolumeFromSourceRequest request)
     {
         try
         {
-            var volume = await manager.AddVolumeFromComicVineAsync(id, request.ComicVineVolumeId);
+            var volume = await manager.AddVolumeFromSourceAsync(id, request.Source, request.SourceId);
             return CreatedAtAction(null, new AddedVolumeDto(
                 volume.Id, volume.LibraryId, volume.SourceId, volume.Title, volume.Year));
         }

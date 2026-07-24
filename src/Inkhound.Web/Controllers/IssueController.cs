@@ -1,6 +1,6 @@
 using Inkhound.Core;
-using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
+using Inkhound.Core.Sources;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,7 +14,7 @@ public class IssueController(InkhoundManager manager) : ControllerBase
     private record IssueDto(
         Guid Id,
         Guid VolumeId,
-        string ComicVineId,
+        string SourceId,
         int IssueNumber,
         string? Title,
         int? Year,
@@ -38,7 +38,7 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         DateTime? AnalyzedAt);
 
     private static IssueDto ToDto(Issue i)
-        => new(i.Id, i.VolumeId, i.ComicVineId, i.IssueNumber, i.Title, i.Year,
+        => new(i.Id, i.VolumeId, i.SourceId, i.IssueNumber, i.Title, i.Year,
                i.Description, i.Status, i.Authors, i.Image, i.CbzFilename, i.PublishedAt,
                i.AnalysisScore, i.AnalysisScoreBand, i.AnalysisDominantImageFormat,
                i.AnalysisDominantResolutionWidth, i.AnalysisDominantResolutionHeight,
@@ -46,12 +46,12 @@ public class IssueController(InkhoundManager manager) : ControllerBase
                i.AnalysisFileSizeBytes, i.AnalysisAveragePageSizeBytes,
                i.AnalysisFileHash, i.AnalyzedAt);
 
-    private record CvIssueDto(
-        string Id, string? IssueNumber, string? Name,
-        string? CoverDate, string? ThumbUrl, string? SiteDetailUrl);
+    private record SourceIssueDto(
+        string SourceId, string Source, string? Name, string IssueNumber,
+        DateTime? CoverDate, string? ImageUrl, string? SiteUrl);
 
-    private record CvIssuePageDto(
-        IEnumerable<CvIssueDto> Items, int PageNumber, int PageSize,
+    private record SourceIssuePageDto(
+        IEnumerable<SourceIssueDto> Items, int PageNumber, int PageSize,
         int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
 
     // GET /api/issues/{issueId}
@@ -62,20 +62,21 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         return issue is null ? NotFound() : Ok(ToDto(issue));
     }
 
-    // GET /api/issues/comicvine?comicVineVolumeId=XXX&page=1&pageSize=10
-    [HttpGet("/api/issues/comicvine")]
-    public async Task<IActionResult> GetByComicVineVolumeId(
-        [FromQuery] int comicVineVolumeId,
+    // GET /api/issues/source?source=comicvine&sourceVolumeId=XXX&page=1&pageSize=10
+    [HttpGet("/api/issues/source")]
+    public async Task<IActionResult> GetBySourceVolumeId(
+        [FromQuery] string source,
+        [FromQuery] string sourceVolumeId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10)
     {
         try
         {
-            var result = await manager.ComicVineGetIssuesByVolumeAsync(comicVineVolumeId, page, pageSize);
-            return Ok(new CvIssuePageDto(
-                result.Items.Select(i => new CvIssueDto(
-                    i.Id.ToString(), i.IssueNumber, i.Name,
-                    i.CoverDate, i.Image?.ThumbUrl, i.SiteDetailUrl)),
+            var result = await manager.GetIssuesBySourceAsync(source, sourceVolumeId, page, pageSize);
+            return Ok(new SourceIssuePageDto(
+                result.Items.Select(i => new SourceIssueDto(
+                    i.SourceId, i.Source, i.Name, i.IssueNumber,
+                    i.CoverDate, i.ImageUrl, i.SiteUrl)),
                 result.PageNumber, result.PageSize, result.TotalItems,
                 result.TotalPages, result.HasNext, result.HasPrev));
         }

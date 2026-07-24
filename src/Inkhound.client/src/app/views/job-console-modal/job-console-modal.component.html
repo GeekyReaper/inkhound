@@ -15,7 +15,7 @@
   </c-modal-header>
   <c-modal-body>
     @if (traces().length === 0) {
-      <p class="text-muted mb-0">Aucune trace capturée pour ce job.</p>
+      <p class="text-muted mb-0">No trace captured for this job.</p>
     } @else {
       <div class="job-console" #consoleEl>
         @for (trace of traces(); track $index) {

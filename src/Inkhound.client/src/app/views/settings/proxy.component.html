@@ -17,7 +17,7 @@
 
     <form cForm [formGroup]="form()" (ngSubmit)="saveConnection()">
       <c-card class="mb-4">
-        <c-card-header><strong>Connexion</strong></c-card-header>
+        <c-card-header><strong>Connection</strong></c-card-header>
         <c-card-body>
           @for (def of connectionOptions(); track def.id) {
             <div class="mb-3">
@@ -32,7 +32,7 @@
                 [type]="def.valueType === 'PASSWORD' ? 'password' : def.valueType === 'INT' ? 'number' : 'text'"
                 [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
               @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
-                <c-form-feedback [valid]="false">Ce champ est requis.</c-form-feedback>
+                <c-form-feedback [valid]="false">This field is required.</c-form-feedback>
               }
             </div>
           }
@@ -42,12 +42,12 @@
               @if (saving()) {
                 <c-spinner size="sm" class="me-1"></c-spinner>
               }
-              Enregistrer
+              Save
             </button>
             @if (saveStatus() === 'success') {
-              <c-alert color="success" class="mb-0 py-2 px-3">Connexion enregistrée.</c-alert>
+              <c-alert color="success" class="mb-0 py-2 px-3">Connection saved.</c-alert>
             } @else if (saveStatus() === 'error') {
-              <c-alert color="danger" class="mb-0 py-2 px-3">Échec de l'enregistrement.</c-alert>
+              <c-alert color="danger" class="mb-0 py-2 px-3">Failed to save.</c-alert>
             }
           </div>
         </c-card-body>
@@ -56,14 +56,14 @@
 
     <c-card class="mb-4">
       <c-card-header class="d-flex align-items-center justify-content-between">
-        <strong>Proxys</strong>
+        <strong>Proxies</strong>
         <button cButton color="secondary" variant="outline" size="sm" [disabled]="rotating() || proxiesLoading()" (click)="rotate()">
           @if (rotating()) {
             <c-spinner size="sm" class="me-1"></c-spinner>
           } @else {
             <svg cIcon name="cilSync" size="sm" class="me-1"></svg>
           }
-          Suivant
+          Next
         </button>
       </c-card-header>
       <c-card-body>
@@ -72,14 +72,14 @@
             <c-spinner color="primary"></c-spinner>
           </div>
         } @else if (proxies().length === 0) {
-          <p class="text-body-secondary mb-0">Aucun proxy chargé. Vérifiez la clé API dans la carte "Connexion".</p>
+          <p class="text-body-secondary mb-0">No proxy loaded. Check the API key in the "Connection" card.</p>
         } @else {
           <table cTable hover responsive>
             <thead>
               <tr>
-                <th>Adresse</th>
-                <th>Pays</th>
-                <th>Statut</th>
+                <th>Address</th>
+                <th>Country</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -87,16 +87,18 @@
                 <tr [class.table-active]="p.isActive">
                   <td>{{ p.address }}:{{ p.port }}</td>
                   <td>{{ p.countryCode ?? '—' }}</td>
-                  <td class="d-flex gap-2">
-                    @if (p.isActive) {
-                      <c-badge color="success">Actif</c-badge>
-                    }
-                    @if (p.failed) {
-                      <c-badge color="danger">Défaillant</c-badge>
-                    }
-                    @if (!p.valid) {
-                      <c-badge color="secondary">Invalide</c-badge>
-                    }
+                  <td>
+                    <div class="d-flex gap-2">
+                      @if (p.isActive) {
+                        <c-badge color="success">Active</c-badge>
+                      }
+                      @if (p.failed) {
+                        <c-badge color="danger">Failed</c-badge>
+                      }
+                      @if (!p.valid) {
+                        <c-badge color="secondary">Invalid</c-badge>
+                      }
+                    </div>
                   </td>
                 </tr>
               }
@@ -107,7 +109,7 @@
     </c-card>
 
     <c-card class="mb-4">
-      <c-card-header><strong>Statistiques</strong></c-card-header>
+      <c-card-header><strong>Statistics</strong></c-card-header>
       <c-card-body>
         @if (statisticsLoading()) {
           <div class="d-flex justify-content-center py-4">
@@ -117,7 +119,7 @@
           <c-row class="mb-3">
             @if (stats.email) {
               <c-col [md]="4">
-                <div class="text-body-secondary small">Compte</div>
+                <div class="text-body-secondary small">Account</div>
                 <div>{{ stats.email }}</div>
               </c-col>
             }
@@ -129,7 +131,7 @@
             }
             @if (stats.proxyCount) {
               <c-col [md]="4">
-                <div class="text-body-secondary small">Proxys inclus</div>
+                <div class="text-body-secondary small">Proxies included</div>
                 <div>{{ stats.proxyCount }}</div>
               </c-col>
             }
@@ -138,45 +140,45 @@
           @if (stats.bandwidthLimitGb && stats.bandwidthUsagePercent !== null) {
             <div class="mb-3">
               <div class="text-body-secondary small mb-1">
-                Bande passante — {{ formatGb(stats.totalBytesGb) }} Go / {{ formatGb(stats.bandwidthLimitGb) }} Go
+                Bandwidth — {{ formatGb(stats.totalBytesGb) }} GB / {{ formatGb(stats.bandwidthLimitGb) }} GB
               </div>
               <c-progress thin [value]="stats.bandwidthUsagePercent" color="info" />
             </div>
           } @else {
             <div class="mb-3 text-body-secondary small">
-              Bande passante utilisée : {{ formatGb(stats.totalBytesGb) }} Go (illimitée)
+              Bandwidth used: {{ formatGb(stats.totalBytesGb) }} GB (unlimited)
             </div>
           }
 
           <c-row>
             <c-col [md]="4">
-              <div class="text-body-secondary small">Requêtes</div>
+              <div class="text-body-secondary small">Requests</div>
               <div>{{ stats.requestCount }}</div>
             </c-col>
             <c-col [md]="4">
-              <div class="text-body-secondary small">Erreurs</div>
+              <div class="text-body-secondary small">Errors</div>
               <div>{{ stats.errorCount }}</div>
             </c-col>
             <c-col [md]="4">
-              <div class="text-body-secondary small">Durée moyenne</div>
+              <div class="text-body-secondary small">Average duration</div>
               <div>{{ formatSeconds(stats.averageDurationSeconds) }} s</div>
             </c-col>
           </c-row>
         } @else {
-          <p class="text-body-secondary mb-0">Statistiques indisponibles.</p>
+          <p class="text-body-secondary mb-0">Statistics unavailable.</p>
         }
       </c-card-body>
     </c-card>
 
     <c-card class="mb-4">
-      <c-card-header><strong>Services utilisant le proxy</strong></c-card-header>
+      <c-card-header><strong>Services using the proxy</strong></c-card-header>
       <c-card-body>
         @if (servicesLoading()) {
           <div class="d-flex justify-content-center py-4">
             <c-spinner color="primary"></c-spinner>
           </div>
         } @else if (servicesUsingProxy().length === 0) {
-          <p class="text-body-secondary mb-0">Aucun service configuré pour utiliser le proxy.</p>
+          <p class="text-body-secondary mb-0">No service configured to use the proxy.</p>
         } @else {
           <div class="d-flex flex-wrap gap-2">
             @for (name of servicesUsingProxy(); track name) {

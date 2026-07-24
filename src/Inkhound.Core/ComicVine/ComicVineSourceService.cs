@@ -21,7 +21,7 @@ public enum ELevelDetail { ID, SUMMARY, FULL }
 
 public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceService
 {
-    public string SourceKey => "comicvine";
+    public string SourceKey => SourceKeyConst;
 
 
     private const string VolumePrefix = "4050";
@@ -331,13 +331,15 @@ public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceServ
     }
 
     private static SourceVolume ToSourceVolume(CvVolumeStub v) =>
-        new(v.Id.ToString(), v.Name, ParseYear(v.StartYear), v.CountOfIssues, v.Publisher?.Name, v.Description, v.Image?.SmallUrl);
+        new(v.Id.ToString(), SourceKeyConst, v.Name, ParseYear(v.StartYear), v.CountOfIssues, v.Publisher?.Name, v.Description, v.Image?.SmallUrl, v.SiteDetailUrl);
 
     private static SourceVolume ToSourceVolume(CvVolume v) =>
-        new(v.Id.ToString(), v.Name, ParseYear(v.StartYear), v.CountOfIssues, v.Publisher?.Name, v.Description, v.Image?.SmallUrl);
+        new(v.Id.ToString(), SourceKeyConst, v.Name, ParseYear(v.StartYear), v.CountOfIssues, v.Publisher?.Name, v.Description, v.Image?.SmallUrl, v.SiteDetailUrl);
 
     private static SourceIssue ToSourceIssue(CvIssue i) =>
-        new(i.Id.ToString(), i.Name, i.IssueNumber, ParseCoverDate(i.CoverDate), i.Description, i.Image?.SmallUrl);
+        new(i.Id.ToString(), SourceKeyConst, i.Name, i.IssueNumber, ParseCoverDate(i.CoverDate), i.Description, i.Image?.SmallUrl, i.SiteDetailUrl);
+
+    private const string SourceKeyConst = "comicvine";
 
     private static int? ParseYear(string? s) => int.TryParse(s, out var y) ? y : null;
 

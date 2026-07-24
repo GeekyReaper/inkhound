@@ -21,7 +21,7 @@
                   [attr.step]="def.valueType === 'DOUBLE' ? 'any' : null"
                   [placeholder]="def.defaultValue" />
                 <div class="form-text text-muted">
-                  Défaut : {{ def.defaultValue }}
+                  Default: {{ def.defaultValue }}
                   @if (def.description) { — {{ def.description }} }
                 </div>
               </div>
@@ -32,29 +32,29 @@
     }
 
     <c-card class="mb-3">
-      <c-card-header><strong>Bonus/pénalité par format dominant</strong></c-card-header>
+      <c-card-header><strong>Bonus/penalty by dominant format</strong></c-card-header>
       <c-card-body>
         <app-tier-list-editor [columns]="formatScoreColumns" [(rows)]="formatScoreRows" />
       </c-card-body>
     </c-card>
 
     <c-card class="mb-3">
-      <c-card-header><strong>Paliers de poids par page</strong></c-card-header>
+      <c-card-header><strong>Weight tiers by page</strong></c-card-header>
       <c-card-body>
-        <p class="text-body-secondary small">Laisser le format vide pour définir le palier de repli utilisé quand le format dominant n'a pas de paliers propres.</p>
+        <p class="text-body-secondary small">Leave the format empty to define the fallback tier used when the dominant format has no tiers of its own.</p>
         <app-tier-list-editor [columns]="pageWeightColumns" [(rows)]="pageWeightRows" />
       </c-card-body>
     </c-card>
 
     <c-card class="mb-3">
-      <c-card-header><strong>Paliers de compression zip</strong></c-card-header>
+      <c-card-header><strong>Zip compression tiers</strong></c-card-header>
       <c-card-body>
         <app-tier-list-editor [columns]="zipCompressionColumns" [(rows)]="zipCompressionRows" />
       </c-card-body>
     </c-card>
 
     <c-card class="mb-3">
-      <c-card-header><strong>Bandes de score</strong></c-card-header>
+      <c-card-header><strong>Score bands</strong></c-card-header>
       <c-card-body>
         <app-tier-list-editor [columns]="scoreBandColumns" [(rows)]="scoreBandRows" />
       </c-card-body>
@@ -65,12 +65,12 @@
         @if (saving()) {
           <c-spinner size="sm" class="me-1"></c-spinner>
         }
-        Enregistrer
+        Save
       </button>
       @if (saveStatus() === 'success') {
-        <c-alert color="success" class="mb-0 py-2 px-3">Réglages enregistrés.</c-alert>
+        <c-alert color="success" class="mb-0 py-2 px-3">Settings saved.</c-alert>
       } @else if (saveStatus() === 'error') {
-        <c-alert color="danger" class="mb-0 py-2 px-3">Échec de l'enregistrement.</c-alert>
+        <c-alert color="danger" class="mb-0 py-2 px-3">Failed to save.</c-alert>
       }
     </div>
 

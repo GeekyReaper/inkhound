@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -25,6 +25,8 @@ import {
   PageItemComponent,
   PageLinkDirective,
   PaginationComponent,
+  ProgressBarComponent,
+  ProgressComponent,
   RowComponent,
   SpinnerComponent
 } from '@coreui/angular';
@@ -33,11 +35,14 @@ import { IconDirective } from '@coreui/icons-angular';
 import {
   AddVolumeManuallyRequest,
   PageResult,
+  SourceSearchStats,
   VolumeSearchResult,
   VolumeService
 } from '../../core/services/volume.service';
-import { ComicVineIssue, IssueService } from '../../core/services/issue.service';
+import { SourceIssue, IssueService } from '../../core/services/issue.service';
 import { ImageService } from '../../core/services/image.service';
+import { HubService } from '../../core/services/hub.service';
+import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
 
 @Component({
   selector: 'app-volume-add',
@@ -49,9 +54,11 @@ import { ImageService } from '../../core/services/image.service';
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective,
     SpinnerComponent, AlertComponent, ButtonDirective,
     PaginationComponent, PageItemComponent, PageLinkDirective,
+    ProgressComponent, ProgressBarComponent,
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
-    FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe
+    FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
+    JobConsoleModalComponent
   ]
 })
 export class VolumeAddComponent {
@@ -60,6 +67,7 @@ export class VolumeAddComponent {
   private volumeService  = inject(VolumeService);
   private issueService   = inject(IssueService);
   private imageService   = inject(ImageService);
+  private hub            = inject(HubService);
   private fb             = inject(FormBuilder);
   readonly #destroyRef   = inject(DestroyRef);
 
@@ -72,19 +80,45 @@ export class VolumeAddComponent {
   ];
 
   // ── Mode ──────────────────────────────────────────────────────────────────
-  mode = signal<'comicvine' | 'manual'>('comicvine');
+  mode = signal<'search' | 'manual'>('search');
 
-  // ── ComicVine state ───────────────────────────────────────────────────────
+  // ── Search state (multi-source : ComicVine + Bedetheque, via un Job) ─────
   query            = signal('');
   results          = signal<PageResult<VolumeSearchResult> | null>(null);
   loading          = signal(false);
   error            = signal<string | null>(null);
-  selectedSourceId = signal<string | null>(null);
+  selected         = signal<VolumeSearchResult | null>(null);
   adding           = signal(false);
   issuesModalVolume = signal<VolumeSearchResult | null>(null);
-  issuesPage        = signal<PageResult<ComicVineIssue> | null>(null);
+  issuesPage        = signal<PageResult<SourceIssue> | null>(null);
   issuesLoading     = signal(false);
   issuesError       = signal<string | null>(null);
+
+  searchJobId     = signal<string | null>(null);
+  stats           = signal<SourceSearchStats[] | null>(null);
+  consoleVisible  = signal(false);
+  private handledJobIds = new Set<string>();
+
+  readonly searchJob = computed(() => {
+    const jobId = this.searchJobId();
+    return jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
+  });
+
+  constructor() {
+    effect(() => {
+      const job = this.searchJob();
+      if (!job || this.handledJobIds.has(job.jobId)) return;
+
+      if (job.state === 'SUCCESS') {
+        this.handledJobIds.add(job.jobId);
+        this.fetchSearchResult(job.jobId);
+      } else if (job.state === 'ERROR') {
+        this.handledJobIds.add(job.jobId);
+        this.loading.set(false);
+        this.error.set('Search failed — see the console for details.');
+      }
+    });
+  }
 
   // ── Manual form state ─────────────────────────────────────────────────────
   manualForm = this.fb.group({
@@ -126,21 +160,39 @@ export class VolumeAddComponent {
     return Array.from({ length: end - start + 1 }, (_, i) => start + i);
   });
 
-  // ── ComicVine methods ─────────────────────────────────────────────────────
+  // ── Search methods ────────────────────────────────────────────────────────
+  // Le bouton "Search" lance un Job backend (recherche multi-source, peut prendre plusieurs
+  // secondes) et suit sa progression en direct via HubService/SignalR. Le résultat final est
+  // récupéré une fois le job terminé (cf. l'effect() du constructeur).
   search(page = 1): void {
     const name = this.query().trim();
     if (!name) return;
 
     this.loading.set(true);
     this.error.set(null);
-    this.selectedSourceId.set(null);
+    this.selected.set(null);
+    this.stats.set(null);
+    this.searchJobId.set(null);
 
-    this.volumeService.search(name, page)
+    this.volumeService.startSearchJob(name, page)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  res  => { this.results.set(res); this.loading.set(false); },
-        error: err  => { this.error.set(err?.error?.message ?? 'Search failed.'); this.loading.set(false); }
+        next:  res => this.searchJobId.set(res.jobId),
+        error: err => { this.error.set(err?.error?.message ?? 'Search failed.'); this.loading.set(false); }
       });
+  }
+
+  private fetchSearchResult(jobId: string): void {
+    this.volumeService.getSearchJobResult(jobId)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  res => { this.results.set(res.page); this.stats.set(res.stats); this.loading.set(false); },
+        error: err => { this.error.set(err?.error?.message ?? 'Failed to load results.'); this.loading.set(false); }
+      });
+  }
+
+  sourceLabel(source: string): string {
+    return source === 'comicvine' ? 'ComicVine' : 'Bedetheque';
   }
 
   showIssues(volume: VolumeSearchResult, event: Event): void {
@@ -155,7 +207,7 @@ export class VolumeAddComponent {
     this.issuesLoading.set(true);
     this.issuesError.set(null);
 
-    this.issueService.getByComicVineVolume(volume.sourceId, page, this.issuesPageSize)
+    this.issueService.getBySourceVolume(volume.source, volume.sourceId, page, this.issuesPageSize)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  res => { this.issuesPage.set(res); this.issuesLoading.set(false); },
@@ -170,11 +222,11 @@ export class VolumeAddComponent {
   }
 
   onAdd(): void {
-    const sourceId = this.selectedSourceId();
-    if (!sourceId) return;
+    const sel = this.selected();
+    if (!sel) return;
 
     this.adding.set(true);
-    this.volumeService.addFromComicVine(this.libraryId, sourceId)
+    this.volumeService.addFromSource(this.libraryId, sel.source, sel.sourceId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  () => this.router.navigate(['../'], { relativeTo: this.route }),

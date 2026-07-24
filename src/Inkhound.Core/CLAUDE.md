@@ -21,6 +21,14 @@ Inkhound.Core/
 │   ├── ComicVineSourceService.cs
 │   ├── ComicVineModels.cs
 │   └── ComicVineOptions.cs
+├── Bedetheque/          # Intégration bedetheque.com (scraping HTML — Serie = Volume, Album = Issue)
+│   ├── BedethequeSourceService.cs
+│   ├── BedethequeModels.cs
+│   ├── BedethequeOptions.cs
+│   └── BedethequeBlockedException.cs
+├── Sources/             # Abstraction multi-source (ISourceService, SourceVolume/SourceIssue)
+│   ├── ISourceService.cs
+│   └── SourceModels.cs
 ├── Kavita/              # Intégration API Kavita
 │   ├── KavitaService.cs
 │   ├── KavitaOptions.cs
@@ -61,19 +69,20 @@ CountOfIssues, CountOfDownloadedIssues,
 Issues (JSON [string]?),
 CreatedAt, UpdatedAt, DateAdded
 ```
-- `SourceType` — `"comicvine"` ou `"manual"`
+- `SourceType` — `"ComicVine"`, `"bedetheque"` ou `"manual"` (valeur libre, non typée — voir `ISourceService.SourceKey` pour la clé canonique de chaque source)
 - `AgeRating` — valeur de l'enum `AgeRating` ; écrire dans ComicInfo.xml via `ToKavitaString()` (jamais `.ToString()`)
 
 ### Issue
 Numéro individuel, toujours associé à un Volume.
 ```
-Id, ComicVineId, VolumeId,
+Id, SourceId, VolumeId,
 IssueNumber, Title, Year, Description,
 Image (VolumeImage?), Authors (JSON [{Name, Role}]),
 CbzFilename, FileSizeBytes,
 DownloadedAt, PublishedAt,
 Status (DOWNLOADING | DOWNLOADED | MISSING)
 ```
+- `SourceId` — identifiant de l'issue dans sa source d'origine (ComicVine ou Bedetheque) ; la source elle-même se déduit du `SourceType` du `Volume` parent
 - `CbzFilename` — nom du fichier CBZ final (sans chemin) ; `null` si l'issue n'est pas encore téléchargée
 
 ### VolumeImage (record partagé Volume + Issue)
@@ -103,6 +112,26 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 - Auth : API key en query param `?api_key={key}`
 - Options dans `ComicVineOptions` (injectées via `IConfiguration`)
 - Le `RateLimiter` de `Foundation.Core` est obligatoire sur tous les appels
+
+### Bedetheque
+- Site scrapé (pas d'API publique) — Serie = Volume, Album = Issue
+- Recherche de séries : formulaire `/search/albums` (token CSRF + dédup par nom de série,
+  puis résolution de l'ID réel via la page du premier album trouvé)
+- Détail d'une série + liste des albums : `GET /serie-{id}-BD-x.html`
+- Détail d'un album (auteurs, EAN, ...) : `GET /BD-x-Tome-1-x-{id}.html`
+- Pas d'authentification ; `CookieContainer` partagé + headers façon navigateur requis
+  (le site bloque les requêtes qui ressemblent à du scraping automatisé)
+- Options dans `BedethequeOptions` ; `RateLimiter` obligatoire, comme pour ComicVine
+
+### Recherche multi-source
+`InkhoundManager.SearchVolumesAsync` interroge en parallèle tous les `ISourceService`
+enregistrés (`Services.Values.OfType<ISourceService>()`) et fusionne leurs résultats en un
+seul `Page<SourceVolume>`, chaque entrée indiquant sa source (`SourceVolume.Source`). Les
+flux "Ajouter à la bibliothèque"/"Rematch" restent branchés par source sur des modèles natifs
+riches (`CvVolume`/`CvIssue` pour ComicVine, `BdSerie`/`BdAlbum` pour Bedetheque) via les
+dispatchers `AddVolumeFromSourceAsync`/`RematchVolumeFromSourceAsync` — le DTO
+`SourceVolume`/`SourceIssue` sert uniquement à l'affichage des résultats de recherche, pas à
+la persistance (il n'a pas d'auteurs/genres).
 
 ### Kavita
 - Déclenchement scan : `POST /api/libraries/scan`
@@ -145,7 +174,7 @@ Batman - 003 (2012).cbz
 | `Volume.Genres` | `<Genre>` |
 | `Issue.Description` | `<Summary>` |
 | count(issues du volume) | `<Count>` |
-| `Issue.ComicVineId` | `<Web>` |
+| `Issue.SourceId` | `<Web>` |
 | `Volume.AgeRating` (via `ToKavitaString()`) | `<AgeRating>` |
 
 ## Base de données SQLite

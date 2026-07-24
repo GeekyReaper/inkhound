@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.*" />
     <PackageReference Include="PDFtoImage" Version="4.*" />
     <PackageReference Include="SharpCompress" Version="0.*" />

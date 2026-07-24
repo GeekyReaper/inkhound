@@ -17,7 +17,7 @@
 
     <form cForm [formGroup]="form()" (ngSubmit)="saveConnection()">
       <c-card class="mb-4">
-        <c-card-header><strong>Connexion</strong></c-card-header>
+        <c-card-header><strong>Connection</strong></c-card-header>
         <c-card-body>
           @for (def of connectionOptions(); track def.id) {
             <div class="mb-3">
@@ -32,7 +32,7 @@
                 [type]="def.valueType === 'PASSWORD' ? 'password' : def.valueType === 'INT' ? 'number' : 'text'"
                 [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
               @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
-                <c-form-feedback [valid]="false">Ce champ est requis.</c-form-feedback>
+                <c-form-feedback [valid]="false">This field is required.</c-form-feedback>
               }
             </div>
           }
@@ -42,21 +42,21 @@
               @if (saving()) {
                 <c-spinner size="sm" class="me-1"></c-spinner>
               }
-              Enregistrer
+              Save
             </button>
             @if (saveStatus() === 'success') {
-              <c-alert color="success" class="mb-0 py-2 px-3">Connexion enregistrée.</c-alert>
+              <c-alert color="success" class="mb-0 py-2 px-3">Connection saved.</c-alert>
             } @else if (saveStatus() === 'error') {
-              <c-alert color="danger" class="mb-0 py-2 px-3">Échec de l'enregistrement.</c-alert>
+              <c-alert color="danger" class="mb-0 py-2 px-3">Failed to save.</c-alert>
             }
           </div>
         </c-card-body>
       </c-card>
     </form>
 
-    <h4 class="mb-3">Score de compatibilité Kavita</h4>
+    <h4 class="mb-3">Kavita Compatibility Score</h4>
     <p class="text-body-secondary">
-      Ces réglages pilotent le calcul du score de compatibilité affiché lors de l'analyse d'une issue.
+      These settings drive the compatibility score calculation shown when analyzing an issue.
     </p>
     <app-scoring-settings [serviceName]="serviceName" />
 
