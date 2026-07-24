@@ -1,12 +1,33 @@
 # Build the Inkhound Docker image and publish it to Docker Hub.
-# Tags pushed: geekyreaper/inkhound:<yyyy.MM.dd> and geekyreaper/inkhound:latest
+# Tags pushed: geekyreaper/inkhound:<yyyy.MM.dd>[a-z] and geekyreaper/inkhound:latest
+# If a tag for today's date already exists on Docker Hub, a letter suffix is appended
+# (2026.07.24 -> 2026.07.24a -> 2026.07.24b -> ...) so a second release the same day
+# doesn't overwrite the first one.
 # Requires: `docker login` already done for an account with push rights on geekyreaper/inkhound.
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $image    = 'geekyreaper/inkhound'
-$tag      = Get-Date -Format 'yyyy.MM.dd'
+$baseTag  = Get-Date -Format 'yyyy.MM.dd'
+
+# Retourne $true si le tag existe déjà sur le registre (utilise les identifiants Docker CLI
+# déjà en place via `docker login`, donc fonctionne aussi bien pour un repo privé que public).
+function Test-DockerTagExists {
+    param([Parameter(Mandatory)][string]$ImageRef)
+    docker manifest inspect $ImageRef *> $null
+    return $LASTEXITCODE -eq 0
+}
+
+$tag = $baseTag
+if (Test-DockerTagExists "$image`:$tag") {
+    $suffixIndex = 0
+    do {
+        $tag = "$baseTag$([char](97 + $suffixIndex))"
+        $suffixIndex++
+    } while (Test-DockerTagExists "$image`:$tag")
+    Write-Host "==> Tag $baseTag already exists, using $tag instead"
+}
 
 Push-Location $repoRoot
 try {
