@@ -1,17 +1,17 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { interval, switchMap, startWith, finalize } from 'rxjs';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { interval, merge, switchMap, finalize } from 'rxjs';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
-  FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
+  PageItemComponent, PageLinkDirective, PaginationComponent,
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
+import { QBittorrentService, DownloadItem, DownloadStatus, DownloadsPageResult } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
 import { JobContext } from '../../core/models/hub.models';
 import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
@@ -24,20 +24,24 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
-    FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
+    PaginationComponent, PageItemComponent, PageLinkDirective,
     DatePipe, DecimalPipe, IconDirective,
     JobConsoleModalComponent,
   ],
   templateUrl: './downloads.component.html'
 })
-export class DownloadsComponent implements OnInit {
+export class DownloadsComponent {
   private qbService    = inject(QBittorrentService);
   private hub          = inject(HubService);
   readonly #destroyRef = inject(DestroyRef);
 
-  downloads  = signal<DownloadItem[]>([]);
-  loading    = signal(true);
-  error      = signal<string | null>(null);
+  // "Active" regroupe tout ce qui n'est pas encore terminé/rangé ; "Done" est à part.
+  readonly ACTIVE_STATUSES: DownloadStatus[] =
+    ['Downloading', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
+  readonly DONE_STATUSES: DownloadStatus[] = ['Done'];
+
+  loading = signal(true);
+  error   = signal<string | null>(null);
 
   processing    = signal(false);
   processingIds = signal<Set<string>>(new Set());
@@ -45,26 +49,29 @@ export class DownloadsComponent implements OnInit {
   selectedJob    = signal<JobContext | null>(null);
   consoleVisible = signal(false);
 
-  // Par défaut, les torrents Done sont masqués (déjà traités, peu d'intérêt à les garder
-  // visibles) ; le switch permet de basculer vers l'inverse (uniquement les Done).
-  showDoneOnly = signal(false);
+  // Choix exclusif — Active par défaut (Done, déjà traités, n'a que peu d'intérêt à être vu en
+  // premier).
+  filterMode = signal<'active' | 'done'>('active');
 
-  readonly filteredDownloads = computed(() => {
-    const items = this.downloads();
-    return this.showDoneOnly()
-      ? items.filter(d => d.status === 'Done')
-      : items.filter(d => d.status !== 'Done');
+  readonly pageSize   = 20;
+  currentPage         = signal(1);
+  pageResult          = signal<DownloadsPageResult | null>(null);
+  readonly items      = computed(() => this.pageResult()?.items ?? []);
+
+  readonly visiblePages = computed(() => {
+    const total   = this.pageResult()?.totalPages ?? 0;
+    const current = this.pageResult()?.pageNumber ?? 1;
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const start = Math.max(1, Math.min(current - 3, total - 6));
+    const end   = Math.min(total, start + 6);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
   });
 
-  readonly activeCount = computed(() =>
-    this.downloads().filter(d => d.status === 'Downloading' || d.status === 'Unknown').length
-  );
-  readonly syncingCount = computed(() =>
-    this.downloads().filter(d => d.status === 'Syncing').length
-  );
-  readonly doneCount = computed(() =>
-    this.downloads().filter(d => d.status === 'Done').length
-  );
+  private readonly fetchParams = computed(() => ({
+    statuses: this.filterMode() === 'active' ? this.ACTIVE_STATUSES : this.DONE_STATUSES,
+    page: this.currentPage()
+  }));
+
   readonly activeJobs = computed(() =>
     this.hub.jobs().filter(j =>
       (j.state === 'RUNNING' || j.state === 'INITIALIZING') &&
@@ -72,16 +79,22 @@ export class DownloadsComponent implements OnInit {
     )
   );
 
-  ngOnInit() {
-    interval(10_000)
+  constructor() {
+    // toObservable() doit être appelé dans un contexte d'injection (constructeur/field
+    // initializer) — pas dans ngOnInit(), d'où le déplacement de toute cette logique ici.
+    // Il émet immédiatement avec la valeur courante (chargement initial), puis à chaque
+    // changement de filtre/page — merge avec le poll périodique pour l'auto-refresh.
+    merge(interval(10_000), toObservable(this.fetchParams))
       .pipe(
-        startWith(0),
-        switchMap(() => this.qbService.getDownloads()),
+        switchMap(() => {
+          const { statuses, page } = this.fetchParams();
+          return this.qbService.getDownloads(statuses, page, this.pageSize);
+        }),
         takeUntilDestroyed(this.#destroyRef)
       )
       .subscribe({
-        next: items => {
-          this.downloads.set(items);
+        next: res => {
+          this.pageResult.set(res);
           this.loading.set(false);
           this.error.set(null);
         },
@@ -90,6 +103,17 @@ export class DownloadsComponent implements OnInit {
           this.error.set('Could not load downloads. Check QBittorrent service configuration.');
         }
       });
+  }
+
+  setFilterMode(mode: 'active' | 'done'): void {
+    if (this.filterMode() === mode) return;
+    this.filterMode.set(mode);
+    this.currentPage.set(1);
+  }
+
+  goToPage(page: number): void {
+    if (page < 1 || page > (this.pageResult()?.totalPages ?? 1)) return;
+    this.currentPage.set(page);
   }
 
   statusBadgeColor(status: DownloadStatus): string {

@@ -2157,7 +2157,46 @@ public class InkhoundManager : BaseServiceManager
             query = query.Where(d => d.Status == statusFilter.Value);
 
         var downloads = await query.OrderByDescending(d => d.AddedAt).ToListAsync(ct);
+        return await EnrichDownloadsAsync(downloads, ct);
+    }
+
+    // Pagination réelle (Skip/Take + CountAsync) pour l'affichage UI — contrairement à
+    // GetDownloadsAsync (utilisée en interne par LaunchJobProcessDownloads sur tout
+    // l'historique), on n'enrichit (appels QBittorrent live + persistance du statut) que les
+    // items de la page demandée.
+    public async Task<Page<DownloadItemData>> GetDownloadsPageAsync(
+        List<DownloadStatus>? statusFilter, int page, int pageSize, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        var query = ctx.IssueDownloads.AsQueryable();
+        if (statusFilter is { Count: > 0 })
+            query = query.Where(d => statusFilter.Contains(d.Status));
+
+        var totalItems = await query.CountAsync(ct);
+        var pageItems = await query
+            .OrderByDescending(d => d.AddedAt).ThenByDescending(d => d.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var enriched = await EnrichDownloadsAsync(pageItems, ct);
+        return new Page<DownloadItemData>
+        {
+            Items = enriched,
+            PageNumber = page,
+            PageSize = pageSize,
+            TotalItems = totalItems,
+        };
+    }
+
+    // Complète chaque IssueDownload avec son Issue/Volume et son état QBittorrent live, en
+    // persistant le statut mappé si besoin. Partagé entre GetDownloadsAsync (liste complète,
+    // usage interne) et GetDownloadsPageAsync (page affichée à l'utilisateur).
+    private async Task<List<DownloadItemData>> EnrichDownloadsAsync(List<IssueDownload> downloads, CancellationToken ct)
+    {
         if (downloads.Count == 0) return [];
+        var ctx = GetDb();
 
         var issueIds = downloads.Select(d => d.IssueId).Distinct().ToList();
         var issues = await ctx.Issues

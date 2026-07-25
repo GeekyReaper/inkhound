@@ -1,13 +1,28 @@
 <c-container class="py-4">
-  <c-row class="mb-3">
+  <c-row class="mb-3 align-items-center">
     <c-col>
       <h2 class="mb-0">Jobs</h2>
+    </c-col>
+    <c-col class="col-auto">
+      <div class="btn-group" role="group" aria-label="Status filter">
+        <input type="radio" class="btn-check" name="jobStatusFilter" id="job-status-active" autocomplete="off"
+               [checked]="filterMode() === 'active'" (change)="setFilterMode('active')" />
+        <label class="btn btn-outline-secondary btn-sm" for="job-status-active">Active</label>
+
+        <input type="radio" class="btn-check" name="jobStatusFilter" id="job-status-done" autocomplete="off"
+               [checked]="filterMode() === 'done'" (change)="setFilterMode('done')" />
+        <label class="btn btn-outline-secondary btn-sm" for="job-status-done">Done</label>
+      </div>
     </c-col>
   </c-row>
 
   @if (jobs().length === 0) {
     <c-alert color="info">
       No jobs since connecting to the hub. Launch a sync or an import to see jobs appear here.
+    </c-alert>
+  } @else if (filteredJobs().length === 0) {
+    <c-alert color="info">
+      No {{ filterMode() }} jobs.
     </c-alert>
   } @else {
     <c-card>
@@ -24,7 +39,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (job of jobs(); track job.jobId) {
+            @for (job of pagedJobs(); track job.jobId) {
               <tr>
                 <td class="align-middle">{{ job.title }}</td>
                 <td class="align-middle">
@@ -55,7 +70,7 @@
                 <td class="align-middle text-nowrap">{{ job.startDate | date:'dd/MM HH:mm' }}</td>
                 <td class="align-middle">
                   <button cButton color="ghost-secondary" size="sm" (click)="openTraces(job)" title="View logs">
-                    <svg cIcon name="cilTask" size="sm"></svg>
+                    <svg cIcon name="cilTerminal" size="sm"></svg>
                   </button>
                 </td>
               </tr>
@@ -64,6 +79,26 @@
         </table>
       </c-card-body>
     </c-card>
+
+    @if (totalPages() > 1) {
+      <c-row class="mt-3">
+        <c-col class="d-flex justify-content-center">
+          <c-pagination aria-label="Jobs pages">
+            <c-page-item [disabled]="currentPage() === 1">
+              <a cPageLink (click)="goToPage(currentPage() - 1)">‹</a>
+            </c-page-item>
+            @for (p of visiblePages(); track p) {
+              <c-page-item [active]="p === currentPage()">
+                <a cPageLink (click)="goToPage(p)">{{ p }}</a>
+              </c-page-item>
+            }
+            <c-page-item [disabled]="currentPage() === totalPages()">
+              <a cPageLink (click)="goToPage(currentPage() + 1)">›</a>
+            </c-page-item>
+          </c-pagination>
+        </c-col>
+      </c-row>
+    }
   }
 </c-container>
 

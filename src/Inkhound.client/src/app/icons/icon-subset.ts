@@ -102,6 +102,7 @@ import {
   cilUserFemale,
   cilUserFollow,
   cilUserUnfollow,
+  cilVerticalAlignBottom,
   cilSync,
   cilCopy,
   cilShieldAlt
@@ -214,6 +215,7 @@ export const iconSubset = {
   cilUserFemale,
   cilUserFollow,
   cilUserUnfollow,
+  cilVerticalAlignBottom,
   cilSync,
   cilCopy,
   cilShieldAlt,
@@ -325,6 +327,7 @@ export enum IconSubset {
   cilUserFemale = 'cilUserFemale',
   cilUserFollow = 'cilUserFollow',
   cilUserUnfollow = 'cilUserUnfollow',
+  cilVerticalAlignBottom = 'cilVerticalAlignBottom',
   cilSync = 'cilSync',
   cilCopy = 'cilCopy',
   cilShieldAlt = 'cilShieldAlt',

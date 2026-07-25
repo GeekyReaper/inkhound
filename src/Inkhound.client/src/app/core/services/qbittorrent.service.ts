@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 
 export interface QBittorrentCategory {
@@ -36,6 +36,16 @@ export interface GrabResponse {
   files: TorrentFile[] | null;
 }
 
+export interface DownloadsPageResult {
+  items: DownloadItem[];
+  pageNumber: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class QBittorrentService {
   private http = inject(HttpClient);
@@ -52,10 +62,11 @@ export class QBittorrentService {
     return this.http.post<void>('/api/qbittorrent/apply-selection', { torrentHash, issueId, selectedFileIndices });
   }
 
-  getDownloads(status?: DownloadStatus) {
-    const params: Record<string, string> = {};
-    if (status) params['status'] = status;
-    return this.http.get<DownloadItem[]>('/api/qbittorrent/downloads', { params });
+  // statuses vide/omis = pas de filtre côté backend (tous les statuts).
+  getDownloads(statuses?: DownloadStatus[], page = 1, pageSize = 20) {
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    for (const s of statuses ?? []) params = params.append('status', s);
+    return this.http.get<DownloadsPageResult>('/api/qbittorrent/downloads', { params });
   }
 
   processDownloads() {

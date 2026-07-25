@@ -1,31 +1,36 @@
 <c-container class="py-4">
 
-  <c-row class="mb-4 align-items-center">
+  <c-row class="mb-3 align-items-center">
     <c-col>
       <h2 class="mb-0">Downloads</h2>
-      @if (!loading() && downloads().length > 0) {
-        <span class="text-body-secondary small">
-          {{ downloads().length }} tracked — {{ activeCount() }} active —
-          {{ syncingCount() }} syncing — {{ doneCount() }} done
-        </span>
+      @if (!loading() && pageResult(); as pr) {
+        <span class="text-body-secondary small">{{ pr.totalItems }} matching current filter</span>
       }
-    </c-col>
-    <c-col class="col-auto">
-      <c-form-check switch sizing="lg">
-        <input cFormCheckInput type="checkbox" role="switch" id="showDoneOnlySwitch"
-               [checked]="showDoneOnly()"
-               (change)="showDoneOnly.set($any($event.target).checked)" />
-        <label cFormCheckLabel for="showDoneOnlySwitch">Show only Done</label>
-      </c-form-check>
     </c-col>
     <c-col class="col-auto">
       <button cButton color="primary" size="sm" [disabled]="processing()" (click)="processAll()">
         @if (processing()) {
           <c-spinner size="sm" class="me-2"></c-spinner>Processing…
         } @else {
-          Process downloads
+          <svg cIcon name="cilVerticalAlignBottom" size="sm" class="me-1"></svg>
+          Import Downloads
         }
       </button>
+    </c-col>
+  </c-row>
+
+  <!-- Filtre statut — radio toggle buttons (Bootstrap .btn-check, cf. CoreUI Checks & Radios) -->
+  <c-row class="mb-4">
+    <c-col class="d-flex justify-content-end">
+      <div class="btn-group" role="group" aria-label="Status filter">
+        <input type="radio" class="btn-check" name="statusFilter" id="status-active" autocomplete="off"
+               [checked]="filterMode() === 'active'" (change)="setFilterMode('active')" />
+        <label class="btn btn-outline-secondary btn-sm" for="status-active">Active</label>
+
+        <input type="radio" class="btn-check" name="statusFilter" id="status-done" autocomplete="off"
+               [checked]="filterMode() === 'done'" (change)="setFilterMode('done')" />
+        <label class="btn btn-outline-secondary btn-sm" for="status-done">Done</label>
+      </div>
     </c-col>
   </c-row>
 
@@ -66,22 +71,10 @@
         <c-alert color="danger">{{ error() }}</c-alert>
       </c-col>
     </c-row>
-  } @else if (downloads().length === 0) {
+  } @else if (items().length === 0) {
     <c-row>
       <c-col>
-        <p class="text-body-secondary">No downloads tracked yet. Download a torrent from the Issue page to start tracking.</p>
-      </c-col>
-    </c-row>
-  } @else if (filteredDownloads().length === 0) {
-    <c-row>
-      <c-col>
-        <p class="text-body-secondary">
-          @if (showDoneOnly()) {
-            No completed downloads yet.
-          } @else {
-            No active downloads — toggle "Show only Done" to see completed ones.
-          }
-        </p>
+        <p class="text-body-secondary">No downloads match the selected status filter.</p>
       </c-col>
     </c-row>
   } @else {
@@ -105,7 +98,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @for (item of filteredDownloads(); track item.id) {
+                  @for (item of items(); track item.id) {
                     <tr>
                       <td class="align-middle">
                         <div class="fw-semibold small">{{ item.volumeTitle ?? '—' }}</div>
@@ -163,6 +156,26 @@
         </c-card>
       </c-col>
     </c-row>
+
+    @if ((pageResult()?.totalPages ?? 0) > 1) {
+      <c-row class="mt-3">
+        <c-col class="d-flex justify-content-center">
+          <c-pagination aria-label="Downloads pages">
+            <c-page-item [disabled]="!pageResult()!.hasPrev">
+              <a cPageLink (click)="goToPage(pageResult()!.pageNumber - 1)">‹</a>
+            </c-page-item>
+            @for (p of visiblePages(); track p) {
+              <c-page-item [active]="p === pageResult()!.pageNumber">
+                <a cPageLink (click)="goToPage(p)">{{ p }}</a>
+              </c-page-item>
+            }
+            <c-page-item [disabled]="!pageResult()!.hasNext">
+              <a cPageLink (click)="goToPage(pageResult()!.pageNumber + 1)">›</a>
+            </c-page-item>
+          </c-pagination>
+        </c-col>
+      </c-row>
+    }
   }
 
 </c-container>

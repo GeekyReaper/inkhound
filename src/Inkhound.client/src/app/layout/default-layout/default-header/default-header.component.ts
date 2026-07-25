@@ -104,7 +104,14 @@ export class DefaultHeaderComponent extends HeaderComponent {
       const segment = snapshot.url?.map(s => s.path).join('/') ?? '';
       if (segment) url += '/' + segment;
       const label = (snapshot.data?.['title'] as string) ?? snapshot.title ?? '';
-      if (label) items.push({ label, url: url.endsWith('/') ? url : url + '/' });
+      const normalizedUrl = url.endsWith('/') ? url : url + '/';
+      const last = items[items.length - 1];
+      // Les routes à chemin vide (ex: 'library/:id' -> '') héritent le title résolu de leur
+      // parent (paramsInheritanceStrategy 'always') : sans ce garde-fou, ça duplique le dernier
+      // crumb (ex: "BD / BD", "Androïdes / Androïdes") au lieu de ne rien ajouter pour elles.
+      if (label && !(last && last.label === label && last.url === normalizedUrl)) {
+        items.push({ label, url: normalizedUrl });
+      }
       route = child;
     }
     return items;

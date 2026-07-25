@@ -103,17 +103,28 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         return Ok(new { message = "Selection applied. Torrent resumed." });
     }
 
-    // GET /api/qbittorrent/downloads
-    // GET /api/qbittorrent/downloads?status=Downloading
-    [HttpGet("downloads")]
-    public async Task<IActionResult> GetDownloads([FromQuery] string? status = null)
-    {
-        DownloadStatus? statusFilter = null;
-        if (!string.IsNullOrEmpty(status) && Enum.TryParse<DownloadStatus>(status, true, out var parsed))
-            statusFilter = parsed;
+    private record DownloadsPageDto(
+        IEnumerable<DownloadItemDto> Items, int PageNumber, int PageSize,
+        int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
 
-        var downloads = await manager.GetDownloadsAsync(statusFilter);
-        return Ok(downloads.Select(ToDto));
+    // GET /api/qbittorrent/downloads
+    // GET /api/qbittorrent/downloads?status=Downloading&status=Paused&page=1&pageSize=20
+    [HttpGet("downloads")]
+    public async Task<IActionResult> GetDownloads(
+        [FromQuery] List<string>? status = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        List<DownloadStatus>? statusFilter = status is { Count: > 0 }
+            ? status
+                .Select(s => Enum.TryParse<DownloadStatus>(s, true, out var parsed) ? parsed : (DownloadStatus?)null)
+                .Where(s => s.HasValue)
+                .Select(s => s!.Value)
+                .ToList()
+            : null;
+
+        var result = await manager.GetDownloadsPageAsync(statusFilter, page, pageSize);
+        return Ok(new DownloadsPageDto(
+            result.Items.Select(ToDto), result.PageNumber, result.PageSize,
+            result.TotalItems, result.TotalPages, result.HasNext, result.HasPrev));
     }
 
     // POST /api/qbittorrent/downloads/process
