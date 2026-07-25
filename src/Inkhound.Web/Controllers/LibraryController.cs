@@ -78,18 +78,21 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     }
 
     public record AddVolumeFromSourceRequest(string Source, string SourceId);
-    private record AddedVolumeDto(Guid Id, Guid LibraryId, string SourceId, string Title, int? Year);
+    private record AddedVolumeDto(Guid Id, Guid LibraryId, string SourceId, string Title, int? Year, Guid? JobId = null);
 
-    // POST /api/libraries/{id}/volumes
+    // POST /api/libraries/{id}/volumes — le Volume est créé immédiatement (insert rapide), le
+    // peuplement des issues se poursuit en tâche de fond (Job) ; JobId permet au frontend de
+    // suivre sa progression sans attendre sa fin pour naviguer.
     [HttpPost("{id:guid}/volumes")]
     public async Task<IActionResult> AddVolumeFromSource(
         Guid id, [FromBody] AddVolumeFromSourceRequest request)
     {
         try
         {
-            var volume = await manager.AddVolumeFromSourceAsync(id, request.Source, request.SourceId);
+            var result = await manager.AddVolumeFromSourceAsync(id, request.Source, request.SourceId);
             return CreatedAtAction(null, new AddedVolumeDto(
-                volume.Id, volume.LibraryId, volume.SourceId, volume.Title, volume.Year));
+                result.Volume.Id, result.Volume.LibraryId, result.Volume.SourceId,
+                result.Volume.Title, result.Volume.Year, result.JobId));
         }
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))

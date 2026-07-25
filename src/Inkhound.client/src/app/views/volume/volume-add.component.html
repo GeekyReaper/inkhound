@@ -19,7 +19,7 @@
 
     <!-- Search bar -->
     <c-row class="mb-4">
-      <c-col md="8" lg="6">
+      <c-col>
         <div class="input-group">
           <input
             type="text"
@@ -48,20 +48,10 @@
     }
 
     <!-- Job progress -->
-    @if (loading() && searchJob(); as job) {
+    @if (loading() && activeJobId()) {
       <c-row class="mb-3">
-        <c-col md="8" lg="6">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <small class="text-body-secondary text-truncate">{{ job.title }}</small>
-            <button cButton color="ghost-secondary" size="sm" (click)="consoleVisible.set(true)">
-              <svg cIcon name="cilTask" size="sm"></svg>
-              Console
-            </button>
-          </div>
-          <c-progress>
-            <c-progress-bar [value]="job.progress.percentage" color="primary" [animated]="true"></c-progress-bar>
-          </c-progress>
-          <small class="text-body-secondary">{{ job.progress.completed }}/{{ job.progress.total }} sources</small>
+        <c-col>
+          <app-job-panel [jobId]="activeJobId()" />
         </c-col>
       </c-row>
     }
@@ -230,6 +220,16 @@
             <c-col [md]="2">
               <label cLabel for="publisher">Publisher</label>
               <input cFormControl id="publisher" formControlName="publisher" placeholder="e.g. DC Comics" />
+            </c-col>
+
+            <c-col [md]="4">
+              <label cLabel for="ageRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
+              <select cSelect id="ageRating" formControlName="ageRating">
+                <option value="">Not set</option>
+                @for (r of ageRatings; track r.value) {
+                  <option [value]="r.value">{{ r.label }}</option>
+                }
+              </select>
             </c-col>
 
             <c-col [md]="12">
@@ -474,4 +474,31 @@
   </c-modal-body>
 </c-modal>
 
-<app-job-console-modal [job]="searchJob()" [(visible)]="consoleVisible" />
+<!-- Age rating modal -->
+<c-modal
+  [visible]="ageRatingModalVisible()"
+  (visibleChange)="!$event && cancelAddModal()"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Add to Library</h5>
+    <button cButtonClose (click)="cancelAddModal()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <label cLabel for="addAgeRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
+    <select cSelect id="addAgeRating"
+            [value]="selectedAgeRating()"
+            (change)="selectedAgeRating.set($any($event.target).value)">
+      <option value="">Not set</option>
+      @for (r of ageRatings; track r.value) {
+        <option [value]="r.value">{{ r.label }}</option>
+      }
+    </select>
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" (click)="cancelAddModal()">Cancel</button>
+    <button cButton color="primary" [disabled]="adding()" (click)="confirmAdd()">
+      @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+      Add to Library
+    </button>
+  </c-modal-footer>
+</c-modal>

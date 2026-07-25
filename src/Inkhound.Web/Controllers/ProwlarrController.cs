@@ -85,13 +85,24 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
         return NoContent();
     }
 
-    // POST /api/prowlarr/search/{issueId}
+    // POST /api/prowlarr/search/{issueId} — lance la recherche Prowlarr en tant que Job et
+    // retourne immédiatement son JobId ; le frontend suit la progression/les traces via SignalR
+    // puis récupère le résultat final via GET /api/prowlarr/search/{jobId}/result.
     [HttpPost("search/{issueId:guid}")]
     public async Task<IActionResult> SearchForIssue(Guid issueId, [FromQuery] int[]? indexerIds)
     {
-        var results = await manager.LaunchJobSearchMissingIssue(
+        var job = await manager.LaunchJobSearchMissingIssue(
             new ProwlarrSearchJobParameters { IssueId = issueId, IndexerIds = indexerIds });
-        return Ok(results.Select(ToScoredDto));
+        return Accepted(new { jobId = job.JobId });
+    }
+
+    // GET /api/prowlarr/search/{jobId}/result — résultat final d'une recherche lancée via
+    // SearchForIssue ; 404 tant que le job n'est pas terminé.
+    [HttpGet("search/{jobId:guid}/result")]
+    public IActionResult GetSearchResult(Guid jobId)
+    {
+        var result = manager.GetProwlarrSearchJobResult(jobId);
+        return result is null ? NotFound() : Ok(result.Select(ToScoredDto));
     }
 
     // POST /api/prowlarr/grab

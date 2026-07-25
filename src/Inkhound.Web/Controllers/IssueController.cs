@@ -93,12 +93,14 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         return updated ? NoContent() : NotFound();
     }
 
-    // POST /api/issues/{issueId}/analyze
+    // POST /api/issues/{issueId}/analyze — lance l'analyse CBZ en tant que Job et retourne
+    // immédiatement son JobId ; le frontend suit la progression/les traces via SignalR, puis
+    // reçoit l'Issue mise à jour via son abonnement existant à ManagerDataUpdated.
     [HttpPost("/api/issues/{issueId:guid}/analyze")]
     public async Task<IActionResult> Analyze(Guid issueId)
     {
-        var issue = await manager.LaunchJobAnalyzeIssue(new AnalyzeIssueJobParameters { IssueId = issueId });
-        return issue is null ? BadRequest(new { message = "Analysis failed." }) : Ok(ToDto(issue));
+        var job = await manager.LaunchJobAnalyzeIssue(new AnalyzeIssueJobParameters { IssueId = issueId });
+        return Accepted(new { jobId = job.JobId });
     }
 
     // GET /api/volumes/{volumeId}/issues

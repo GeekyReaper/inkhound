@@ -48,20 +48,10 @@
     }
 
     <!-- Job progress -->
-    @if (cvLoading() && searchJob(); as job) {
+    @if (cvLoading() && activeJobId()) {
       <c-row class="mb-3">
         <c-col md="8" lg="6">
-          <div class="d-flex justify-content-between align-items-center mb-1">
-            <small class="text-body-secondary text-truncate">{{ job.title }}</small>
-            <button cButton color="ghost-secondary" size="sm" (click)="consoleVisible.set(true)">
-              <svg cIcon name="cilTask" size="sm"></svg>
-              Console
-            </button>
-          </div>
-          <c-progress>
-            <c-progress-bar [value]="job.progress.percentage" color="primary" [animated]="true"></c-progress-bar>
-          </c-progress>
-          <small class="text-body-secondary">{{ job.progress.completed }}/{{ job.progress.total }} sources</small>
+          <app-job-panel [jobId]="activeJobId()" />
         </c-col>
       </c-row>
     }
@@ -508,5 +498,3 @@
     }
   </c-modal-body>
 </c-modal>
-
-<app-job-console-modal [job]="searchJob()" [(visible)]="consoleVisible" />

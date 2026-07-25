@@ -98,17 +98,9 @@
               </button>
             </div>
 
-            @if (searching() && currentJob()) {
+            @if (searching() && activeJobId()) {
               <div class="mb-3">
-                <div class="text-body-secondary small mb-1">{{ currentJob()!.title }}</div>
-                <c-progress class="mb-1">
-                  <c-progress-bar
-                    color="primary"
-                    [value]="currentJob()!.progress.percentage"
-                    [animated]="true">
-                    {{ currentJob()!.progress.percentage | number:'1.0-0' }}%
-                  </c-progress-bar>
-                </c-progress>
+                <app-job-panel [jobId]="activeJobId()" />
               </div>
             }
 
@@ -268,17 +260,9 @@
               </button>
             </div>
 
-            @if (analyzing() && currentJob()) {
+            @if (analyzing() && activeJobId()) {
               <div class="mb-3">
-                <div class="text-body-secondary small mb-1">{{ currentJob()!.title }}</div>
-                <c-progress class="mb-1">
-                  <c-progress-bar
-                    color="primary"
-                    [value]="currentJob()!.progress.percentage"
-                    [animated]="true">
-                    {{ currentJob()!.progress.percentage | number:'1.0-0' }}%
-                  </c-progress-bar>
-                </c-progress>
+                <app-job-panel [jobId]="activeJobId()" />
               </div>
             }
 

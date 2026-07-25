@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
@@ -17,10 +17,12 @@ import {
   SpinnerComponent,
   TooltipDirective
 } from '@coreui/angular';
-import { Library, LibraryService } from '../../core/services/library.service';
+import { Library, LibraryService, libraryPageKey } from '../../core/services/library.service';
 import { KavitaService } from '../../core/services/kavita.service';
 import { AGE_RATINGS, AgeRating, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { HubService } from '../../core/services/hub.service';
+import { PageJobService } from '../../core/services/page-job.service';
+import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { UpdatedData } from '../../core/models/hub.models';
 
 @Component({
@@ -30,7 +32,8 @@ import { UpdatedData } from '../../core/models/hub.models';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink,
-    BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective
+    BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective,
+    JobPanelComponent
   ]
 })
 export class LibraryComponent {
@@ -39,6 +42,7 @@ export class LibraryComponent {
   private kavitaService  = inject(KavitaService);
   private volumeService  = inject(VolumeService);
   private hub            = inject(HubService);
+  private pageJobs       = inject(PageJobService);
   readonly #destroyRef   = inject(DestroyRef);
 
   library        = signal<Library | null>(null);
@@ -49,8 +53,42 @@ export class LibraryComponent {
   volumes        = signal<Volume[]>([]);
   volumesLoading = signal(false);
 
+  // Clé de page dérivée (pas figée à la construction) : ce composant peut être réutilisé d'une
+  // library à l'autre sans être détruit — d'où le switchMap sur route.params ci-dessous.
+  private readonly pageKey = computed(() => {
+    const lib = this.library();
+    return lib ? libraryPageKey(lib.id) : null;
+  });
+
+  // Job actif associé à cette page (ex: peuplement des issues d'un Volume ajouté depuis
+  // VolumeAddComponent, cf. PageJobService) — un seul à la fois, tant qu'il tourne le bouton
+  // "+ Add" reste désactivé.
+  readonly activeJobId = computed(() => {
+    const key = this.pageKey();
+    return key ? this.pageJobs.activeJobId(key)() : null;
+  });
+
+  private readonly currentJob = computed(() => {
+    const jobId = this.activeJobId();
+    return jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
+  });
+
+  private handledJobIds = new Set<string>();
+
   constructor() {
     this.kavitaService.loadLibraries();
+
+    effect(() => {
+      const job = this.currentJob();
+      if (!job || this.handledJobIds.has(job.jobId)) return;
+      if (job.state !== 'SUCCESS' && job.state !== 'ERROR') return;
+
+      this.handledJobIds.add(job.jobId);
+      const key = this.pageKey();
+      if (key) this.pageJobs.clear(key);
+      if (job.state === 'ERROR') this.error.set('Failed to add volume — see the console for details.');
+      // La liste des volumes est déjà rafraîchie par l'abonnement lastDataUpdated ci-dessous.
+    });
 
     this.route.params
       .pipe(

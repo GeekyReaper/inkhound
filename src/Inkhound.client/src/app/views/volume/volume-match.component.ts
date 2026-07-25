@@ -26,8 +26,6 @@ import {
   PageItemComponent,
   PageLinkDirective,
   PaginationComponent,
-  ProgressBarComponent,
-  ProgressComponent,
   RowComponent,
   SpinnerComponent
 } from '@coreui/angular';
@@ -45,7 +43,8 @@ import {
 import { SourceIssue, Issue, IssueService } from '../../core/services/issue.service';
 import { ImageService } from '../../core/services/image.service';
 import { HubService } from '../../core/services/hub.service';
-import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
+import { PageJobService } from '../../core/services/page-job.service';
+import { JobPanelComponent } from '../job-panel/job-panel.component';
 
 @Component({
   selector: 'app-volume-match',
@@ -58,11 +57,10 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective,
     SpinnerComponent, AlertComponent, ButtonDirective,
     PaginationComponent, PageItemComponent, PageLinkDirective,
-    ProgressComponent, ProgressBarComponent,
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
-    JobConsoleModalComponent
+    JobPanelComponent
   ]
 })
 export class VolumeMatchComponent {
@@ -72,11 +70,16 @@ export class VolumeMatchComponent {
   private issueService  = inject(IssueService);
   private imageService  = inject(ImageService);
   private hub           = inject(HubService);
+  private pageJobs      = inject(PageJobService);
   private fb            = inject(FormBuilder);
   readonly #destroyRef  = inject(DestroyRef);
 
   readonly volumeId      = this.route.snapshot.parent!.paramMap.get('volumeId') ?? '';
   readonly issuesPageSize = 12;
+
+  // Clé de page pour PageJobService — inclut le volumeId résolu, donc stable pour toute la
+  // durée de vie de ce composant.
+  private readonly pageKey = this.router.url;
 
   readonly AUTHOR_ROLES = [
     'Writer', 'Penciler', 'Inker', 'Colorist',
@@ -98,13 +101,15 @@ export class VolumeMatchComponent {
   issuesLoading     = signal(false);
   issuesError       = signal<string | null>(null);
 
-  searchJobId    = signal<string | null>(null);
   stats          = signal<SourceSearchStats[] | null>(null);
-  consoleVisible = signal(false);
   private handledJobIds = new Set<string>();
 
-  readonly searchJob = computed(() => {
-    const jobId = this.searchJobId();
+  // Job actif pour cette page (persisté en session via PageJobService, 1 seul job actif à la
+  // fois) — signal créé une seule fois, source de vérité pour le composant et pour le panel.
+  readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
+
+  private readonly currentJob = computed(() => {
+    const jobId = this.activeJobId();
     return jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
   });
 
@@ -146,16 +151,18 @@ export class VolumeMatchComponent {
       });
 
     effect(() => {
-      const job = this.searchJob();
+      const job = this.currentJob();
       if (!job || this.handledJobIds.has(job.jobId)) return;
 
       if (job.state === 'SUCCESS') {
         this.handledJobIds.add(job.jobId);
         this.fetchSearchResult(job.jobId);
+        this.pageJobs.clear(this.pageKey);
       } else if (job.state === 'ERROR') {
         this.handledJobIds.add(job.jobId);
         this.cvLoading.set(false);
         this.cvError.set('Search failed — see the console for details.');
+        this.pageJobs.clear(this.pageKey);
       }
     });
   }
@@ -185,18 +192,17 @@ export class VolumeMatchComponent {
   // constructeur, qui récupère le résultat final une fois le job terminé).
   search(page = 1): void {
     const name = this.query().trim();
-    if (!name) return;
+    if (!name || this.activeJobId()) return;
 
     this.cvLoading.set(true);
     this.cvError.set(null);
     this.selected.set(null);
     this.stats.set(null);
-    this.searchJobId.set(null);
 
     this.volumeService.startSearchJob(name, page)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  res => this.searchJobId.set(res.jobId),
+        next:  res => this.pageJobs.register(this.pageKey, res.jobId),
         error: err => { this.cvError.set(err?.error?.message ?? 'Search failed.'); this.cvLoading.set(false); }
       });
   }

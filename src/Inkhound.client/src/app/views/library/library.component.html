@@ -68,9 +68,20 @@
         </h5>
       </c-col>
       <c-col xs="auto">
-        <button cButton color="primary" size="sm" [routerLink]="['add-volume']">+ Add</button>
+        <button cButton color="primary" size="sm" [routerLink]="['add-volume']" [disabled]="activeJobId() !== null">
+          @if (activeJobId()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+          + Add
+        </button>
       </c-col>
     </c-row>
+
+    @if (activeJobId()) {
+      <c-row class="mb-3">
+        <c-col md="8" lg="6">
+          <app-job-panel [jobId]="activeJobId()" />
+        </c-col>
+      </c-row>
+    }
 
     @if (volumesLoading()) {
       <c-row>

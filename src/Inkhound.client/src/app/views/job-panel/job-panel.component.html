@@ -1,0 +1,15 @@
+@if (job(); as j) {
+  <div class="d-flex justify-content-between align-items-center mb-1">
+    <small class="text-body-secondary text-truncate">{{ j.title }}</small>
+    <button cButton color="ghost-secondary" size="sm" (click)="consoleVisible.set(true)">
+      <svg cIcon name="cilTask" size="sm"></svg>
+      Console
+    </button>
+  </div>
+  <c-progress>
+    <c-progress-bar [value]="j.progress.percentage" color="primary" [animated]="true"></c-progress-bar>
+  </c-progress>
+  <small class="text-body-secondary">{{ j.progress.completed }}/{{ j.progress.total }}</small>
+
+  <app-job-console-modal [job]="j" [(visible)]="consoleVisible" />
+}

@@ -70,7 +70,9 @@ export class IssueService {
     return this.http.put<void>(`/api/issues/${issueId}`, request);
   }
 
+  // Lance l'analyse CBZ comme un Job et retourne son jobId. L'Issue mise à jour arrive ensuite
+  // via l'abonnement à ManagerDataUpdated (HubService.lastDataUpdated), pas via cette réponse.
   analyze(issueId: string) {
-    return this.http.post<Issue>(`/api/issues/${issueId}/analyze`, null);
+    return this.http.post<{ jobId: string }>(`/api/issues/${issueId}/analyze`, null);
   }
 }

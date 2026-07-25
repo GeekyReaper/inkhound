@@ -2,6 +2,8 @@ import { Component, computed, DestroyRef, effect, inject, signal } from '@angula
 import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { of } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
 import {
   AlertComponent,
   ButtonCloseDirective,
@@ -17,6 +19,7 @@ import {
   FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
+  ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
   NavComponent,
@@ -25,8 +28,6 @@ import {
   PageItemComponent,
   PageLinkDirective,
   PaginationComponent,
-  ProgressBarComponent,
-  ProgressComponent,
   RowComponent,
   SpinnerComponent
 } from '@coreui/angular';
@@ -34,6 +35,9 @@ import { NgClass, SlicePipe } from '@angular/common';
 import { IconDirective } from '@coreui/icons-angular';
 import {
   AddVolumeManuallyRequest,
+  AGE_RATINGS,
+  AgeRating,
+  AgeRatingOption,
   PageResult,
   SourceSearchStats,
   VolumeSearchResult,
@@ -42,7 +46,9 @@ import {
 import { SourceIssue, IssueService } from '../../core/services/issue.service';
 import { ImageService } from '../../core/services/image.service';
 import { HubService } from '../../core/services/hub.service';
-import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
+import { PageJobService } from '../../core/services/page-job.service';
+import { libraryPageKey } from '../../core/services/library.service';
+import { JobPanelComponent } from '../job-panel/job-panel.component';
 
 @Component({
   selector: 'app-volume-add',
@@ -54,11 +60,11 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective,
     SpinnerComponent, AlertComponent, ButtonDirective,
     PaginationComponent, PageItemComponent, PageLinkDirective,
-    ProgressComponent, ProgressBarComponent,
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
-    JobConsoleModalComponent
+    ModalFooterComponent,
+    JobPanelComponent
   ]
 })
 export class VolumeAddComponent {
@@ -68,11 +74,17 @@ export class VolumeAddComponent {
   private issueService   = inject(IssueService);
   private imageService   = inject(ImageService);
   private hub            = inject(HubService);
+  private pageJobs       = inject(PageJobService);
   private fb             = inject(FormBuilder);
   readonly #destroyRef   = inject(DestroyRef);
 
   readonly libraryId      = this.route.snapshot.parent!.paramMap.get('id') ?? '';
   readonly issuesPageSize = 12;
+  readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
+
+  // Clé de page pour PageJobService — inclut les paramètres résolus (libraryId), donc stable
+  // pour toute la durée de vie de ce composant.
+  private readonly pageKey = this.router.url;
 
   readonly AUTHOR_ROLES = [
     'Writer', 'Penciler', 'Inker', 'Colorist',
@@ -89,33 +101,39 @@ export class VolumeAddComponent {
   error            = signal<string | null>(null);
   selected         = signal<VolumeSearchResult | null>(null);
   adding           = signal(false);
+  ageRatingModalVisible = signal(false);
+  selectedAgeRating     = signal<AgeRating | ''>('');
   issuesModalVolume = signal<VolumeSearchResult | null>(null);
   issuesPage        = signal<PageResult<SourceIssue> | null>(null);
   issuesLoading     = signal(false);
   issuesError       = signal<string | null>(null);
 
-  searchJobId     = signal<string | null>(null);
   stats           = signal<SourceSearchStats[] | null>(null);
-  consoleVisible  = signal(false);
   private handledJobIds = new Set<string>();
 
-  readonly searchJob = computed(() => {
-    const jobId = this.searchJobId();
+  // Job actif pour cette page (persisté en session via PageJobService, 1 seul job actif à la
+  // fois) — signal créé une seule fois, source de vérité pour le composant et pour le panel.
+  readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
+
+  private readonly currentJob = computed(() => {
+    const jobId = this.activeJobId();
     return jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
   });
 
   constructor() {
     effect(() => {
-      const job = this.searchJob();
+      const job = this.currentJob();
       if (!job || this.handledJobIds.has(job.jobId)) return;
 
       if (job.state === 'SUCCESS') {
         this.handledJobIds.add(job.jobId);
         this.fetchSearchResult(job.jobId);
+        this.pageJobs.clear(this.pageKey);
       } else if (job.state === 'ERROR') {
         this.handledJobIds.add(job.jobId);
         this.loading.set(false);
         this.error.set('Search failed — see the console for details.');
+        this.pageJobs.clear(this.pageKey);
       }
     });
   }
@@ -127,6 +145,7 @@ export class VolumeAddComponent {
     publisher:   [''],
     description: [''],
     imageUrl:    [null as string | null],
+    ageRating:   ['' as AgeRating | ''],
     authors:     this.fb.array<FormGroup>([]),
     genres:      this.fb.array<FormGroup>([]),
     issues:      this.fb.array<FormGroup>([])
@@ -166,18 +185,17 @@ export class VolumeAddComponent {
   // récupéré une fois le job terminé (cf. l'effect() du constructeur).
   search(page = 1): void {
     const name = this.query().trim();
-    if (!name) return;
+    if (!name || this.activeJobId()) return;
 
     this.loading.set(true);
     this.error.set(null);
     this.selected.set(null);
     this.stats.set(null);
-    this.searchJobId.set(null);
 
     this.volumeService.startSearchJob(name, page)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  res => this.searchJobId.set(res.jobId),
+        next:  res => this.pageJobs.register(this.pageKey, res.jobId),
         error: err => { this.error.set(err?.error?.message ?? 'Search failed.'); this.loading.set(false); }
       });
   }
@@ -222,14 +240,38 @@ export class VolumeAddComponent {
   }
 
   onAdd(): void {
+    if (!this.selected()) return;
+    this.selectedAgeRating.set('');
+    this.ageRatingModalVisible.set(true);
+  }
+
+  cancelAddModal(): void {
+    this.ageRatingModalVisible.set(false);
+  }
+
+  confirmAdd(): void {
     const sel = this.selected();
     if (!sel) return;
 
+    this.ageRatingModalVisible.set(false);
     this.adding.set(true);
+    const ageRating = this.selectedAgeRating();
+
     this.volumeService.addFromSource(this.libraryId, sel.source, sel.sourceId)
-      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .pipe(
+        switchMap(res => {
+          const patch$ = ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0);
+          return patch$.pipe(map(() => res));
+        }),
+        takeUntilDestroyed(this.#destroyRef)
+      )
       .subscribe({
-        next:  () => this.router.navigate(['../'], { relativeTo: this.route }),
+        next:  res => {
+          // Le peuplement des issues continue en tâche de fond — on associe son job à la page
+          // Library qu'on rejoint, pour y afficher sa progression (cf. LibraryComponent).
+          this.pageJobs.register(libraryPageKey(this.libraryId), res.jobId);
+          this.router.navigate(['../'], { relativeTo: this.route });
+        },
         error: err => {
           this.error.set(err?.error?.message ?? 'Failed to add volume.');
           this.adding.set(false);
@@ -334,11 +376,15 @@ export class VolumeAddComponent {
         imageUrl:     i.imageUrl ?? null
       }))
     };
+    const ageRating = val.ageRating as AgeRating | '' | null;
 
     this.adding.set(true);
     this.manualError.set(null);
     this.volumeService.addManually(this.libraryId, request)
-      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .pipe(
+        switchMap(res => ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0)),
+        takeUntilDestroyed(this.#destroyRef)
+      )
       .subscribe({
         next:  () => this.router.navigate(['../'], { relativeTo: this.route }),
         error: err => {

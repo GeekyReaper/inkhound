@@ -84,12 +84,19 @@ export class ProwlarrService {
     return this.http.put<void>('/api/prowlarr/selected-indexers', { indexers });
   }
 
-  searchForIssue(issueId: string, indexerIds?: number[]) {
+  // Lance la recherche Prowlarr comme un Job (peut prendre plusieurs secondes — un appel par
+  // requête essayée) et retourne son jobId. Le résultat se récupère ensuite via
+  // getSearchJobResult() une fois le job terminé (suivre sa progression via HubService).
+  startSearchJob(issueId: string, indexerIds?: number[]) {
     let params: Record<string, string | string[]> = {};
     if (indexerIds && indexerIds.length > 0) {
       params['indexerIds'] = indexerIds.map(id => id.toString());
     }
-    return this.http.post<ScoredSearchResult[]>(`/api/prowlarr/search/${issueId}`, null, { params });
+    return this.http.post<{ jobId: string }>(`/api/prowlarr/search/${issueId}`, null, { params });
+  }
+
+  getSearchJobResult(jobId: string) {
+    return this.http.get<ScoredSearchResult[]>(`/api/prowlarr/search/${jobId}/result`);
   }
 
   grab(guid: string, indexerId: number, issueId: string, downloadClientId?: number) {

@@ -20,6 +20,13 @@ export interface CreateLibraryRequest {
 
 export type UpdateLibraryRequest = CreateLibraryRequest;
 
+// Clé de page pour PageJobService — même format que router.url une fois sur la page Library,
+// utilisée à la fois par LibraryComponent (pour s'y abonner) et par les pages qui y associent un
+// job lancé ailleurs (ex: VolumeAddComponent après un "Add to Library").
+export function libraryPageKey(libraryId: string): string {
+  return `/library/${libraryId}`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryService {
   private http = inject(HttpClient);

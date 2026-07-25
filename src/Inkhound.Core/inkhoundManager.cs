@@ -900,7 +900,12 @@ public class InkhoundManager : BaseServiceManager
     #endregion
 
     #region Volume Actions
-    public async Task<Volume> AddVolumeFromComicVineAsync(
+    // Résultat renvoyé immédiatement par AddVolumeFrom*Async : le Volume existe déjà en base
+    // (insert rapide), et JobId permet au frontend de suivre en tâche de fond le peuplement des
+    // issues (potentiellement plusieurs appels HTTP externes) sans attendre sa fin.
+    public record AddVolumeResult(Volume Volume, Guid JobId);
+
+    public async Task<AddVolumeResult> AddVolumeFromComicVineAsync(
         Guid libraryId, int comicVineVolumeId, CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -932,40 +937,67 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync(ct);
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
 
-        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
-
-        List<VolumeAuthor> allIssueAuthors = [];
-
-        foreach (var cvIssue in cvIssues)
+        // Le peuplement des issues continue en tâche de fond (Job) — le Volume existe déjà et a
+        // été notifié, le frontend n'a pas besoin d'attendre pour naviguer/afficher la suite.
+        var job = StartJob($"Add volume — {volume.Title}");
+        if (job.State != JobState.ERROR)
         {
-            var issue = Mapper.Map(cvIssue);
-            issue.Id = Guid.NewGuid();
-            issue.Status = IssueStatus.MISSING;
-            issue.VolumeId = volume.Id;
-            allIssueAuthors.AddRange(issue.Authors);
-            ctx.Issues.Add(issue);
+            job.SetState(JobState.RUNNING);
+            _ = RunAddComicVineIssuesJobAsync(job, volume.Id, comicVineVolumeId);
         }
-        if (cvIssues.Count > 0)
+        return new AddVolumeResult(volume, job.JobId);
+    }
+
+    private async Task RunAddComicVineIssuesJobAsync(JobContext job, Guid volumeId, int comicVineVolumeId)
+    {
+        var ctx = GetDb();
+        try
         {
-            var roleByName = allIssueAuthors
-                        .GroupBy(a => a.Name)
-                        .ToDictionary(g => g.Key, g => g.First().Role);
+            var volume = await ctx.Volumes.FindAsync(volumeId);
+            if (volume is null) { EndJob(false); return; }
 
-            volume.Authors = volume.Authors
-                .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
-                    ? new VolumeAuthor(a.Name, role ?? string.Empty)
-                    : a)
-                .ToList();
+            var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
+            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL);
+            job.CallbackHandler.UpdateTotal(cvIssues.Count);
 
+            List<VolumeAuthor> allIssueAuthors = [];
 
+            foreach (var cvIssue in cvIssues)
+            {
+                var issue = Mapper.Map(cvIssue);
+                issue.Id = Guid.NewGuid();
+                issue.Status = IssueStatus.MISSING;
+                issue.VolumeId = volume.Id;
+                allIssueAuthors.AddRange(issue.Authors);
+                ctx.Issues.Add(issue);
+                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber}");
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+            }
+            if (cvIssues.Count > 0)
+            {
+                var roleByName = allIssueAuthors
+                            .GroupBy(a => a.Name)
+                            .ToDictionary(g => g.Key, g => g.First().Role);
 
-            volume.CountOfIssues = cvIssues.Count;
-            volume.UpdatedAt = DateTime.UtcNow;
-            await ctx.SaveChangesAsync(ct);
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+                volume.Authors = volume.Authors
+                    .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                        ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                        : a)
+                    .ToList();
+
+                volume.CountOfIssues = cvIssues.Count;
+                volume.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+            }
+            EndJob(true);
         }
-
-        return volume;
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Add] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
     }
 
     public async Task<bool> RematchVolumeFromComicVineAsync(
@@ -1054,7 +1086,7 @@ public class InkhoundManager : BaseServiceManager
     // Miroir de AddVolumeFromComicVineAsync pour la source Bedetheque : utilise les modèles natifs
     // riches de BedethequeSourceService (BdSerie/BdAlbum, avec auteurs) plutôt que le DTO mince
     // SourceVolume/SourceIssue utilisé pour l'agrégation de recherche.
-    public async Task<Volume> AddVolumeFromBedethequeAsync(
+    public async Task<AddVolumeResult> AddVolumeFromBedethequeAsync(
         Guid libraryId, int bdSerieId, CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -1086,38 +1118,67 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync(ct);
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
 
-        var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct);
-
-        List<VolumeAuthor> allIssueAuthors = [];
-
-        foreach (var bdAlbum in bdAlbums)
+        // Le peuplement des issues continue en tâche de fond (Job) — un appel HTTP par album côté
+        // Bedetheque, donc potentiellement long ; le Volume existe déjà et a été notifié.
+        var job = StartJob($"Add volume — {volume.Title}");
+        if (job.State != JobState.ERROR)
         {
-            var issue = Mapper.Map(bdAlbum);
-            issue.Id = Guid.NewGuid();
-            issue.Status = IssueStatus.MISSING;
-            issue.VolumeId = volume.Id;
-            allIssueAuthors.AddRange(issue.Authors);
-            ctx.Issues.Add(issue);
+            job.SetState(JobState.RUNNING);
+            _ = RunAddBedethequeIssuesJobAsync(job, volume.Id, bdSerieId);
         }
-        if (bdAlbums.Count > 0)
+        return new AddVolumeResult(volume, job.JobId);
+    }
+
+    private async Task RunAddBedethequeIssuesJobAsync(JobContext job, Guid volumeId, int bdSerieId)
+    {
+        var ctx = GetDb();
+        try
         {
-            var roleByName = allIssueAuthors
-                        .GroupBy(a => a.Name)
-                        .ToDictionary(g => g.Key, g => g.First().Role);
+            var volume = await ctx.Volumes.FindAsync(volumeId);
+            if (volume is null) { EndJob(false); return; }
 
-            volume.Authors = volume.Authors
-                .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
-                    ? new VolumeAuthor(a.Name, role ?? string.Empty)
-                    : a)
-                .ToList();
+            var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
+            var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId);
+            job.CallbackHandler.UpdateTotal(bdAlbums.Count);
 
-            volume.CountOfIssues = bdAlbums.Count;
-            volume.UpdatedAt = DateTime.UtcNow;
-            await ctx.SaveChangesAsync(ct);
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+            List<VolumeAuthor> allIssueAuthors = [];
+
+            foreach (var bdAlbum in bdAlbums)
+            {
+                var issue = Mapper.Map(bdAlbum);
+                issue.Id = Guid.NewGuid();
+                issue.Status = IssueStatus.MISSING;
+                issue.VolumeId = volume.Id;
+                allIssueAuthors.AddRange(issue.Authors);
+                ctx.Issues.Add(issue);
+                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber}");
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+            }
+            if (bdAlbums.Count > 0)
+            {
+                var roleByName = allIssueAuthors
+                            .GroupBy(a => a.Name)
+                            .ToDictionary(g => g.Key, g => g.First().Role);
+
+                volume.Authors = volume.Authors
+                    .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                        ? new VolumeAuthor(a.Name, role ?? string.Empty)
+                        : a)
+                    .ToList();
+
+                volume.CountOfIssues = bdAlbums.Count;
+                volume.UpdatedAt = DateTime.UtcNow;
+                await ctx.SaveChangesAsync();
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
+            }
+            EndJob(true);
         }
-
-        return volume;
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Add] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
     }
 
     // Miroir de RematchVolumeFromComicVineAsync pour la source Bedetheque.
@@ -1206,7 +1267,7 @@ public class InkhoundManager : BaseServiceManager
 
     // Dispatchers génériques utilisés par les contrôleurs Web — routent vers l'implémentation
     // dédiée à la source choisie par l'utilisateur dans les résultats de recherche.
-    public Task<Volume> AddVolumeFromSourceAsync(Guid libraryId, string source, string sourceId, CancellationToken ct = default) =>
+    public Task<AddVolumeResult> AddVolumeFromSourceAsync(Guid libraryId, string source, string sourceId, CancellationToken ct = default) =>
         source switch
         {
             "comicvine" => AddVolumeFromComicVineAsync(libraryId, int.Parse(sourceId), ct),
@@ -1684,7 +1745,18 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync();
     }
 
-    public async Task<List<ScoredSearchResultTorrent>> LaunchJobSearchMissingIssue(ProwlarrSearchJobParameters parameters)
+    // Résultats de recherche Prowlarr en attente de récupération par le contrôleur, indexés par
+    // JobId — même raison que _searchResults (recherche multi-source) : un Job ne peut pas
+    // porter de valeur de retour vers l'appelant HTTP d'origine (fire-and-forget).
+    private readonly ConcurrentDictionary<Guid, List<ScoredSearchResultTorrent>> _prowlarrResults = new();
+
+    public List<ScoredSearchResultTorrent>? GetProwlarrSearchJobResult(Guid jobId)
+        => _prowlarrResults.TryGetValue(jobId, out var result) ? result : null;
+
+    // Lance la recherche Prowlarr en tâche de fond et retourne immédiatement le JobContext (donc
+    // son JobId) pour que le frontend puisse s'abonner à sa progression/ses traces via SignalR
+    // sans attendre la fin de la recherche — miroir de LaunchJobSearchVolumes.
+    public async Task<JobContext> LaunchJobSearchMissingIssue(ProwlarrSearchJobParameters parameters)
     {
         var ctx = GetDb();
         var issue = await ctx.Issues.FindAsync(parameters.IssueId);
@@ -1693,21 +1765,31 @@ public class InkhoundManager : BaseServiceManager
             : $"Recherche Prowlarr — {parameters.IssueId}";
 
         var job = StartJob(jobTitle, parameters);
-        job.SetState(JobState.RUNNING);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunSearchMissingIssueJobAsync(job, parameters);
+        }
+        return job;
+    }
 
+    private async Task RunSearchMissingIssueJobAsync(JobContext job, ProwlarrSearchJobParameters parameters)
+    {
+        var ctx = GetDb();
         try
         {
+            var issue = await ctx.Issues.FindAsync(parameters.IssueId);
             if (issue is null)
             {
                 EndJob(false);
-                return [];
+                return;
             }
 
             var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
             if (volume is null)
             {
                 EndJob(false);
-                return [];
+                return;
             }
 
             var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
@@ -1715,7 +1797,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 JobSendTrace("[Prowlarr] Service non disponible", ETraceLevel.ERROR);
                 EndJob(false);
-                return [];
+                return;
             }
 
             // Indexers : paramètre explicite ou sélection persistée
@@ -1751,18 +1833,22 @@ public class InkhoundManager : BaseServiceManager
             if (results.Count == 0)
                 JobSendTrace("[Prowlarr] Aucun résultat sur aucune tentative", ETraceLevel.WARNING);
 
+            _prowlarrResults[job.JobId] = results;
             EndJob(true);
-            return results;
         }
         catch (Exception ex)
         {
             JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
-            return [];
         }
     }
 
-    public async Task<Issue?> LaunchJobAnalyzeIssue(AnalyzeIssueJobParameters parameters)
+    // Lance l'analyse CBZ en tâche de fond et retourne immédiatement le JobContext (donc son
+    // JobId) — miroir de LaunchJobSearchVolumes/LaunchJobSearchMissingIssue. Pas de cache de
+    // résultat séparé : les champs d'analyse sont persistés sur l'Issue et OnDataUpdated est
+    // émis, donc le frontend récupère le résultat via son abonnement existant aux mises à jour
+    // de données plutôt que par un endpoint dédié.
+    public async Task<JobContext> LaunchJobAnalyzeIssue(AnalyzeIssueJobParameters parameters)
     {
         var ctx = GetDb();
         var issue = await ctx.Issues.FindAsync(parameters.IssueId);
@@ -1771,15 +1857,25 @@ public class InkhoundManager : BaseServiceManager
             : $"Analyse CBZ — {parameters.IssueId}";
 
         var job = StartJob(jobTitle, parameters);
-        job.SetState(JobState.RUNNING);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunAnalyzeIssueJobAsync(job, parameters);
+        }
+        return job;
+    }
 
+    private async Task RunAnalyzeIssueJobAsync(JobContext job, AnalyzeIssueJobParameters parameters)
+    {
+        var ctx = GetDb();
         try
         {
+            var issue = await ctx.Issues.FindAsync(parameters.IssueId);
             if (issue is null || string.IsNullOrEmpty(issue.CbzFilename))
             {
                 JobSendTrace("[Analyze] Issue introuvable ou sans fichier CBZ", ETraceLevel.ERROR);
                 EndJob(false);
-                return null;
+                return;
             }
 
             var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
@@ -1787,7 +1883,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 JobSendTrace("[Analyze] Volume introuvable", ETraceLevel.ERROR);
                 EndJob(false);
-                return null;
+                return;
             }
 
             var library = await ctx.Libraries.FindAsync(volume.LibraryId);
@@ -1795,7 +1891,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 JobSendTrace("[Analyze] Library introuvable", ETraceLevel.ERROR);
                 EndJob(false);
-                return null;
+                return;
             }
 
             var archiveService = GetService<ArchiveService, ArchiveOption>();
@@ -1807,7 +1903,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 JobSendTrace($"[Analyze] Fichier CBZ introuvable : {cbzPath}", ETraceLevel.ERROR);
                 EndJob(false);
-                return null;
+                return;
             }
 
             JobSendTrace($"[Analyze] Calcul du hash SHA-256 de {Path.GetFileName(cbzPath)}");
@@ -1847,13 +1943,11 @@ public class InkhoundManager : BaseServiceManager
 
             JobSendTrace($"[Analyze] Score {report.Score}/100 ({report.ScoreBand}) — {analysis.ImageEntryCount} page(s)");
             EndJob(true);
-            return issue;
         }
         catch (Exception ex)
         {
             JobSendTrace($"[Analyze] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
-            return null;
         }
     }
 

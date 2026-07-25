@@ -173,8 +173,10 @@ export class VolumeService {
     );
   }
 
+  // Le Volume est créé immédiatement (retourné tout de suite) ; le peuplement des issues se
+  // poursuit en tâche de fond — jobId permet de suivre sa progression (cf. PageJobService).
   addFromSource(libraryId: string, source: SourceKey, sourceId: string) {
-    return this.http.post<{ id: string }>(
+    return this.http.post<{ id: string; jobId: string }>(
       `/api/libraries/${libraryId}/volumes`,
       { source, sourceId }
     );

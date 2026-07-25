@@ -6,6 +6,7 @@ import {
   AlertComponent, BadgeComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
+  FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
@@ -23,6 +24,7 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
+    FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     DatePipe, DecimalPipe, IconDirective,
     JobConsoleModalComponent,
   ],
@@ -42,6 +44,17 @@ export class DownloadsComponent implements OnInit {
 
   selectedJob    = signal<JobContext | null>(null);
   consoleVisible = signal(false);
+
+  // Par défaut, les torrents Done sont masqués (déjà traités, peu d'intérêt à les garder
+  // visibles) ; le switch permet de basculer vers l'inverse (uniquement les Done).
+  showDoneOnly = signal(false);
+
+  readonly filteredDownloads = computed(() => {
+    const items = this.downloads();
+    return this.showDoneOnly()
+      ? items.filter(d => d.status === 'Done')
+      : items.filter(d => d.status !== 'Done');
+  });
 
   readonly activeCount = computed(() =>
     this.downloads().filter(d => d.status === 'Downloading' || d.status === 'Unknown').length

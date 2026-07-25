@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, finalize, switchMap } from 'rxjs';
@@ -10,7 +10,6 @@ import {
   ColComponent, ContainerComponent,
   FormControlDirective, FormLabelDirective, FormSelectDirective,
   ModalModule,
-  ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
@@ -18,6 +17,8 @@ import { Issue, IssueService, IssueStatus } from '../../core/services/issue.serv
 import { ProwlarrCategory, ProwlarrService, ScoredSearchResult } from '../../core/services/prowlarr.service';
 import { QBittorrentService, TorrentFile } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
+import { PageJobService } from '../../core/services/page-job.service';
+import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { UpdatedData } from '../../core/models/hub.models';
 
 @Component({
@@ -28,10 +29,11 @@ import { UpdatedData } from '../../core/models/hub.models';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, BadgeComponent, IconDirective,
-    TableDirective, ProgressComponent, ProgressBarComponent,
+    TableDirective,
     ModalModule,
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
-    DatePipe, DecimalPipe, SlicePipe
+    DatePipe, DecimalPipe, SlicePipe,
+    JobPanelComponent
   ]
 })
 export class IssueComponent {
@@ -41,10 +43,16 @@ export class IssueComponent {
   private prowlarrService    = inject(ProwlarrService);
   private qbittorrentService = inject(QBittorrentService);
   private hub                = inject(HubService);
+  private pageJobs           = inject(PageJobService);
   private fb                 = inject(FormBuilder);
   readonly #destroyRef       = inject(DestroyRef);
 
   readonly issueId = this.route.snapshot.paramMap.get('issueId')!;
+
+  // Clé de page pour PageJobService — inclut l'issueId résolu, donc stable pour toute la durée
+  // de vie de ce composant. Une seule et même clé pour les deux actions (search/analyze) de
+  // cette page : un seul job actif à la fois, quel que soit lequel des deux est lancé.
+  private readonly pageKey = this.router.url;
 
   readonly ISSUE_STATUSES: IssueStatus[] = ['MISSING', 'DOWNLOADING', 'DOWNLOADED'];
 
@@ -93,7 +101,17 @@ export class IssueComponent {
     this.torrentFiles().length > 0 &&
     this.torrentFiles().every(f => this.selectedFileIndices().has(f.index)));
 
-  readonly currentJob = this.hub.currentJob;
+  // Job actif pour cette page (persisté en session via PageJobService, 1 seul job actif à la
+  // fois — partagé entre Search et Analyze). activeAction retient laquelle des deux actions l'a
+  // lancé, pour savoir comment traiter sa complétion.
+  readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
+  private activeAction = signal<'search' | 'analyze' | null>(null);
+  private handledJobIds = new Set<string>();
+
+  private readonly currentJob = computed(() => {
+    const jobId = this.activeJobId();
+    return jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
+  });
 
   constructor() {
     this.issueService.getById(this.issueId)
@@ -110,6 +128,40 @@ export class IssueComponent {
         takeUntilDestroyed(this.#destroyRef)
       )
       .subscribe(issue => this.issue.set(issue));
+
+    effect(() => {
+      const job = this.currentJob();
+      if (!job || this.handledJobIds.has(job.jobId)) return;
+      if (job.state !== 'SUCCESS' && job.state !== 'ERROR') return;
+
+      this.handledJobIds.add(job.jobId);
+      const action = this.activeAction();
+      this.activeAction.set(null);
+      this.pageJobs.clear(this.pageKey);
+
+      if (action === 'search') {
+        if (job.state === 'ERROR') {
+          this.searching.set(false);
+          this.searchError.set('Search failed — see the console for details.');
+          return;
+        }
+        this.prowlarrService.getSearchJobResult(job.jobId)
+          .pipe(
+            takeUntilDestroyed(this.#destroyRef),
+            finalize(() => this.searching.set(false))
+          )
+          .subscribe({
+            next:  results => { this.searchResults.set(results); this.currentPage.set(1); },
+            error: err     => this.searchError.set(err?.error?.message ?? 'Failed to load results.')
+          });
+      } else if (action === 'analyze') {
+        this.analyzing.set(false);
+        if (job.state === 'ERROR') {
+          this.analyzeError.set('Analysis failed — see the console for details.');
+        }
+        // Sinon, l'Issue mise à jour arrive via l'abonnement lastDataUpdated ci-dessus.
+      }
+    });
   }
 
   goBack(): void {
@@ -170,34 +222,32 @@ export class IssueComponent {
   }
 
   onSearch(): void {
+    if (this.activeJobId()) return;
+
     this.searching.set(true);
     this.searchResults.set([]);
     this.searchError.set(null);
     this.grabSuccess.set(null);
 
-    this.prowlarrService.searchForIssue(this.issueId)
-      .pipe(
-        takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.searching.set(false))
-      )
+    this.prowlarrService.startSearchJob(this.issueId)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  results => { this.searchResults.set(results); this.currentPage.set(1); },
-        error: err     => this.searchError.set(err?.error?.message ?? 'Search failed.')
+        next:  res => { this.activeAction.set('search'); this.pageJobs.register(this.pageKey, res.jobId); },
+        error: err => { this.searchError.set(err?.error?.message ?? 'Search failed.'); this.searching.set(false); }
       });
   }
 
   onAnalyze(): void {
+    if (this.activeJobId()) return;
+
     this.analyzing.set(true);
     this.analyzeError.set(null);
 
     this.issueService.analyze(this.issueId)
-      .pipe(
-        takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.analyzing.set(false))
-      )
+      .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  issue => this.issue.set(issue),
-        error: err   => this.analyzeError.set(err?.error?.message ?? 'Analysis failed.')
+        next:  res => { this.activeAction.set('analyze'); this.pageJobs.register(this.pageKey, res.jobId); },
+        error: err => { this.analyzeError.set(err?.error?.message ?? 'Analysis failed.'); this.analyzing.set(false); }
       });
   }
 

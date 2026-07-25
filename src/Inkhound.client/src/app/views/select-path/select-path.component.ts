@@ -73,8 +73,8 @@ export class SelectPathComponent {
         .pipe(takeUntilDestroyed(this.#destroyRef))
         .subscribe({
           next: ({ dirs, files }) => {
-            this.directories.set(dirs as DirectoryDto[]);
-            this.files.set(files as FileDto[]);
+            this.directories.set((dirs as DirectoryDto[]).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })));
+            this.files.set((files as FileDto[]).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })));
             this.loading.set(false);
             if (pending) {
               this.selectedPath.set(pending);

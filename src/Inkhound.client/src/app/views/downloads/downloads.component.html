@@ -11,6 +11,14 @@
       }
     </c-col>
     <c-col class="col-auto">
+      <c-form-check switch sizing="lg">
+        <input cFormCheckInput type="checkbox" role="switch" id="showDoneOnlySwitch"
+               [checked]="showDoneOnly()"
+               (change)="showDoneOnly.set($any($event.target).checked)" />
+        <label cFormCheckLabel for="showDoneOnlySwitch">Show only Done</label>
+      </c-form-check>
+    </c-col>
+    <c-col class="col-auto">
       <button cButton color="primary" size="sm" [disabled]="processing()" (click)="processAll()">
         @if (processing()) {
           <c-spinner size="sm" class="me-2"></c-spinner>Processing…
@@ -64,6 +72,18 @@
         <p class="text-body-secondary">No downloads tracked yet. Download a torrent from the Issue page to start tracking.</p>
       </c-col>
     </c-row>
+  } @else if (filteredDownloads().length === 0) {
+    <c-row>
+      <c-col>
+        <p class="text-body-secondary">
+          @if (showDoneOnly()) {
+            No completed downloads yet.
+          } @else {
+            No active downloads — toggle "Show only Done" to see completed ones.
+          }
+        </p>
+      </c-col>
+    </c-row>
   } @else {
     <c-row>
       <c-col>
@@ -85,7 +105,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @for (item of downloads(); track item.id) {
+                  @for (item of filteredDownloads(); track item.id) {
                     <tr>
                       <td class="align-middle">
                         <div class="fw-semibold small">{{ item.volumeTitle ?? '—' }}</div>
