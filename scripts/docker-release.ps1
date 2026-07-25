@@ -13,8 +13,13 @@ $baseTag  = Get-Date -Format 'yyyy.MM.dd'
 
 # Retourne $true si le tag existe déjà sur le registre (utilise les identifiants Docker CLI
 # déjà en place via `docker login`, donc fonctionne aussi bien pour un repo privé que public).
+# "no such manifest" sur stderr est le résultat NORMAL pour un tag absent (ce n'est pas une
+# erreur de script) : $ErrorActionPreference est mis à SilentlyContinue localement (scope de la
+# fonction uniquement) pour empêcher ce stderr redirigé d'être promu en erreur terminante par le
+# $ErrorActionPreference = 'Stop' global — sans ça, le script s'arrête dès le premier tag absent.
 function Test-DockerTagExists {
     param([Parameter(Mandatory)][string]$ImageRef)
+    $ErrorActionPreference = 'SilentlyContinue'
     docker manifest inspect $ImageRef *> $null
     return $LASTEXITCODE -eq 0
 }
@@ -32,7 +37,7 @@ if (Test-DockerTagExists "$image`:$tag") {
 Push-Location $repoRoot
 try {
     Write-Host "==> Building $image`:$tag (also tagged latest)"
-    docker build -t "$image`:$tag" -t "$image`:latest" .
+    docker build --build-arg "APP_VERSION=$tag" -t "$image`:$tag" -t "$image`:latest" .
     if ($LASTEXITCODE -ne 0) { throw "docker build failed with exit code $LASTEXITCODE" }
 
     Write-Host "==> Pushing $image`:$tag"

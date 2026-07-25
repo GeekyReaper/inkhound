@@ -20,6 +20,7 @@ import { DefaultFooterComponent, DefaultHeaderComponent } from './';
 import { navItemsTop, navItemsBottom } from './_nav';
 import { LibraryService } from '../../core/services/library.service';
 import { ApiTokenService } from '../../core/services/api-token.service';
+import { VersionService } from '../../core/services/version.service';
 
 function isOverflown(element: HTMLElement) {
   return (
@@ -53,12 +54,15 @@ function isOverflown(element: HTMLElement) {
 export class DefaultLayoutComponent {
   private libraryService = inject(LibraryService);
   private apiTokenService = inject(ApiTokenService);
+  private versionService = inject(VersionService);
 
   apiTokensEnabled = signal(false);
+  version = signal('');
 
   constructor() {
     this.libraryService.loadLibraries().subscribe();
     this.apiTokenService.isEnabled().subscribe(enabled => this.apiTokensEnabled.set(enabled));
+    this.versionService.getVersion().subscribe(res => this.version.set(res.version));
   }
 
   navItems = computed<INavData[]>(() => [

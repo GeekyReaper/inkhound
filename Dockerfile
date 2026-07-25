@@ -44,4 +44,7 @@ COPY --from=dotnet-build /publish ./
 ENV APP_PORT=8080
 EXPOSE ${APP_PORT}
 
+ARG APP_VERSION=debug
+ENV APP_VERSION=$APP_VERSION
+
 ENTRYPOINT ["dotnet", "Inkhound.Web.dll"]
