@@ -30,6 +30,7 @@ import { Library, LibraryService, CreateLibraryRequest, UpdateLibraryRequest } f
 import { KavitaService, KavitaLibrary } from '../../core/services/kavita.service';
 import { HubService } from '../../core/services/hub.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
+import { LibraryIndexersComponent } from '../library-indexers/library-indexers.component';
 
 type PageMode = 'list' | 'add' | 'edit';
 
@@ -42,7 +43,7 @@ type PageMode = 'list' | 'add' | 'edit';
     ReactiveFormsModule, FormControlDirective, FormLabelDirective, FormSelectDirective,
     InputGroupComponent, InputGroupTextDirective,
     ButtonDirective, ButtonCloseDirective, SpinnerComponent, AlertComponent, IconDirective,
-    TableDirective, SelectPathComponent, DatePipe,
+    TableDirective, SelectPathComponent, LibraryIndexersComponent, DatePipe,
     ModalComponent, ModalHeaderComponent, ModalTitleDirective, ModalBodyComponent, ModalFooterComponent
   ]
 })

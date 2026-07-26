@@ -62,11 +62,11 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
             i.Capabilities?.Categories.Select(c => new ProwlarrCategoryDto(c.Id, c.Name)).ToList() ?? [])));
     }
 
-    // GET /api/prowlarr/selected-indexers
-    [HttpGet("selected-indexers")]
-    public async Task<IActionResult> GetSelectedIndexers()
+    // GET /api/prowlarr/libraries/{libraryId}/selected-indexers
+    [HttpGet("libraries/{libraryId:guid}/selected-indexers")]
+    public async Task<IActionResult> GetSelectedIndexers(Guid libraryId)
     {
-        var selected = await manager.GetSelectedIndexersAsync();
+        var selected = await manager.GetSelectedIndexersAsync(libraryId);
         return Ok(selected.Select(s => new SelectedIndexerDto(
             s.IndexerId, s.Name, s.Protocol,
             string.IsNullOrEmpty(s.CategoriesJson)
@@ -74,14 +74,14 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
                 : JsonSerializer.Deserialize<List<int>>(s.CategoriesJson) ?? [])));
     }
 
-    // PUT /api/prowlarr/selected-indexers
-    [HttpPut("selected-indexers")]
-    public async Task<IActionResult> SetSelectedIndexers([FromBody] ProwlarrSetIndexersRequest req)
+    // PUT /api/prowlarr/libraries/{libraryId}/selected-indexers
+    [HttpPut("libraries/{libraryId:guid}/selected-indexers")]
+    public async Task<IActionResult> SetSelectedIndexers(Guid libraryId, [FromBody] ProwlarrSetIndexersRequest req)
     {
         var items = req.Indexers
             .Select(i => (new ProwlarrIndexer(i.Id, i.Name, i.Protocol, i.Enable, null), i.SelectedCategoryIds))
             .ToList();
-        await manager.SetSelectedIndexersAsync(items);
+        await manager.SetSelectedIndexersAsync(libraryId, items);
         return NoContent();
     }
 

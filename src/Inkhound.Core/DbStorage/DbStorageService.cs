@@ -107,6 +107,38 @@ public class DbStorageService : BaseService<DbStorageOption>
             await db.Database.ExecuteSqlRawAsync(
                 "ALTER TABLE SelectedIndexers ADD COLUMN CategoriesJson TEXT NOT NULL DEFAULT ''");
 
+        // LibraryId ajouté en juillet 2026 — la sélection d'indexeurs Prowlarr passe de globale à
+        // par-library. SQLite ne permet pas d'ALTER une clé primaire : on recrée la table avec la
+        // clé composite (LibraryId, IndexerId). La sélection globale existante est copiée sur
+        // CHAQUE library existante (chaque library démarre avec une copie de l'ancienne config,
+        // pas de reset à vide). Si Libraries est vide au moment de la migration, la sélection
+        // legacy est perdue (rien où l'attacher) — comportement voulu, pas un bug.
+        var hasLibraryIdOnSelectedIndexers = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('SelectedIndexers') WHERE name='LibraryId'")
+            .AnyAsync();
+        if (!hasLibraryIdOnSelectedIndexers)
+        {
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE SelectedIndexers RENAME TO SelectedIndexers_Legacy");
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE SelectedIndexers (
+                    LibraryId       TEXT    NOT NULL,
+                    IndexerId       INTEGER NOT NULL,
+                    Name            TEXT    NOT NULL DEFAULT '',
+                    Protocol        TEXT    NOT NULL DEFAULT '',
+                    AddedAt         TEXT    NOT NULL DEFAULT '',
+                    CategoriesJson  TEXT    NOT NULL DEFAULT '',
+                    PRIMARY KEY (LibraryId, IndexerId)
+                )
+                """);
+            await db.Database.ExecuteSqlRawAsync("""
+                INSERT INTO SelectedIndexers (LibraryId, IndexerId, Name, Protocol, AddedAt, CategoriesJson)
+                SELECT L.Id, O.IndexerId, O.Name, O.Protocol, O.AddedAt, O.CategoriesJson
+                FROM SelectedIndexers_Legacy O
+                CROSS JOIN Libraries L
+                """);
+            await db.Database.ExecuteSqlRawAsync("DROP TABLE SelectedIndexers_Legacy");
+        }
+
         // IssueDownloads ajouté en juin 2026 — hashes QBittorrent associés aux issues locales
         var hasIssueDownloads = await db.Database
             .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='IssueDownloads'")

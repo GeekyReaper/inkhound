@@ -1,31 +1,32 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, input, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize, forkJoin } from 'rxjs';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
-  CardBodyComponent, CardComponent,
-  ColComponent, ContainerComponent,
+  CardBodyComponent, CardComponent, CardHeaderComponent,
+  ColComponent, RowComponent,
   FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
   ModalBodyComponent, ModalComponent, ModalFooterComponent, ModalHeaderComponent,
-  RowComponent, SpinnerComponent
+  SpinnerComponent
 } from '@coreui/angular';
 import {
   IndexerSelection, ProwlarrIndexer, ProwlarrService, SelectedIndexer
 } from '../../core/services/prowlarr.service';
 
 @Component({
-  selector: 'app-indexers',
-  standalone: true,
-  templateUrl: './indexers.component.html',
+  selector: 'app-library-indexers',
+  templateUrl: './library-indexers.component.html',
   imports: [
-    ContainerComponent, RowComponent, ColComponent,
-    CardComponent, CardBodyComponent,
+    RowComponent, ColComponent,
+    CardComponent, CardHeaderComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, BadgeComponent,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent
   ]
 })
-export class IndexersComponent {
+export class LibraryIndexersComponent implements OnInit {
+  libraryId = input.required<string>();
+
   private prowlarrService = inject(ProwlarrService);
   readonly #destroyRef    = inject(DestroyRef);
 
@@ -39,10 +40,10 @@ export class IndexersComponent {
   saveSuccess        = signal(false);
   error              = signal<string | null>(null);
 
-  constructor() {
+  ngOnInit() {
     forkJoin({
       all:      this.prowlarrService.getIndexers(),
-      selected: this.prowlarrService.getSelectedIndexers()
+      selected: this.prowlarrService.getSelectedIndexers(this.libraryId())
     }).pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next: ({ all, selected }) => {
@@ -151,7 +152,7 @@ export class IndexersComponent {
     this.saveSuccess.set(false);
     this.error.set(null);
 
-    this.prowlarrService.setSelectedIndexers(toSave)
+    this.prowlarrService.setSelectedIndexers(this.libraryId(), toSave)
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
         finalize(() => this.saving.set(false))

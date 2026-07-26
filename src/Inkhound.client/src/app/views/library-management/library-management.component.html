@@ -199,6 +199,14 @@
     </c-row>
   }
 
+  @if (mode() === 'edit') {
+    <c-row class="mt-4">
+      <c-col md="8" lg="6">
+        <app-library-indexers [libraryId]="editingLibrary()!.id" />
+      </c-col>
+    </c-row>
+  }
+
 </c-container>
 
 <!-- SelectPath modal -->

@@ -44,7 +44,7 @@ public class DbStorageContext : DbContext
             .HasConversion<string>();
 
         modelBuilder.Entity<SelectedIndexer>()
-            .HasKey(si => si.IndexerId);
+            .HasKey(si => new { si.LibraryId, si.IndexerId });
 
         modelBuilder.Entity<IssueDownload>()
             .Property(d => d.Status)

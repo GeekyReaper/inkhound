@@ -1855,20 +1855,21 @@ public class InkhoundManager : BaseServiceManager
         return await prowlarr.GetIndexersAsync(ct);
     }
 
-    public async Task<List<SelectedIndexer>> GetSelectedIndexersAsync()
+    public async Task<List<SelectedIndexer>> GetSelectedIndexersAsync(Guid libraryId)
     {
-        return await GetDb().SelectedIndexers.ToListAsync();
+        return await GetDb().SelectedIndexers.Where(si => si.LibraryId == libraryId).ToListAsync();
     }
 
     public async Task SetSelectedIndexersAsync(
-        List<(ProwlarrIndexer Indexer, List<int> CategoryIds)> items)
+        Guid libraryId, List<(ProwlarrIndexer Indexer, List<int> CategoryIds)> items)
     {
         var ctx = GetDb();
-        ctx.SelectedIndexers.RemoveRange(ctx.SelectedIndexers);
+        ctx.SelectedIndexers.RemoveRange(ctx.SelectedIndexers.Where(si => si.LibraryId == libraryId));
         foreach (var (indexer, categoryIds) in items)
         {
             ctx.SelectedIndexers.Add(new SelectedIndexer
             {
+                LibraryId      = libraryId,
                 IndexerId      = indexer.Id,
                 Name           = indexer.Name,
                 Protocol       = indexer.Protocol,
@@ -1934,9 +1935,9 @@ public class InkhoundManager : BaseServiceManager
                 return;
             }
 
-            // Indexers : paramètre explicite ou sélection persistée
+            // Indexers : paramètre explicite ou sélection persistée pour la library du volume
             int[]? indexerIds = parameters.IndexerIds;
-            var saved = await ctx.SelectedIndexers.ToListAsync();
+            var saved = await ctx.SelectedIndexers.Where(si => si.LibraryId == volume.LibraryId).ToListAsync();
             if (indexerIds is null or { Length: 0 })
                 indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
 

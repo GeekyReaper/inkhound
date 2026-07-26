@@ -76,12 +76,12 @@ export class ProwlarrService {
     return this.http.get<ProwlarrIndexer[]>('/api/prowlarr/indexers');
   }
 
-  getSelectedIndexers() {
-    return this.http.get<SelectedIndexer[]>('/api/prowlarr/selected-indexers');
+  getSelectedIndexers(libraryId: string) {
+    return this.http.get<SelectedIndexer[]>(`/api/prowlarr/libraries/${libraryId}/selected-indexers`);
   }
 
-  setSelectedIndexers(indexers: IndexerSelection[]) {
-    return this.http.put<void>('/api/prowlarr/selected-indexers', { indexers });
+  setSelectedIndexers(libraryId: string, indexers: IndexerSelection[]) {
+    return this.http.put<void>(`/api/prowlarr/libraries/${libraryId}/selected-indexers`, { indexers });
   }
 
   // Lance la recherche Prowlarr comme un Job (peut prendre plusieurs secondes — un appel par

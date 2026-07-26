@@ -15,7 +15,7 @@ import { EState, EValueType, OptionDefinition } from '../../core/models/hub.mode
 import { SelectPathComponent } from '../select-path/select-path.component';
 
 @Component({
-  selector: 'app-settings',
+  selector: 'app-modules',
   standalone: true,
   imports: [
     Tabs2Module, ReactiveFormsModule,
@@ -24,9 +24,9 @@ import { SelectPathComponent } from '../select-path/select-path.component';
     FormFeedbackComponent, BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent,
     IconDirective, SelectPathComponent, InputGroupComponent, FormSelectDirective
   ],
-  templateUrl: './settings.component.html'
+  templateUrl: './modules.component.html'
 })
-export class SettingsComponent implements OnInit {
+export class ModulesComponent implements OnInit {
   private optionsService = inject(OptionsService);
   private hubService     = inject(HubService);
   readonly #destroyRef   = inject(DestroyRef);
