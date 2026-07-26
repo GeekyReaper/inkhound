@@ -68,6 +68,11 @@ export const routes: Routes = [
         data: { title: 'Libraries' }
       },
       {
+        path: 'users',
+        loadComponent: () => import('./views/user-management/user-management.component').then(m => m.UserManagementComponent),
+        data: { title: 'Users' }
+      },
+      {
         path: 'jobs',
         loadComponent: () => import('./views/jobs/jobs.component').then(m => m.JobsComponent),
         data: { title: 'Jobs' }

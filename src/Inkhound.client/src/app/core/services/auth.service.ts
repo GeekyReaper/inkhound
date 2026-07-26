@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { tap } from 'rxjs';
+import { Observable, of } from 'rxjs';
+import { catchError, shareReplay, switchMap, tap } from 'rxjs/operators';
 
 interface LoginResponse {
   token: string;
@@ -18,18 +19,29 @@ export interface CurrentUser {
 export class AuthService {
   private http = inject(HttpClient);
   private token = signal<string | null>(localStorage.getItem('inkhound_token'));
-  private _currentUser = signal<CurrentUser | null>(this.parseUserFromStorage());
+  private _currentUser = signal<CurrentUser | null>(null);
+
+  // Cache la résolution de session le temps du chargement d'app (voir resolveSession()) — réinitialisé
+  // au logout pour forcer une nouvelle résolution à la prochaine navigation.
+  private session$: Observable<CurrentUser | null> | null = null;
 
   currentUser = this._currentUser.asReadonly();
-  isAuthenticated = computed(() => !!this.token() && !!this._currentUser());
+
+  // Résolu via /api/auth/me plutôt que par la seule présence d'un token local : en mode bootstrap
+  // ouvert (aucun utilisateur en base côté backend), currentUser est peuplé sans qu'aucun token
+  // n'ait jamais existé.
+  isAuthenticated = computed(() => !!this._currentUser());
 
   login(login: string, password: string) {
+    // Invalide le cache de resolveSession() : sans ça, authGuard rejouerait après la navigation vers
+    // /dashboard l'Observable mis en cache AVANT la connexion (résolu à null via shareReplay), et
+    // renverrait aussitôt l'utilisateur vers /login malgré un login réussi.
+    this.session$ = null;
     return this.http.post<LoginResponse>('/api/auth/login', { login, password }).pipe(
-      tap(res => {
-        const user = this.decodeJwt(res.token);
+      switchMap(res => {
         localStorage.setItem('inkhound_token', res.token);
         this.token.set(res.token);
-        this._currentUser.set(user);
+        return this.fetchMe();
       })
     );
   }
@@ -38,22 +50,28 @@ export class AuthService {
     localStorage.removeItem('inkhound_token');
     this.token.set(null);
     this._currentUser.set(null);
+    this.session$ = null;
   }
 
   getToken() { return this.token(); }
 
-  private parseUserFromStorage(): CurrentUser | null {
-    const token = localStorage.getItem('inkhound_token');
-    if (!token) return null;
-    try { return this.decodeJwt(token); } catch { return null; }
+  // Appelée par authGuard — ne fait l'appel réseau qu'une fois par chargement d'app (mis en cache via
+  // shareReplay), résout la session courante que ce soit via un vrai JWT ou via le bypass "mode
+  // bootstrap ouvert" côté backend (voir Inkhound.Web/CLAUDE.md, section Auth JWT).
+  resolveSession(): Observable<CurrentUser | null> {
+    if (!this.session$) {
+      this.session$ = this.fetchMe().pipe(shareReplay(1));
+    }
+    return this.session$;
   }
 
-  private decodeJwt(token: string): CurrentUser {
-    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(base64));
-    const role = payload.role
-      ?? payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role']
-      ?? '';
-    return { id: payload.sub, login: payload.name, role };
+  private fetchMe(): Observable<CurrentUser | null> {
+    return this.http.get<CurrentUser>('/api/auth/me').pipe(
+      tap(user => this._currentUser.set(user)),
+      catchError(() => {
+        this._currentUser.set(null);
+        return of(null);
+      })
+    );
   }
 }

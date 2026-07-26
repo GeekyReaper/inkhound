@@ -1,0 +1,171 @@
+<c-container class="py-4">
+
+  <!-- ── LIST MODE ─────────────────────────────────────────── -->
+  @if (mode() === 'list') {
+    <c-row class="mb-3 align-items-center">
+      <c-col>
+        <h2 class="mb-0">Users</h2>
+      </c-col>
+      <c-col xs="auto">
+        <button cButton color="primary" (click)="showAddForm()">
+          Add User
+        </button>
+      </c-col>
+    </c-row>
+
+    @if (loadingList()) {
+      <c-row>
+        <c-col class="d-flex justify-content-center py-5">
+          <c-spinner color="primary"></c-spinner>
+        </c-col>
+      </c-row>
+    } @else if (listError()) {
+      <c-row>
+        <c-col>
+          <c-alert color="danger">{{ listError() }}</c-alert>
+        </c-col>
+      </c-row>
+    } @else {
+      @if (users().length === 0) {
+        <c-row class="mb-3">
+          <c-col>
+            <c-alert color="info">
+              No users yet — the application is currently open (no login required). Add a user below to
+              enable authentication for the whole app.
+            </c-alert>
+          </c-col>
+        </c-row>
+      }
+      <c-row>
+        <c-col>
+          <table cTable [hover]="true" [responsive]="true">
+            <thead>
+              <tr>
+                <th>Login</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (user of users(); track user.id) {
+                <tr>
+                  <td>{{ user.login }}</td>
+                  <td>{{ user.createdAt | date:'short' }}</td>
+                  <td class="text-end text-nowrap">
+                    <button cButton color="ghost-secondary" size="sm" (click)="showEditForm(user)" title="Edit">
+                      <svg cIcon name="cilPencil" size="sm"></svg>
+                    </button>
+                    <button cButton color="ghost-danger" size="sm" (click)="requestDelete(user)" title="Delete">
+                      <svg cIcon name="cilTrash" size="sm"></svg>
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </c-col>
+      </c-row>
+    }
+  }
+
+  <!-- ── ADD / EDIT MODE ──────────────────────────────────── -->
+  @if (mode() === 'add' || mode() === 'edit') {
+    <c-row class="mb-3 align-items-center">
+      <c-col>
+        <h2 class="mb-0">{{ mode() === 'edit' ? 'Edit User' : 'Add User' }}</h2>
+      </c-col>
+    </c-row>
+
+    <c-row>
+      <c-col md="8" lg="6">
+        <c-card>
+          <c-card-body>
+            <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+
+              <!-- Login -->
+              <div class="mb-3">
+                <label cLabel for="login">Login <span class="text-danger">*</span></label>
+                <input
+                  cFormControl
+                  id="login"
+                  formControlName="login"
+                  type="text"
+                  placeholder="Login"
+                  [class.is-invalid]="form.controls.login.invalid && form.controls.login.touched"
+                />
+              </div>
+
+              <!-- Password -->
+              <div class="mb-4">
+                <label cLabel for="password">
+                  Password @if (mode() === 'add') { <span class="text-danger">*</span> }
+                </label>
+                <input
+                  cFormControl
+                  id="password"
+                  formControlName="password"
+                  type="password"
+                  [placeholder]="mode() === 'edit' ? 'Leave empty to keep current password' : 'Password'"
+                  [class.is-invalid]="form.controls.password.invalid && form.controls.password.touched"
+                />
+              </div>
+
+              <!-- Error -->
+              @if (saveStatus() === 'error') {
+                <c-alert color="danger" class="mb-3">{{ saveError() }}</c-alert>
+              }
+
+              <!-- Actions -->
+              <div class="d-flex gap-2">
+                <button cButton color="secondary" type="button" (click)="cancelAdd()">
+                  Cancel
+                </button>
+                <button cButton color="primary" type="submit" [disabled]="saving()">
+                  @if (saving()) {
+                    <c-spinner size="sm" class="me-2"></c-spinner>
+                    Saving…
+                  } @else {
+                    {{ mode() === 'edit' ? 'Save Changes' : 'Save' }}
+                  }
+                </button>
+              </div>
+
+            </form>
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+  }
+
+</c-container>
+
+<!-- Delete confirmation modal -->
+<c-modal
+  [visible]="confirmDeleteVisible()"
+  (visibleChange)="confirmDeleteVisible.set($event)"
+  backdrop="static"
+>
+  <c-modal-header>
+    <h5 cModalTitle>Delete User</h5>
+    <button cButtonClose [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p>Are you sure you want to delete <strong>{{ deleteTarget()?.login }}</strong>?</p>
+    <p class="text-muted small mb-0">This action cannot be undone.</p>
+    @if (deleteError()) {
+      <c-alert color="danger" class="mt-3 mb-0">{{ deleteError() }}</c-alert>
+    }
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)">
+      Cancel
+    </button>
+    <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+      @if (deleting()) {
+        <c-spinner size="sm" class="me-2"></c-spinner>Deleting…
+      } @else {
+        Delete
+      }
+    </button>
+  </c-modal-footer>
+</c-modal>

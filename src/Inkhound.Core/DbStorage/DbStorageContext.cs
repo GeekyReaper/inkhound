@@ -19,6 +19,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
+    public DbSet<User> Users => Set<User>();
+
     public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -47,6 +49,10 @@ public class DbStorageContext : DbContext
         modelBuilder.Entity<IssueDownload>()
             .Property(d => d.Status)
             .HasConversion<string>();
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Login)
+            .IsUnique();
 
         // Authors serialized as JSON column
         modelBuilder.Entity<Volume>()

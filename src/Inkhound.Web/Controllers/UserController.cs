@@ -1,75 +1,52 @@
-using System.IdentityModel.Tokens.Jwt;
-using Inkhound.Web.Auth;
+using Inkhound.Core;
+using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inkhound.Web.Controllers;
 
+public record CreateUserRequest(string Login, string Password);
+public record UpdateUserRequest(string? Login, string? Password);
+
 [ApiController]
 [Route("api/users")]
 [Authorize]
-public class UserController(IUserStore users) : ControllerBase
+public class UserController(InkhoundManager manager) : ControllerBase
 {
-    private record UserDto(string Id, string Login, string Role);
-    private static UserDto ToDto(UserRecord u) => new(u.Id, u.Login, u.Role);
+    private record UserDto(Guid Id, string Login, DateTime CreatedAt);
+    private static UserDto ToDto(User u) => new(u.Id, u.Login, u.CreatedAt);
 
-    // GET /api/users — admin only
+    // GET /api/users
     [HttpGet]
-    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetAll()
-        => Ok((await users.GetAllAsync()).Select(ToDto));
+        => Ok((await manager.GetUsersAsync()).Select(ToDto));
 
-    // GET /api/users/{id} — admin: all / guest: self only
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(string id)
+    // GET /api/users/{id}
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
     {
-        if (!User.IsInRole("admin") && CallerId() != id) return Forbid();
-        var user = await users.GetByIdAsync(id);
+        var user = await manager.GetUserByIdAsync(id);
         return user is null ? NotFound() : Ok(ToDto(user));
     }
 
-    // POST /api/users — admin only
+    // POST /api/users
     [HttpPost]
-    [Authorize(Roles = "admin")]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
-        try
-        {
-            var created = await users.CreateAsync(request);
-            return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDto(created));
-        }
-        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
-        catch (ArgumentException ex)         { return BadRequest(new { message = ex.Message }); }
+        var created = await manager.CreateUserAsync(request.Login, request.Password);
+        return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDto(created));
     }
 
-    // PUT /api/users/{id} — admin or self (guest cannot change own role)
-    [HttpPut("{id}")]
-    public async Task<IActionResult> Update(string id, [FromBody] UpdateUserRequest request)
+    // PUT /api/users/{id}
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request)
+        => Ok(ToDto(await manager.UpdateUserAsync(id, request.Login, request.Password)));
+
+    // DELETE /api/users/{id}
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
     {
-        var isAdmin = User.IsInRole("admin");
-        if (!isAdmin && CallerId() != id)    return Forbid();
-        if (!isAdmin && request.Role != null) return Forbid();
-
-        try
-        {
-            return Ok(ToDto(await users.UpdateAsync(id, request)));
-        }
-        catch (KeyNotFoundException)         { return NotFound(); }
-        catch (InvalidOperationException ex) { return Conflict(new { message = ex.Message }); }
-        catch (ArgumentException ex)         { return BadRequest(new { message = ex.Message }); }
+        await manager.DeleteUserAsync(id);
+        return NoContent();
     }
-
-    // DELETE /api/users/{id} — admin only, no self-delete
-    [HttpDelete("{id}")]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> Delete(string id)
-    {
-        if (CallerId() == id)
-            return BadRequest(new { message = "Cannot delete your own account." });
-        try   { await users.DeleteAsync(id); return NoContent(); }
-        catch (KeyNotFoundException) { return NotFound(); }
-    }
-
-    private string? CallerId() =>
-        User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
 }

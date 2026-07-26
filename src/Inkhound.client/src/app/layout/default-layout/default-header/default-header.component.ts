@@ -26,6 +26,7 @@ import {
 
 import { IconDirective } from '@coreui/icons-angular';
 import { HubService } from '../../../core/services/hub.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-default-header',
@@ -47,6 +48,7 @@ export class DefaultHeaderComponent extends HeaderComponent {
   readonly #hub              = inject(HubService);
   readonly #router           = inject(Router);
   readonly #activatedRoute   = inject(ActivatedRoute);
+  readonly #auth             = inject(AuthService);
 
   readonly colorMode = this.#colorModeService.colorMode;
 
@@ -90,6 +92,11 @@ export class DefaultHeaderComponent extends HeaderComponent {
 
   constructor() {
     super();
+  }
+
+  logout() {
+    this.#auth.logout();
+    this.#router.navigateByUrl('/login');
   }
 
   #buildBreadcrumbs(): Array<{ label: string; url: string }> {

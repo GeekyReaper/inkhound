@@ -5,6 +5,7 @@ using Inkhound.Web.Auth;
 using Inkhound.Web.Hubs;
 using Inkhound.Web.Middleware;
 using Inkhound.Web.Startup;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
@@ -67,7 +68,6 @@ builder.Services.AddSwaggerGen(c =>
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton(signingKey);
-builder.Services.AddSingleton<IUserStore, FileUserStore>();
 builder.Services.AddSingleton<JwtService>();
 
 builder.Services.AddAuthentication(options =>
@@ -103,10 +103,17 @@ builder.Services.AddAuthentication(options =>
         };
     })
     .AddScheme<ApiKeyAuthenticationSchemeOptions, ApiKeyAuthenticationHandler>("ApiKey", _ => { })
-    .AddPolicyScheme("Smart", "JWT or API Key", options =>
+    .AddScheme<AuthenticationSchemeOptions, OpenAccessAuthenticationHandler>("OpenAccess", _ => { })
+    .AddPolicyScheme("Smart", "JWT or API Key or Open", options =>
     {
+        // Tant qu'aucun utilisateur n'existe en base (mode bootstrap ouvert), toute requête sans
+        // X-Api-Key est authentifiée transparemment comme admin virtuel — voir OpenAccessAuthenticationHandler.
         options.ForwardDefaultSelector = context =>
-            context.Request.Headers.ContainsKey("X-Api-Key") ? "ApiKey" : JwtBearerDefaults.AuthenticationScheme;
+        {
+            if (context.Request.Headers.ContainsKey("X-Api-Key")) return "ApiKey";
+            var manager = context.RequestServices.GetRequiredService<InkhoundManager>();
+            return manager.HasUsers ? JwtBearerDefaults.AuthenticationScheme : "OpenAccess";
+        };
     });
 
 builder.Services.AddAuthorization();

@@ -17,12 +17,12 @@ Inkhound.Web/
 │   ├── KavitaController.cs       # /api/kavita (test connexion, scan)
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
 │   └── OptionsController.cs      # /api/options (settings app)
-├── Auth/                         # JWT + UserStore fichier
+├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace
 ├── Middleware/ExceptionMiddleware.cs
 ├── Startup/InkhoundManagerInitializer.cs  # IHostedService — init au démarrage
 ├── Program.cs
-└── data/system/                  # jwt.key + users.json (volume Docker)
+└── data/system/                  # jwt-key.json (volume Docker) + users.json (legacy, sauvegarde inerte)
 ```
 
 ## Conventions controllers
@@ -73,19 +73,21 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 
 ## Auth JWT
 
-- Clé auto-générée dans `data/system/jwt.key` par `JwtKeyInitializer` (IHostedService)
-- Mots de passe : PBKDF2/SHA-256, 100 000 itérations
-- Deux rôles : `admin` (accès total) et `guest` (lecture seule profil)
+- Clé auto-générée dans `data/system/jwt-key.json` inline dans `Program.cs` (`JwtKeyInitializer.cs` est du code mort, non enregistré — ne pas y toucher)
+- Utilisateurs persistés dans la table SQLite `Users` (`Inkhound.Core.Models.User`, CRUD dans `InkhoundManager`) — `data/system/users.json` (ancien `FileUserStore`) n'est plus qu'une sauvegarde legacy inerte, importée une seule fois à la création de la table
+- Mots de passe : PBKDF2/SHA-256, 100 000 itérations (`Inkhound.Core.Security.PasswordHasher`)
+- **Un seul rôle : `admin`** — pas de notion de rôle multiple, tout principal authentifié a un accès total
+- **Mode bootstrap ouvert** : tant qu'aucun utilisateur n'existe en base (`InkhoundManager.HasUsers == false`), le scheme "Smart" (`Program.cs`) route toute requête sans `X-Api-Key` vers `OpenAccessAuthenticationHandler`, qui authentifie systématiquement une identité virtuelle (`login="guest"`, `role="admin"`, non persistée) — l'app entière est alors utilisable sans connexion. Dès qu'un premier utilisateur réel est créé via `POST /api/users`, ce bypass cesse pour toutes les requêtes suivantes. Aucun garde-fou de suppression (auto-suppression, dernier utilisateur) : si `Users` redevient vide, l'app repasse naturellement en mode ouvert.
 - Token transmis en header `Authorization: Bearer {token}`
 - Pour SignalR : token en query string `?access_token={token}`
 
 ## Routes API
 
-| Méthode | Route | Rôle | Description |
+| Méthode | Route | Auth | Description |
 |---|---|---|---|
 | POST | `/api/auth/login` | public | Login, retourne JWT |
-| GET | `/api/auth/me` | auth | Profil courant |
-| GET/POST/PUT/DELETE | `/api/users` | admin | CRUD utilisateurs |
+| GET | `/api/auth/me` | auth | Profil courant (fonctionne aussi en mode bootstrap ouvert) |
+| GET/POST/PUT/DELETE | `/api/users` | auth | CRUD utilisateurs (rôle unique, pas de restriction supplémentaire) |
 | GET/POST/PUT/DELETE | `/api/libraries` | admin | CRUD librairies |
 | GET/POST/PUT/DELETE | `/api/volumes` | auth | CRUD volumes |
 | GET/POST/PUT/DELETE | `/api/issues` | auth | CRUD issues |

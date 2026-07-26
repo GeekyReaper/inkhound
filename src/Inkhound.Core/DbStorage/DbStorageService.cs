@@ -1,7 +1,9 @@
 using System;
 using System.ComponentModel;
+using System.Text.Json;
 using Foundation.Core;
 using Foundation.Core.Model;
+using Inkhound.Core.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Inkhound.Core.DbStorage;
@@ -191,7 +193,69 @@ public class DbStorageService : BaseService<DbStorageOption>
             await db.Database.ExecuteSqlRawAsync(
                 "CREATE UNIQUE INDEX IF NOT EXISTS IX_ApiTokens_TokenHash ON ApiTokens(TokenHash)");
         }
+
+        // Users ajouté en juillet 2026 — remplace le fichier data/system/users.json (FileUserStore).
+        // L'import legacy ne doit se déclencher qu'à la création de la table, jamais sur le critère
+        // "table vide" : sinon supprimer volontairement tous les comptes pour revenir en mode bootstrap
+        // ouvert réimporterait l'ancien admin au redémarrage suivant.
+        var hasUsersTable = await db.Database
+            .SqlQueryRaw<string>("SELECT name FROM sqlite_master WHERE type='table' AND name='Users'")
+            .AnyAsync();
+        if (!hasUsersTable)
+        {
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE IF NOT EXISTS Users (
+                    Id           TEXT NOT NULL PRIMARY KEY,
+                    Login        TEXT NOT NULL,
+                    PasswordHash TEXT NOT NULL,
+                    CreatedAt    TEXT NOT NULL,
+                    UpdatedAt    TEXT NOT NULL
+                )
+                """);
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS IX_Users_Login ON Users(Login)");
+
+            await ImportLegacyUsersAsync(db);
+        }
     }
+
+    // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien
+    // FileUserStore (le rôle disparaît, un seul rôle "admin" existe désormais). Le fichier legacy n'est
+    // jamais supprimé : il reste une sauvegarde inerte. Toute erreur (fichier absent/corrompu) est
+    // avalée silencieusement pour ne jamais bloquer le démarrage.
+    private static async Task ImportLegacyUsersAsync(DbStorageContext db)
+    {
+        const string legacyPath = "data/system/users.json";
+        try
+        {
+            if (!File.Exists(legacyPath)) return;
+
+            var json = await File.ReadAllTextAsync(legacyPath);
+            var legacyUsers = JsonSerializer.Deserialize<List<LegacyUserRecord>>(json);
+            if (legacyUsers is null || legacyUsers.Count == 0) return;
+
+            var now = DateTime.UtcNow;
+            foreach (var legacy in legacyUsers)
+            {
+                if (!Guid.TryParse(legacy.Id, out var id)) id = Guid.NewGuid();
+                db.Users.Add(new User
+                {
+                    Id           = id,
+                    Login        = legacy.Login,
+                    PasswordHash = legacy.PasswordHash,
+                    CreatedAt    = now,
+                    UpdatedAt    = now
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+        catch
+        {
+            // Import best-effort — une install fraîche sans fichier legacy est le cas nominal.
+        }
+    }
+
+    private record LegacyUserRecord(string Id, string Login, string PasswordHash, string Role);
 
     private static async Task AddColumnIfMissingAsync(DbStorageContext db, string table, string column, string sqlTypeAndConstraint)
     {

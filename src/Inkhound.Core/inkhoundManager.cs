@@ -2,6 +2,7 @@ using Inkhound.Core.ApiTokens;
 using Inkhound.Core.Bedetheque;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
+using Inkhound.Core.Security;
 using Inkhound.Core.Sources;
 using Foundation.Core.Model;
 using Foundation.Core;
@@ -106,6 +107,8 @@ public class InkhoundManager : BaseServiceManager
 
         if (await databaseService.LoadOptions(databaseoption.GetOptions()))
         {
+            _hasUsers = await GetDb().Users.AnyAsync();
+
             foreach (var service in Services)
             {
                 if (databaseService.GetServiceName() != service.Value.GetServiceName())
@@ -187,6 +190,66 @@ public class InkhoundManager : BaseServiceManager
     public async Task<Library?> GetLibraryAsync(Guid id)
     {
         return await GetDb().Libraries.FindAsync(id);
+    }
+
+    public record DashboardLibraryStats(Guid Id, string Name, int VolumesCount, int IssuesCount, int DownloadedIssuesCount);
+
+    public record DashboardStats(
+        int LibrariesCount,
+        int VolumesCount, int VolumesMonitored, int VolumesCompleted, int VolumesPaused,
+        int IssuesCount, int IssuesDownloaded, int IssuesDownloading, int IssuesMissing,
+        long TotalDownloadedBytes,
+        List<DashboardLibraryStats> Libraries,
+        List<Volume> RecentVolumes);
+
+    // Vue d'ensemble toutes bibliothèques confondues pour la page Dashboard — aucun agrégat de
+    // ce type n'existait jusqu'ici (les autres méthodes de lecture sont scopées à une
+    // library/un volume). Lecture simple, pas un Job.
+    public async Task<DashboardStats> GetDashboardStatsAsync(CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+
+        var librariesCount = await ctx.Libraries.CountAsync(ct);
+
+        var volumesCount     = await ctx.Volumes.CountAsync(ct);
+        var volumesMonitored = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.MONITORED, ct);
+        var volumesCompleted = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.COMPLETED, ct);
+        var volumesPaused    = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.PAUSED, ct);
+
+        var issuesCount       = await ctx.Issues.CountAsync(ct);
+        var issuesDownloaded  = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADED, ct);
+        var issuesDownloading = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADING, ct);
+        var issuesMissing     = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.MISSING, ct);
+
+        // FileSizeBytes est un int — cast en long avant SUM pour éviter un dépassement sur une
+        // grosse bibliothèque (le total cumulé dépasse largement int.MaxValue).
+        var totalDownloadedBytes = await ctx.Issues
+            .Where(i => i.Status == IssueStatus.DOWNLOADED)
+            .SumAsync(i => (long)i.FileSizeBytes, ct);
+
+        var libraries = await ctx.Libraries.ToListAsync(ct);
+        var libraryStats = new List<DashboardLibraryStats>();
+        foreach (var lib in libraries)
+        {
+            var volumes = await ctx.Volumes.Where(v => v.LibraryId == lib.Id).ToListAsync(ct);
+            libraryStats.Add(new DashboardLibraryStats(
+                lib.Id, lib.Name, volumes.Count,
+                volumes.Sum(v => v.CountOfIssues),
+                volumes.Sum(v => v.CountOfDownloadedIssues)));
+        }
+
+        var recentVolumes = await ctx.Volumes
+            .OrderByDescending(v => v.DateAdded)
+            .Take(6)
+            .ToListAsync(ct);
+
+        return new DashboardStats(
+            librariesCount,
+            volumesCount, volumesMonitored, volumesCompleted, volumesPaused,
+            issuesCount, issuesDownloaded, issuesDownloading, issuesMissing,
+            totalDownloadedBytes,
+            libraryStats,
+            recentVolumes);
     }
 
     public async Task<Library> CreateLibraryAsync(string name, string path, int kavitaLibraryId, string kavitaPath = "")
@@ -633,6 +696,77 @@ public class InkhoundManager : BaseServiceManager
         token.LastUsedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return token;
+    }
+
+    #endregion
+
+    #region Users
+
+    // Cache synchrone lu par le sélecteur du scheme "Smart" (Inkhound.Web/Program.cs), qui ne peut pas
+    // être async. Initialisé dans AutomaticLoadServices() une fois la base garantie prête, puis tenu à
+    // jour à chaque création/suppression d'utilisateur.
+    private volatile bool _hasUsers;
+    public bool HasUsers => _hasUsers;
+
+    public Task<List<User>> GetUsersAsync()
+        => GetDb().Users.OrderBy(u => u.Login).ToListAsync();
+
+    public Task<User?> GetUserByIdAsync(Guid id)
+        => GetDb().Users.FirstOrDefaultAsync(u => u.Id == id);
+
+    public async Task<User> CreateUserAsync(string login, string password)
+    {
+        if (string.IsNullOrWhiteSpace(login))    throw new ArgumentException("Login is required.");
+        if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Password is required.");
+
+        var db = GetDb();
+        if (await db.Users.AnyAsync(u => u.Login == login))
+            throw new InvalidOperationException($"Login '{login}' is already taken.");
+
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            Login = login,
+            PasswordHash = PasswordHasher.Hash(password),
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        _hasUsers = true;
+        return user;
+    }
+
+    public async Task<User> UpdateUserAsync(Guid id, string? login, string? password)
+    {
+        var db = GetDb();
+        var user = await db.Users.FindAsync(id) ?? throw new KeyNotFoundException($"User '{id}' not found.");
+
+        if (login is not null && login != user.Login && await db.Users.AnyAsync(u => u.Login == login))
+            throw new InvalidOperationException($"Login '{login}' is already taken.");
+
+        if (login is not null)    user.Login = login;
+        if (password is not null) user.PasswordHash = PasswordHasher.Hash(password);
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    public async Task DeleteUserAsync(Guid id)
+    {
+        var db = GetDb();
+        var user = await db.Users.FindAsync(id) ?? throw new KeyNotFoundException($"User '{id}' not found.");
+        db.Users.Remove(user);
+        await db.SaveChangesAsync();
+        _hasUsers = await db.Users.AnyAsync();
+    }
+
+    // Appelée par AuthController.Login.
+    public async Task<User?> ValidateUserAsync(string login, string password)
+    {
+        var user = await GetDb().Users.FirstOrDefaultAsync(u => u.Login == login);
+        return user is not null && PasswordHasher.Verify(password, user.PasswordHash) ? user : null;
     }
 
     #endregion

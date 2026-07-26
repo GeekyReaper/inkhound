@@ -14,9 +14,11 @@ Inkhound.Core/
 │   ├── Page.cs          # Page d'une issue
 │   ├── AgeRating.cs     # Enum AgeRating + extension ToKavitaString()
 │   ├── BlobAccess.cs    # Accès fichier binaire
+│   ├── User.cs          # Compte utilisateur (auth) — un seul rôle "admin", pas de propriété Role
 │   ├── ArchiveJobParameters.cs
 │   ├── SynchronizeLibraryJobParameters.cs
 │   └── RegenerateComicInfoJobParameters.cs
+├── Security/            # PasswordHasher.cs — PBKDF2/SHA-256, 100 000 itérations
 ├── ComicVine/           # Intégration API ComicVine
 │   ├── ComicVineSourceService.cs
 │   ├── ComicVineModels.cs
