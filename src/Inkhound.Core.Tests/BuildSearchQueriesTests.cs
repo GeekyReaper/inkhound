@@ -49,4 +49,45 @@ public class BuildSearchQueriesTests
 
         Assert.Equal(["Sillage 15", "Sillage"], queries);
     }
+
+    // ── BuildSearchQueries(Volume) — recherche au niveau Volume, sans Issue ciblée ─────────────
+
+    [Fact]
+    public void BuildSearchQueriesVolume_JeuComplet_GenereLesNiveauxDansLOrdre()
+    {
+        var volume = MakeVolume(publisher: "Delcourt", year: 2012);
+
+        var queries = InkhoundManager.BuildSearchQueries(volume);
+
+        Assert.Equal(
+        [
+            "Sillage Delcourt (2012)",
+            "Sillage (2012)",
+            "Sillage Delcourt",
+            "Sillage intégrale",
+            "Sillage pack",
+            "Sillage",
+        ], queries);
+    }
+
+    [Fact]
+    public void BuildSearchQueriesVolume_JeuMinimal_NeGenereQueLesVariantesPackEtTitre()
+    {
+        var volume = MakeVolume(publisher: null, year: null);
+
+        var queries = InkhoundManager.BuildSearchQueries(volume);
+
+        Assert.Equal(["Sillage intégrale", "Sillage pack", "Sillage"], queries);
+    }
+
+    [Fact]
+    public void BuildSearchQueriesVolume_ContientToujoursLesVariantesIntegraleEtPack()
+    {
+        var volume = MakeVolume(publisher: "Delcourt", year: 2012);
+
+        var queries = InkhoundManager.BuildSearchQueries(volume);
+
+        Assert.Contains("Sillage intégrale", queries);
+        Assert.Contains("Sillage pack", queries);
+    }
 }

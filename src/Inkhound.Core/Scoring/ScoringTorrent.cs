@@ -97,7 +97,8 @@ public static class ScoringTorrent
     // ── Composantes de scoring ─────────────────────────────────────────────
 
     // Comparaison titre normalisé entre volume.Title et result.Title (max 40)
-    private static float ScoreTitle(Volume volume, ProwlarrSearchResult result)
+    // internal : réutilisé par ScoringVolumePack (recherche au niveau Volume, sans Issue précise).
+    internal static float ScoreTitle(Volume volume, ProwlarrSearchResult result)
     {
         var volNorm = TextSimilarity.Normalize(volume.Title);
         var resNorm = TextSimilarity.Normalize(result.Title);
@@ -133,6 +134,13 @@ public static class ScoringTorrent
             .Concat(volume.Authors)
             .DistinctBy(a => TextSimilarity.Normalize(a.Name))
             .ToList();
+        return ScoreAuthorMatch(authors, result);
+    }
+
+    // Correspondance tokenisée nom d'auteur ↔ titre du résultat (max 12).
+    // internal : réutilisé par ScoringVolumePack avec volume.Authors seul (pas d'Issue précise).
+    internal static float ScoreAuthorMatch(List<VolumeAuthor> authors, ProwlarrSearchResult result)
+    {
         if (authors.Count == 0) return 0f;
 
         var titleTokens = TextSimilarity.Normalize(result.Title)
@@ -166,19 +174,7 @@ public static class ScoringTorrent
     private static float ScoreYear(Volume volume, Issue issue, ProwlarrSearchResult result, string torrentType)
     {
         if (torrentType == "PACK")
-        {
-            if (volume.Year is not { } start) return 0f;
-            var end = DateTime.UtcNow.Year;
-
-            if (result.PublishDate is { } published && published.Year >= start && published.Year <= end)
-                return 10f;
-
-            for (var y = start; y <= end; y++)
-                if (result.Title.Contains(y.ToString(), StringComparison.Ordinal))
-                    return 6f;
-
-            return 0f;
-        }
+            return ScoreYearForPack(volume, result);
 
         var year = issue.Year ?? volume.Year;
         if (year is null) return 0f;
@@ -188,8 +184,26 @@ public static class ScoringTorrent
         return 0f;
     }
 
+    // Tolérance d'année pour un PACK (max 10) : toute année entre le début du volume et aujourd'hui.
+    // internal : réutilisé par ScoringVolumePack, où tous les résultats visés sont des compilations.
+    internal static float ScoreYearForPack(Volume volume, ProwlarrSearchResult result)
+    {
+        if (volume.Year is not { } start) return 0f;
+        var end = DateTime.UtcNow.Year;
+
+        if (result.PublishDate is { } published && published.Year >= start && published.Year <= end)
+            return 10f;
+
+        for (var y = start; y <= end; y++)
+            if (result.Title.Contains(y.ToString(), StringComparison.Ordinal))
+                return 6f;
+
+        return 0f;
+    }
+
     // Présence de l'éditeur du volume dans le titre (max 8)
-    private static float ScorePublisher(Volume volume, ProwlarrSearchResult result)
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ScorePublisher(Volume volume, ProwlarrSearchResult result)
     {
         if (string.IsNullOrWhiteSpace(volume.Publisher)) return 0f;
 
@@ -200,7 +214,8 @@ public static class ScoringTorrent
     }
 
     // Plausibilité de la taille (max 10) — progressive pour les PACKs, plage fixe pour les SINGLEs
-    private static float ScoreSize(ProwlarrSearchResult result, string torrentType)
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ScoreSize(ProwlarrSearchResult result, string torrentType)
     {
         if (result.Size <= 0) return 0f;
 
@@ -221,7 +236,8 @@ public static class ScoringTorrent
     }
 
     // Score seeders pour torrents, bonus fixe pour usenet (max 10)
-    private static float ScoreSeeders(ProwlarrSearchResult result)
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ScoreSeeders(ProwlarrSearchResult result)
     {
         // Usenet : pas de seeders, bonus plat
         if (result.Protocol?.Equals("torrent", StringComparison.OrdinalIgnoreCase) != true)
@@ -231,7 +247,8 @@ public static class ScoringTorrent
     }
 
     // Détection du format d'archive dans le titre (max 10)
-    private static float ScoreFormat(ProwlarrSearchResult result, string torrentType)
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ScoreFormat(ProwlarrSearchResult result, string torrentType)
     {
         var title = result.Title;
 

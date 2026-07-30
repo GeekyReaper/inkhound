@@ -24,6 +24,7 @@ import { IconDirective } from '@coreui/icons-angular';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
+import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 
@@ -35,7 +36,7 @@ import { UpdatedData } from '../../core/models/hub.models';
     CardComponent, CardBodyComponent, CardFooterComponent,
     BadgeComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
-    SelectPathComponent,
+    SelectPathComponent, ProwlarrSearchComponent,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent,
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective
   ]

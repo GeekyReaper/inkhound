@@ -29,6 +29,7 @@ export interface TorrentFile {
   index: number;
   name: string;
   size: number;
+  detectedIssueNumber: number | null;
 }
 
 export interface GrabResponse {
@@ -54,12 +55,24 @@ export class QBittorrentService {
     return this.http.get<QBittorrentCategory[]>('/api/qbittorrent/categories');
   }
 
-  grab(downloadUrl: string, issueId: string, selective = false) {
-    return this.http.post<GrabResponse>('/api/qbittorrent/grab', { downloadUrl, issueId, selective });
+  // issueId (flux page Issue) ou volumeId (flux page Volume) — passer l'autre à null.
+  // issueId est requis quand selective=false (grab direct, cible toujours une issue précise).
+  grab(downloadUrl: string, issueId: string | null, volumeId: string | null, selective = false) {
+    return this.http.post<GrabResponse>('/api/qbittorrent/grab', { downloadUrl, issueId, volumeId, selective });
   }
 
-  applySelection(torrentHash: string, issueId: string, selectedFileIndices: number[]) {
-    return this.http.post<void>('/api/qbittorrent/apply-selection', { torrentHash, issueId, selectedFileIndices });
+  // fileIssueOverrides : index de fichier → issueId, pour les fichiers dont le numéro de tome n'a
+  // pas pu être extrait automatiquement (assignation manuelle) — ou pour confirmer une association.
+  applySelection(
+    torrentHash: string,
+    issueId: string | null,
+    volumeId: string | null,
+    selectedFileIndices: number[],
+    fileIssueOverrides?: Record<number, string>
+  ) {
+    return this.http.post<void>('/api/qbittorrent/apply-selection', {
+      torrentHash, issueId, volumeId, selectedFileIndices, fileIssueOverrides
+    });
   }
 
   // statuses vide/omis = pas de filtre côté backend (tous les statuts).

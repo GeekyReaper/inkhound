@@ -36,6 +36,11 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
     private record ScoreDetailsDto(float TitleMatch, float IssueNumberMatch, float YearMatch, float AuthorMatch,
         float PublisherMatch, float SizePlausibility, float SeederScore, float FormatScore);
     private record ScoredResultDto(SearchResultDto Result, float Score, ScoreDetailsDto Details);
+    private record ScoreDetailsVolumeDto(float TitleMatch, float YearMatch, float AuthorMatch, float PublisherMatch,
+        float SizePlausibility, float SeederScore, float FormatScore, float CoverageBonus);
+    private record ScoredVolumeResultDto(
+        SearchResultDto Result, float Score, ScoreDetailsVolumeDto Details,
+        int CoveredIssueCount, int TotalMissingIssueCount);
     private record HistoryItemDto(int Id, string EventType, string SourceTitle, int IndexerId);
 
     private static SearchResultDto ToResultDto(ProwlarrSearchResult r, TorrentAnalysis analysis)
@@ -51,6 +56,15 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
             new ScoreDetailsDto(
                 s.Details.TitleMatch, s.Details.IssueNumberMatch, s.Details.YearMatch, s.Details.AuthorMatch,
                 s.Details.PublisherMatch, s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore));
+
+    private static ScoredVolumeResultDto ToScoredVolumeDto(ScoredSearchResultVolumePack s)
+        => new(
+            ToResultDto(s.Result, s.Analysis),
+            s.Score,
+            new ScoreDetailsVolumeDto(
+                s.Details.TitleMatch, s.Details.YearMatch, s.Details.AuthorMatch, s.Details.PublisherMatch,
+                s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore, s.Details.CoverageBonus),
+            s.CoveredIssueCount, s.TotalMissingIssueCount);
 
     // GET /api/prowlarr/indexers
     [HttpGet("indexers")]
@@ -103,6 +117,25 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
     {
         var result = manager.GetProwlarrSearchJobResult(jobId);
         return result is null ? NotFound() : Ok(result.Select(ToScoredDto));
+    }
+
+    // POST /api/prowlarr/search/volume/{volumeId} — recherche Prowlarr au niveau d'un Volume entier
+    // (toutes ses issues MISSING, pas une issue précise) ; même pattern job/résultat que SearchForIssue.
+    [HttpPost("search/volume/{volumeId:guid}")]
+    public async Task<IActionResult> SearchForVolume(Guid volumeId, [FromQuery] int[]? indexerIds)
+    {
+        var job = await manager.LaunchJobSearchMissingVolume(
+            new ProwlarrVolumeSearchJobParameters { VolumeId = volumeId, IndexerIds = indexerIds });
+        return Accepted(new { jobId = job.JobId });
+    }
+
+    // GET /api/prowlarr/search/volume/{jobId}/result — résultat final d'une recherche lancée via
+    // SearchForVolume ; 404 tant que le job n'est pas terminé.
+    [HttpGet("search/volume/{jobId:guid}/result")]
+    public IActionResult GetVolumeSearchResult(Guid jobId)
+    {
+        var result = manager.GetProwlarrVolumeSearchJobResult(jobId);
+        return result is null ? NotFound() : Ok(result.Select(ToScoredVolumeDto));
     }
 
     // POST /api/prowlarr/grab

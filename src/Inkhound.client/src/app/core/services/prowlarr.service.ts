@@ -63,6 +63,25 @@ export interface ScoredSearchResult {
   details: ScoreDetails;
 }
 
+export interface ScoreDetailsVolumePack {
+  titleMatch: number;
+  yearMatch: number;
+  authorMatch: number;
+  publisherMatch: number;
+  sizePlausibility: number;
+  seederScore: number;
+  formatScore: number;
+  coverageBonus: number;
+}
+
+export interface ScoredSearchResultVolumePack {
+  result: ProwlarrSearchResult;
+  score: number;
+  details: ScoreDetailsVolumePack;
+  coveredIssueCount: number;
+  totalMissingIssueCount: number;
+}
+
 export interface ProwlarrHistoryItem {
   id: number;
   eventType: string;
@@ -99,6 +118,20 @@ export class ProwlarrService {
 
   getSearchJobResult(jobId: string) {
     return this.http.get<ScoredSearchResult[]>(`/api/prowlarr/search/${jobId}/result`);
+  }
+
+  // Recherche Prowlarr au niveau d'un Volume entier (toutes ses issues MISSING, pas une issue
+  // précise) — même pattern job/résultat que startSearchJob/getSearchJobResult.
+  startVolumeSearchJob(volumeId: string, indexerIds?: number[]) {
+    let params: Record<string, string | string[]> = {};
+    if (indexerIds && indexerIds.length > 0) {
+      params['indexerIds'] = indexerIds.map(id => id.toString());
+    }
+    return this.http.post<{ jobId: string }>(`/api/prowlarr/search/volume/${volumeId}`, null, { params });
+  }
+
+  getVolumeSearchJobResult(jobId: string) {
+    return this.http.get<ScoredSearchResultVolumePack[]>(`/api/prowlarr/search/volume/${jobId}/result`);
   }
 
   grab(guid: string, indexerId: number, issueId: string, downloadClientId?: number) {

@@ -1997,6 +1997,116 @@ public class InkhoundManager : BaseServiceManager
         }
     }
 
+    // Résultats de recherche Prowlarr au niveau Volume — même raison que _prowlarrResults (fire-and-forget).
+    private readonly ConcurrentDictionary<Guid, List<ScoredSearchResultVolumePack>> _prowlarrVolumeResults = new();
+
+    public List<ScoredSearchResultVolumePack>? GetProwlarrVolumeSearchJobResult(Guid jobId)
+        => _prowlarrVolumeResults.TryGetValue(jobId, out var result) ? result : null;
+
+    // Lance la recherche Prowlarr au niveau d'un Volume entier (toutes ses issues MISSING, pas une
+    // issue précise) — miroir de LaunchJobSearchMissingIssue.
+    public async Task<JobContext> LaunchJobSearchMissingVolume(ProwlarrVolumeSearchJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(parameters.VolumeId);
+        var jobTitle = volume is not null
+            ? $"Recherche Prowlarr — {volume.Title} (volume complet)"
+            : $"Recherche Prowlarr — {parameters.VolumeId}";
+
+        var job = StartJob(jobTitle, parameters);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunSearchMissingVolumeJobAsync(job, parameters);
+        }
+        return job;
+    }
+
+    private async Task RunSearchMissingVolumeJobAsync(JobContext job, ProwlarrVolumeSearchJobParameters parameters)
+    {
+        var ctx = GetDb();
+        try
+        {
+            var volume = await ctx.Volumes.FindAsync(parameters.VolumeId);
+            if (volume is null)
+            {
+                EndJob(false);
+                return;
+            }
+
+            var missingIssues = await ctx.Issues
+                .Where(i => i.VolumeId == volume.Id && i.Status == IssueStatus.MISSING)
+                .ToListAsync();
+
+            if (missingIssues.Count == 0)
+            {
+                JobSendTrace("[Prowlarr] Aucune issue manquante pour ce volume — rien à chercher", ETraceLevel.WARNING);
+                _prowlarrVolumeResults[job.JobId] = [];
+                EndJob(true);
+                return;
+            }
+
+            var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
+            if (prowlarr.CurrentState.State != EState.OK)
+            {
+                JobSendTrace("[Prowlarr] Service non disponible", ETraceLevel.ERROR);
+                EndJob(false);
+                return;
+            }
+
+            int[]? indexerIds = parameters.IndexerIds;
+            var saved = await ctx.SelectedIndexers.Where(si => si.LibraryId == volume.LibraryId).ToListAsync();
+            if (indexerIds is null or { Length: 0 })
+                indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
+
+            var queries = BuildSearchQueries(volume);
+            job.CallbackHandler.UpdateTotal(queries.Count);
+
+            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) prévues pour \"{volume.Title}\" ({missingIssues.Count} issue(s) manquante(s)) : {string.Join(" | ", queries)}");
+
+            var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
+            List<ProwlarrSearchResult> merged = [];
+
+            foreach (var query in queries)
+            {
+                JobSendTrace($"[Prowlarr] Recherche : {query}");
+                var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+
+                var added = 0;
+                foreach (var r in raw)
+                {
+                    var key = (r.IndexerId, r.Title.Trim().ToLowerInvariant(), r.Size);
+                    if (seen.Add(key))
+                    {
+                        merged.Add(r);
+                        added++;
+                    }
+                }
+
+                JobSendTrace(added > 0
+                    ? $"[Prowlarr] {added} nouveau(x) résultat(s) avec \"{query}\" ({merged.Count} au total)"
+                    : $"[Prowlarr] Aucun nouveau résultat avec \"{query}\"");
+            }
+
+            var results = ScoringVolumePack.ScoreAndSort(volume, missingIssues, merged);
+
+            if (results.Count == 0)
+                JobSendTrace("[Prowlarr] Aucun résultat sur l'ensemble des requêtes", ETraceLevel.WARNING);
+            else
+                JobSendTrace($"[Prowlarr] {results.Count} résultat(s) scoré(s) et triés sur {queries.Count} requête(s) tentées");
+
+            _prowlarrVolumeResults[job.JobId] = results;
+            EndJob(true);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+    }
+
     // Lance l'analyse CBZ en tâche de fond et retourne immédiatement le JobContext (donc son
     // JobId) — miroir de LaunchJobSearchVolumes/LaunchJobSearchMissingIssue. Pas de cache de
     // résultat séparé : les champs d'analyse sont persistés sur l'Issue et OnDataUpdated est
@@ -2199,7 +2309,6 @@ public class InkhoundManager : BaseServiceManager
 
     public async Task<(bool Success, string? TorrentHash, List<QBittorrentTorrentFile>? Files)> GrabPackSelectiveAsync(
         string downloadUrl,
-        Guid issueId,
         CancellationToken ct = default)
     {
         var qb = GetService<QBittorrentService, QBittorrentOptions>();
@@ -2228,10 +2337,15 @@ public class InkhoundManager : BaseServiceManager
         return (true, hash, files.Count > 0 ? files : null);
     }
 
+    // issueId (flux page Issue) ou volumeId (flux page Volume) — au moins l'un des deux doit être
+    // fourni. fileIssueOverrides permet une assignation manuelle (index de fichier → IssueId) pour
+    // les fichiers dont le numéro de tome n'a pas pu être extrait automatiquement.
     public async Task<bool> ApplyPackSelectionAsync(
         string torrentHash,
-        Guid issueId,
+        Guid? issueId,
+        Guid? volumeId,
         int[] selectedFileIndices,
+        Dictionary<int, Guid>? fileIssueOverrides,
         CancellationToken ct = default)
     {
         var qb = GetService<QBittorrentService, QBittorrentOptions>();
@@ -2251,25 +2365,30 @@ public class InkhoundManager : BaseServiceManager
 
         var ctx = GetDb();
 
+        var triggerIssue = issueId is { } id ? await ctx.Issues.FindAsync([id], ct) : null;
+        var resolvedVolumeId = volumeId ?? triggerIssue?.VolumeId;
+
         // Tenter de matcher les fichiers sélectionnés aux issues MISSING du volume
         var selectedFiles = allFiles.Where(f => selectedFileIndices.Contains(f.Index)).ToList();
-        var triggerIssue  = await ctx.Issues.FindAsync([issueId], ct);
         var matchedIds    = new HashSet<Guid>();
 
-        if (triggerIssue is not null)
+        if (resolvedVolumeId is { } targetVolumeId)
         {
             var volumeIssues = await ctx.Issues
-                .Where(i => i.VolumeId == triggerIssue.VolumeId && i.Status == IssueStatus.MISSING)
+                .Where(i => i.VolumeId == targetVolumeId && i.Status == IssueStatus.MISSING)
                 .ToListAsync(ct);
 
             foreach (var file in selectedFiles)
             {
-                var number  = TorrentTypeAnalyzer.ExtractIssueNumber(file.Name);
-                var matched = number.HasValue
-                    ? volumeIssues.FirstOrDefault(i => i.IssueNumber == number.Value && !matchedIds.Contains(i.Id))
+                Issue? matched = fileIssueOverrides is not null && fileIssueOverrides.TryGetValue(file.Index, out var overrideId)
+                    ? volumeIssues.FirstOrDefault(i => i.Id == overrideId && !matchedIds.Contains(i.Id))
                     : null;
 
-                if (matched is null) continue;
+                matched ??= TorrentTypeAnalyzer.ExtractIssueNumber(file.Name) is { } number
+                    ? volumeIssues.FirstOrDefault(i => i.IssueNumber == number && !matchedIds.Contains(i.Id))
+                    : null;
+
+                if (matched is null) continue; // ni override ni numéro reconnu — fichier ignoré
 
                 matched.Status = IssueStatus.DOWNLOADING;
                 ctx.IssueDownloads.Add(new IssueDownload
@@ -2282,17 +2401,19 @@ public class InkhoundManager : BaseServiceManager
             }
         }
 
-        // Fallback : si aucun fichier n'a pu être associé, comportement standard (issue déclencheur)
-        if (matchedIds.Count == 0)
+        // Fallback : si aucun fichier n'a pu être associé et qu'une issue déclencheuse existe
+        // (flux page Issue), comportement standard — rattacher le tout à cette issue. Pas de
+        // fallback équivalent pour le flux page Volume (aucune issue "probable" à privilégier).
+        if (matchedIds.Count == 0 && issueId is { } fallbackIssueId)
         {
-            var fallback = triggerIssue ?? await ctx.Issues.FindAsync([issueId], ct);
+            var fallback = triggerIssue ?? await ctx.Issues.FindAsync([fallbackIssueId], ct);
             if (fallback is not null) fallback.Status = IssueStatus.DOWNLOADING;
             ctx.IssueDownloads.Add(new IssueDownload
             {
-                Id = Guid.NewGuid(), IssueId = issueId,
+                Id = Guid.NewGuid(), IssueId = fallbackIssueId,
                 TorrentHash = torrentHash, Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
             });
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issueId));
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(fallbackIssueId));
         }
 
         await ctx.SaveChangesAsync(ct);
@@ -2631,6 +2752,35 @@ public class InkhoundManager : BaseServiceManager
         candidates.Add(title);
 
         // Déduplication en conservant l'ordre
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return candidates.Where(seen.Add).ToList();
+    }
+
+    // Construit les requêtes du plus précis au plus général à partir des seules informations du
+    // Volume (pas de numéro de tome ciblé) — utilisée pour la recherche "volume complet", dont le
+    // but est de trouver un PACK/une compilation couvrant le plus grand nombre d'issues manquantes.
+    // Inclut des variantes "intégrale"/"pack" pour maximiser les chances de trouver une compilation.
+    internal static List<string> BuildSearchQueries(Volume volume)
+    {
+        var title = volume.Title;
+        var year = volume.Year;
+        var publisher = string.IsNullOrWhiteSpace(volume.Publisher) ? null : volume.Publisher;
+
+        List<string> candidates = [];
+
+        if (publisher is not null && year is not null)
+            candidates.Add($"{title} {publisher} ({year})");
+
+        if (year is not null)
+            candidates.Add($"{title} ({year})");
+
+        if (publisher is not null)
+            candidates.Add($"{title} {publisher}");
+
+        candidates.Add($"{title} intégrale");
+        candidates.Add($"{title} pack");
+        candidates.Add(title);
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         return candidates.Where(seen.Add).ToList();
     }
