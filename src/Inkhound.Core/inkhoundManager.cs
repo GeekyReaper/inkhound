@@ -1129,7 +1129,7 @@ public class InkhoundManager : BaseServiceManager
         }
         catch (Exception ex)
         {
-            JobSendTrace($"[Add] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Add] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
     }
@@ -1310,7 +1310,7 @@ public class InkhoundManager : BaseServiceManager
         }
         catch (Exception ex)
         {
-            JobSendTrace($"[Add] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Add] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
     }
@@ -1758,7 +1758,7 @@ public class InkhoundManager : BaseServiceManager
         }
         catch (Exception ex)
         {
-            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"Unhandled error during import: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
             return;
         }
@@ -1798,7 +1798,7 @@ public class InkhoundManager : BaseServiceManager
         }
         catch (Exception ex)
         {
-            JobSendTrace($"Erreur non gérée lors de l'import: {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"Unhandled error during import: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
             return null;
         }
@@ -1931,7 +1931,7 @@ public class InkhoundManager : BaseServiceManager
             var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
             if (prowlarr.CurrentState.State != EState.OK)
             {
-                JobSendTrace("[Prowlarr] Service non disponible", ETraceLevel.ERROR);
+                JobSendTrace("[Prowlarr] Service unavailable", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
@@ -1945,7 +1945,7 @@ public class InkhoundManager : BaseServiceManager
             var queries = BuildSearchQueries(volume, issue);
             job.CallbackHandler.UpdateTotal(queries.Count);
 
-            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) prévues pour \"{volume.Title} #{issue.IssueNumber}\" : {string.Join(" | ", queries)}");
+            JobSendTrace($"[Prowlarr] {queries.Count} search quer{(queries.Count == 1 ? "y" : "ies")} planned for \"{volume.Title} #{issue.IssueNumber}\": {string.Join(" | ", queries)}");
 
             // Toutes les requêtes de la cascade sont tentées, sans condition d'arrêt anticipé : les requêtes
             // précises ne garantissent pas des résultats pertinents (matching plein texte assez large côté
@@ -1959,7 +1959,7 @@ public class InkhoundManager : BaseServiceManager
 
             foreach (var query in queries)
             {
-                JobSendTrace($"[Prowlarr] Recherche : {query}");
+                JobSendTrace($"[Prowlarr] Searching: {query}");
                 var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
@@ -1976,23 +1976,23 @@ public class InkhoundManager : BaseServiceManager
                 }
 
                 JobSendTrace(added > 0
-                    ? $"[Prowlarr] {added} nouveau(x) résultat(s) avec \"{query}\" ({merged.Count} au total)"
-                    : $"[Prowlarr] Aucun nouveau résultat avec \"{query}\"");
+                    ? $"[Prowlarr] {added} new result(s) with \"{query}\" ({merged.Count} total)"
+                    : $"[Prowlarr] No new results with \"{query}\"");
             }
 
             var results = ScoringTorrent.ScoreAndSort(volume, issue, merged);
 
             if (results.Count == 0)
-                JobSendTrace("[Prowlarr] Aucun résultat sur l'ensemble des requêtes", ETraceLevel.WARNING);
+                JobSendTrace("[Prowlarr] No results across all queries", ETraceLevel.WARNING);
             else
-                JobSendTrace($"[Prowlarr] {results.Count} résultat(s) scoré(s) et triés sur {queries.Count} requête(s) tentées");
+                JobSendTrace($"[Prowlarr] {results.Count} result(s) scored and sorted across {queries.Count} quer{(queries.Count == 1 ? "y" : "ies")} attempted");
 
             _prowlarrResults[job.JobId] = results;
             EndJob(true);
         }
         catch (Exception ex)
         {
-            JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Prowlarr] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
     }
@@ -2040,7 +2040,7 @@ public class InkhoundManager : BaseServiceManager
 
             if (missingIssues.Count == 0)
             {
-                JobSendTrace("[Prowlarr] Aucune issue manquante pour ce volume — rien à chercher", ETraceLevel.WARNING);
+                JobSendTrace("[Prowlarr] No missing issues for this volume — nothing to search for", ETraceLevel.WARNING);
                 _prowlarrVolumeResults[job.JobId] = [];
                 EndJob(true);
                 return;
@@ -2049,7 +2049,7 @@ public class InkhoundManager : BaseServiceManager
             var prowlarr = GetService<ProwlarrService, ProwlarrOptions>();
             if (prowlarr.CurrentState.State != EState.OK)
             {
-                JobSendTrace("[Prowlarr] Service non disponible", ETraceLevel.ERROR);
+                JobSendTrace("[Prowlarr] Service unavailable", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
@@ -2062,14 +2062,14 @@ public class InkhoundManager : BaseServiceManager
             var queries = BuildSearchQueries(volume);
             job.CallbackHandler.UpdateTotal(queries.Count);
 
-            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) prévues pour \"{volume.Title}\" ({missingIssues.Count} issue(s) manquante(s)) : {string.Join(" | ", queries)}");
+            JobSendTrace($"[Prowlarr] {queries.Count} search quer{(queries.Count == 1 ? "y" : "ies")} planned for \"{volume.Title}\" ({missingIssues.Count} missing issue(s)): {string.Join(" | ", queries)}");
 
             var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
             List<ProwlarrSearchResult> merged = [];
 
             foreach (var query in queries)
             {
-                JobSendTrace($"[Prowlarr] Recherche : {query}");
+                JobSendTrace($"[Prowlarr] Searching: {query}");
                 var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
@@ -2086,23 +2086,23 @@ public class InkhoundManager : BaseServiceManager
                 }
 
                 JobSendTrace(added > 0
-                    ? $"[Prowlarr] {added} nouveau(x) résultat(s) avec \"{query}\" ({merged.Count} au total)"
-                    : $"[Prowlarr] Aucun nouveau résultat avec \"{query}\"");
+                    ? $"[Prowlarr] {added} new result(s) with \"{query}\" ({merged.Count} total)"
+                    : $"[Prowlarr] No new results with \"{query}\"");
             }
 
             var results = ScoringVolumePack.ScoreAndSort(volume, missingIssues, merged);
 
             if (results.Count == 0)
-                JobSendTrace("[Prowlarr] Aucun résultat sur l'ensemble des requêtes", ETraceLevel.WARNING);
+                JobSendTrace("[Prowlarr] No results across all queries", ETraceLevel.WARNING);
             else
-                JobSendTrace($"[Prowlarr] {results.Count} résultat(s) scoré(s) et triés sur {queries.Count} requête(s) tentées");
+                JobSendTrace($"[Prowlarr] {results.Count} result(s) scored and sorted across {queries.Count} quer{(queries.Count == 1 ? "y" : "ies")} attempted");
 
             _prowlarrVolumeResults[job.JobId] = results;
             EndJob(true);
         }
         catch (Exception ex)
         {
-            JobSendTrace($"[Prowlarr] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Prowlarr] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
     }
@@ -2137,7 +2137,7 @@ public class InkhoundManager : BaseServiceManager
             var issue = await ctx.Issues.FindAsync(parameters.IssueId);
             if (issue is null || string.IsNullOrEmpty(issue.CbzFilename))
             {
-                JobSendTrace("[Analyze] Issue introuvable ou sans fichier CBZ", ETraceLevel.ERROR);
+                JobSendTrace("[Analyze] Issue not found or missing CBZ file", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
@@ -2145,7 +2145,7 @@ public class InkhoundManager : BaseServiceManager
             var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
             if (volume is null)
             {
-                JobSendTrace("[Analyze] Volume introuvable", ETraceLevel.ERROR);
+                JobSendTrace("[Analyze] Volume not found", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
@@ -2153,7 +2153,7 @@ public class InkhoundManager : BaseServiceManager
             var library = await ctx.Libraries.FindAsync(volume.LibraryId);
             if (library is null)
             {
-                JobSendTrace("[Analyze] Library introuvable", ETraceLevel.ERROR);
+                JobSendTrace("[Analyze] Library not found", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
@@ -2165,12 +2165,12 @@ public class InkhoundManager : BaseServiceManager
             var cbzPath = ArchiveService.GetPath(issue, volume, library);
             if (!File.Exists(cbzPath))
             {
-                JobSendTrace($"[Analyze] Fichier CBZ introuvable : {cbzPath}", ETraceLevel.ERROR);
+                JobSendTrace($"[Analyze] CBZ file not found: {cbzPath}", ETraceLevel.ERROR);
                 EndJob(false);
                 return;
             }
 
-            JobSendTrace($"[Analyze] Calcul du hash SHA-256 de {Path.GetFileName(cbzPath)}");
+            JobSendTrace($"[Analyze] Computing SHA-256 hash of {Path.GetFileName(cbzPath)}");
             var hash = await ArchiveService.ComputeFileHashAsync(cbzPath);
 
             var progress = new Progress<CbzAnalysisProgress>(p =>
@@ -2179,7 +2179,7 @@ public class InkhoundManager : BaseServiceManager
                 job.CallbackHandler.Callback(new Progression { Total = p.TotalEntries, Completed = p.EntriesProcessed });
             });
 
-            JobSendTrace($"[Analyze] Analyse de {Path.GetFileName(cbzPath)}");
+            JobSendTrace($"[Analyze] Analyzing {Path.GetFileName(cbzPath)}");
             var analysis = await archiveService.AnalyzeCbzAsync(cbzPath, scoringSettings, progress);
             var report = ArchiveService.ScoreCbz(analysis, scoringSettings);
 
@@ -2210,7 +2210,7 @@ public class InkhoundManager : BaseServiceManager
         }
         catch (Exception ex)
         {
-            JobSendTrace($"[Analyze] Erreur inattendue : {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Analyze] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
     }
