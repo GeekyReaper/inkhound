@@ -17,9 +17,11 @@ public static class TorrentTypeAnalyzer
     private static readonly Regex FilePrefixNumberRegex     = new(@"(?:T|Tome|Vol|Volume|#)[\s.]?0*(\d{1,3})\b",    RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex FileZeroPaddedNumberRegex = new(@"\b0+(\d{1,3})\b",                               RegexOptions.Compiled);
 
-    private static readonly Regex FrenchRangeRegex  = new(@"T(\d{1,3})[\s.]*à[\s.]*T?(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex BracketRangeRegex = new(@"\[?T(\d{1,3})\s*\.\s*T(\d{1,3})\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex DashRangeRegex    = new(@"(?:T|Vol|Tome|#)[\s.]?(\d{1,3})[\s.]*[-–][\s.]*(?:T|Vol|Tome|#)?[\s.]?(\d{1,3})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // \b final sur chaque groupe capturant : empêche une troncature d'un nombre à 4 chiffres
+    // (ex : une année "2020") en une capture à 3 chiffres qui serait prise pour une fin de plage.
+    private static readonly Regex FrenchRangeRegex  = new(@"T(\d{1,3})\b[\s.]*à[\s.]*T?(\d{1,3})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex BracketRangeRegex = new(@"\[?T(\d{1,3})\b\s*\.\s*T(\d{1,3})\b\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex DashRangeRegex    = new(@"(?:T|Vol|Tome|#)[\s.]?(\d{1,3})\b[\s.]*[-–][\s.]*(?:T|Vol|Tome|#)?[\s.]?(\d{1,3})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SingleNumberRegex = new(@"(?:T|Tome|Vol|#)[\s.]?(\d{1,3})\b",   RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
@@ -41,22 +43,21 @@ public static class TorrentTypeAnalyzer
         return null;
     }
 
-    public static TorrentAnalysis Analyze(string title, long sizeBytes)
+    /// <summary>
+    /// Analyse le titre d'un résultat Prowlarr/NZB. <paramref name="maxIssueNumber"/> (ex : Volume.CountOfIssues)
+    /// sert de garde-fou : une plage détectée dont la borne finale le dépasse est rejetée (ce n'est pas une plage
+    /// de tomes plausible — probablement une année ou une valeur mal extraite) et on retombe sur les règles suivantes.
+    /// </summary>
+    public static TorrentAnalysis Analyze(string title, long sizeBytes, int? maxIssueNumber = null)
     {
         // Règle 1 — plage française : T1.à.T41
-        var m = FrenchRangeRegex.Match(title);
-        if (m.Success)
-            return new("PACK", $"{int.Parse(m.Groups[1].Value)}...{int.Parse(m.Groups[2].Value)}");
+        if (TryMatchRange(FrenchRangeRegex, title, maxIssueNumber, out var range1)) return range1;
 
         // Règle 2 — plage entre crochets : [T01.T41]
-        m = BracketRangeRegex.Match(title);
-        if (m.Success)
-            return new("PACK", $"{int.Parse(m.Groups[1].Value)}...{int.Parse(m.Groups[2].Value)}");
+        if (TryMatchRange(BracketRangeRegex, title, maxIssueNumber, out var range2)) return range2;
 
         // Règle 3 — plage tiret : T1-T12, T1–T12
-        m = DashRangeRegex.Match(title);
-        if (m.Success)
-            return new("PACK", $"{int.Parse(m.Groups[1].Value)}...{int.Parse(m.Groups[2].Value)}");
+        if (TryMatchRange(DashRangeRegex, title, maxIssueNumber, out var range3)) return range3;
 
         // Règle 4 — mots-clés pack (variantes accentuées et non accentuées)
         var lower = title.ToLowerInvariant();
@@ -64,7 +65,7 @@ public static class TorrentTypeAnalyzer
             return new("PACK", "Full");
 
         // Règle 5 — numéro seul : T41, Tome.41, Vol 3, #12
-        m = SingleNumberRegex.Match(title);
+        var m = SingleNumberRegex.Match(title);
         if (m.Success)
             return sizeBytes < 500 * MB
                 ? new("SINGLE", $"#{m.Groups[1].Value}")
@@ -74,5 +75,22 @@ public static class TorrentTypeAnalyzer
         if (sizeBytes > 500 * MB) return new("PACK", "?");
         if (sizeBytes < 200 * MB) return new("SINGLE", "?");
         return new("UNKNOWN", "?");
+    }
+
+    private static bool TryMatchRange(Regex regex, string title, int? maxIssueNumber, out TorrentAnalysis analysis)
+    {
+        var m = regex.Match(title);
+        if (m.Success
+            && int.TryParse(m.Groups[1].Value, out var start)
+            && int.TryParse(m.Groups[2].Value, out var end)
+            && end >= start
+            && (!maxIssueNumber.HasValue || maxIssueNumber.Value <= 0 || end <= maxIssueNumber.Value))
+        {
+            analysis = new("PACK", $"{start}...{end}");
+            return true;
+        }
+
+        analysis = null!;
+        return false;
     }
 }

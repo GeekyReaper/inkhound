@@ -15,18 +15,19 @@ public static class ScoringTorrent
         Issue issue,
         ProwlarrSearchResult result)
     {
-        var analysis         = TorrentTypeAnalyzer.Analyze(result.Title, result.Size);
+        var analysis         = TorrentTypeAnalyzer.Analyze(result.Title, result.Size, volume.CountOfIssues);
         var titleMatch       = ScoreTitle(volume, result);
         var issueNumberMatch = ScoreIssueNumber(issue, result);
         var yearMatch        = ScoreYear(volume, issue, result);
+        var authorMatch      = ScoreAuthor(issue, volume, result);
         var sizePlausibility = ScoreSize(result, analysis.Type);
         var seederScore      = ScoreSeeders(result);
         var formatScore      = ScoreFormat(result, analysis.Type);
 
-        var baseScore = titleMatch + issueNumberMatch + yearMatch + sizePlausibility + seederScore + formatScore;
-        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size);
+        var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + sizePlausibility + seederScore + formatScore;
+        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch);
 
-        var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, sizePlausibility, seederScore, formatScore);
+        var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, sizePlausibility, seederScore, formatScore);
         return new ScoredSearchResultTorrent(result, total, details, analysis);
     }
 
@@ -42,13 +43,18 @@ public static class ScoringTorrent
     // ── Ajustement selon le type de torrent détecté ────────────────────────
 
     private static float ApplyTypeAdjustment(
-        float baseScore, TorrentAnalysis analysis, int issueNumber, long sizeBytes)
+        float baseScore, TorrentAnalysis analysis, int issueNumber, long sizeBytes, float yearMatch, float authorMatch)
     {
+        // Réassurance : quand le numéro d'issue est confirmé, l'année et l'auteur ne changent pas la nature
+        // du match mais renforcent la confiance qu'on a affaire à la bonne issue (ex : même tome republié
+        // sous un autre nom, homonymie de série...). Petite bonification, plafonnée par le Clamp final.
+        var reassurance = yearMatch * 0.5f + authorMatch * 0.5f;
+
         if (analysis.Type == "SINGLE")
         {
             if (analysis.Label.StartsWith('#') && int.TryParse(analysis.Label.AsSpan(1), out var num))
                 return num == issueNumber
-                    ? Math.Clamp(70f + ScoreSizeBonusForSingle(sizeBytes), 0f, 100f)
+                    ? Math.Clamp(70f + ScoreSizeBonusForSingle(sizeBytes) + reassurance, 0f, 100f)
                     : Math.Clamp(baseScore * 0.1f, 0f, 10f);
 
             // Numéro inconnu ("?") — pénalité modérée
@@ -114,6 +120,38 @@ public static class ScoringTorrent
         if (title.Contains($" {num:D3} ", StringComparison.OrdinalIgnoreCase)) return 15f;
         if (title.Contains(num.ToString(), StringComparison.OrdinalIgnoreCase)) return 8f;
         return 0f;
+    }
+
+    // Présence d'un nom d'auteur (prénom ou nom, insensible aux accents/casse) dans le titre (max 12).
+    // Utilise issue.Authors, avec repli sur volume.Authors si l'issue n'a pas encore de credits individuels.
+    private static float ScoreAuthor(Issue issue, Volume volume, ProwlarrSearchResult result)
+    {
+        var authors = issue.Authors.Count > 0 ? issue.Authors : volume.Authors;
+        if (authors.Count == 0) return 0f;
+
+        var titleTokens = TextSimilarity.Normalize(result.Title)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .ToHashSet();
+        if (titleTokens.Count == 0) return 0f;
+
+        var best = 0f;
+        foreach (var author in authors)
+        {
+            var nameTokens = TextSimilarity.Normalize(author.Name)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(t => t.Length >= 3)
+                .ToArray();
+            if (nameTokens.Length == 0) continue;
+
+            var matched = nameTokens.Count(titleTokens.Contains);
+            if (matched == 0) continue;
+
+            // Nom complet retrouvé (prénom + nom) : signal fort. Un seul token (prénom ou nom seul) : signal partiel.
+            var score = matched == nameTokens.Length ? 12f : 6f;
+            best = Math.Max(best, score);
+        }
+
+        return best;
     }
 
     // Correspondance d'année : issue.Year ?? volume.Year (max 10)

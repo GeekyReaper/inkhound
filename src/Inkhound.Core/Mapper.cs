@@ -39,8 +39,12 @@ public static class Mapper
             Authors = cvIssue.PersonCredits?
                 .Select(p => new VolumeAuthor(p.Name, p.Role))
                 .ToList() ?? [],
+            PublishedAt = ParseDate(cvIssue.StoreDate) ?? ParseDate(cvIssue.CoverDate),
         };
     }
+
+    private static DateTime? ParseDate(string? value)
+        => value != null && DateTime.TryParse(value, out var d) ? d : null;
 
     public static Volume Map(BdSerie serie)
     {

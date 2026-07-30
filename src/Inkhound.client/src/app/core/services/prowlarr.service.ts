@@ -50,6 +50,7 @@ export interface ScoreDetails {
   titleMatch: number;
   issueNumberMatch: number;
   yearMatch: number;
+  authorMatch: number;
   sizePlausibility: number;
   seederScore: number;
   formatScore: number;
