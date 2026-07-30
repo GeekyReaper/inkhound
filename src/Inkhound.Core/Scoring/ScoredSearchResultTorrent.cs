@@ -8,6 +8,7 @@ public record ScoreDetailsTorrent(
     float IssueNumberMatch,
     float YearMatch,
     float AuthorMatch,
+    float PublisherMatch,
     float SizePlausibility,
     float SeederScore,
     float FormatScore);

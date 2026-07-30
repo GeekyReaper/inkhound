@@ -34,7 +34,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
         string TorrentType,
         string TorrentLabel);
     private record ScoreDetailsDto(float TitleMatch, float IssueNumberMatch, float YearMatch, float AuthorMatch,
-        float SizePlausibility, float SeederScore, float FormatScore);
+        float PublisherMatch, float SizePlausibility, float SeederScore, float FormatScore);
     private record ScoredResultDto(SearchResultDto Result, float Score, ScoreDetailsDto Details);
     private record HistoryItemDto(int Id, string EventType, string SourceTitle, int IndexerId);
 
@@ -50,7 +50,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
             s.Score,
             new ScoreDetailsDto(
                 s.Details.TitleMatch, s.Details.IssueNumberMatch, s.Details.YearMatch, s.Details.AuthorMatch,
-                s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore));
+                s.Details.PublisherMatch, s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore));
 
     // GET /api/prowlarr/indexers
     [HttpGet("indexers")]

@@ -1895,8 +1895,9 @@ public class InkhoundManager : BaseServiceManager
     {
         var ctx = GetDb();
         var issue = await ctx.Issues.FindAsync(parameters.IssueId);
+        var volume = issue is not null ? await ctx.Volumes.FindAsync(issue.VolumeId) : null;
         var jobTitle = issue is not null
-            ? $"Recherche Prowlarr — Issue #{issue.IssueNumber}"
+            ? $"Recherche Prowlarr — {volume?.Title ?? "?"} #{issue.IssueNumber}"
             : $"Recherche Prowlarr — {parameters.IssueId}";
 
         var job = StartJob(jobTitle, parameters);
@@ -1944,9 +1945,17 @@ public class InkhoundManager : BaseServiceManager
             var queries = BuildSearchQueries(volume, issue);
             job.CallbackHandler.UpdateTotal(queries.Count);
 
-            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) à tenter pour \"{volume.Title} #{issue.IssueNumber}\"");
+            JobSendTrace($"[Prowlarr] {queries.Count} requête(s) prévues pour \"{volume.Title} #{issue.IssueNumber}\" : {string.Join(" | ", queries)}");
 
-            List<ScoredSearchResultTorrent> results = [];
+            // Toutes les requêtes de la cascade sont tentées, sans condition d'arrêt anticipé : les requêtes
+            // précises ne garantissent pas des résultats pertinents (matching plein texte assez large côté
+            // indexers), donc même si une requête ramène déjà des résultats, les niveaux suivants (jusqu'au
+            // titre du volume seul, qui remonte le mieux les candidats PACK/omnibus) sont toujours tentés.
+            // Un même indexer peut renvoyer plusieurs fois le même torrent d'une requête à l'autre — le Guid
+            // Prowlarr n'étant pas garanti stable d'un appel à l'autre pour une même release, la déduplication
+            // se fait sur une empreinte de contenu (indexeur + titre + taille) plutôt que sur le Guid.
+            var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
+            List<ProwlarrSearchResult> merged = [];
 
             foreach (var query in queries)
             {
@@ -1955,18 +1964,28 @@ public class InkhoundManager : BaseServiceManager
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
 
-                if (raw.Count > 0)
+                var added = 0;
+                foreach (var r in raw)
                 {
-                    JobSendTrace($"[Prowlarr] {raw.Count} résultat(s) trouvé(s) avec \"{query}\"");
-                    results = ScoringTorrent.ScoreAndSort(volume, issue, raw);
-                    break;
+                    var key = (r.IndexerId, r.Title.Trim().ToLowerInvariant(), r.Size);
+                    if (seen.Add(key))
+                    {
+                        merged.Add(r);
+                        added++;
+                    }
                 }
 
-                JobSendTrace($"[Prowlarr] Aucun résultat pour \"{query}\", tentative suivante");
+                JobSendTrace(added > 0
+                    ? $"[Prowlarr] {added} nouveau(x) résultat(s) avec \"{query}\" ({merged.Count} au total)"
+                    : $"[Prowlarr] Aucun nouveau résultat avec \"{query}\"");
             }
 
+            var results = ScoringTorrent.ScoreAndSort(volume, issue, merged);
+
             if (results.Count == 0)
-                JobSendTrace("[Prowlarr] Aucun résultat sur aucune tentative", ETraceLevel.WARNING);
+                JobSendTrace("[Prowlarr] Aucun résultat sur l'ensemble des requêtes", ETraceLevel.WARNING);
+            else
+                JobSendTrace($"[Prowlarr] {results.Count} résultat(s) scoré(s) et triés sur {queries.Count} requête(s) tentées");
 
             _prowlarrResults[job.JobId] = results;
             EndJob(true);
@@ -2579,8 +2598,11 @@ public class InkhoundManager : BaseServiceManager
 
     #endregion
 
-    // Construit les requêtes du plus précis au plus général en croisant Volume + Issue
-    private static List<string> BuildSearchQueries(Volume volume, Issue issue)
+    // Construit les requêtes du plus précis au plus général en croisant Volume + Issue.
+    // Le numéro est inséré sans préfixe "#" : c'est du texte libre transmis tel quel à l'indexer
+    // (recherche full-text), et un "#" littéral ne matche pas les releases nommées "T15".
+    // internal (+ InternalsVisibleTo, voir AssemblyInfo.cs) pour être testable indépendamment de la DB/Prowlarr.
+    internal static List<string> BuildSearchQueries(Volume volume, Issue issue)
     {
         var title = volume.Title;
         var num = issue.IssueNumber;
@@ -2592,18 +2614,18 @@ public class InkhoundManager : BaseServiceManager
 
         // Niveau 1 : max — titre + numéro + éditeur + année + titre issue
         if (publisher is not null && year is not null && issueTitle is not null)
-            candidates.Add($"{title} #{num} {publisher} ({year}) {issueTitle}");
+            candidates.Add($"{title} {num} {publisher} ({year}) {issueTitle}");
 
         // Niveau 2 : titre + numéro + éditeur + année
         if (publisher is not null && year is not null)
-            candidates.Add($"{title} #{num} {publisher} ({year})");
+            candidates.Add($"{title} {num} {publisher} ({year})");
 
         // Niveau 3 : titre + numéro + année
         if (year is not null)
-            candidates.Add($"{title} #{num} ({year})");
+            candidates.Add($"{title} {num} ({year})");
 
         // Niveau 4 : titre + numéro
-        candidates.Add($"{title} #{num}");
+        candidates.Add($"{title} {num}");
 
         // Niveau 5 (fallback) : titre seul
         candidates.Add(title);

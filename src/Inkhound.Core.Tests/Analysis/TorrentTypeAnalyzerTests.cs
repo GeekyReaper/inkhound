@@ -57,4 +57,15 @@ public class TorrentTypeAnalyzerTests
         Assert.Equal("PACK", result.Type);
         Assert.Equal("1...12", result.Label);
     }
+
+    [Fact]
+    public void Analyze_ConventionTomesPointNumeroPointAPointNumero_EstClasseePackAvecPlagePrecise()
+    {
+        // Convention scène observée : "Tomes" au pluriel, points comme séparateurs, "a" sans accent.
+        var result = TorrentTypeAnalyzer.Analyze(
+            "Sillage.Tomes.01.a.24.FRENCH.CBZ-NoTAG", 800L * 1_048_576L);
+
+        Assert.Equal("PACK", result.Type);
+        Assert.Equal("1...24", result.Label);
+    }
 }

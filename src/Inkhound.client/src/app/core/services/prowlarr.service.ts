@@ -51,6 +51,7 @@ export interface ScoreDetails {
   issueNumberMatch: number;
   yearMatch: number;
   authorMatch: number;
+  publisherMatch: number;
   sizePlausibility: number;
   seederScore: number;
   formatScore: number;

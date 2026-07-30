@@ -19,7 +19,9 @@ public static class TorrentTypeAnalyzer
 
     // \b final sur chaque groupe capturant : empêche une troncature d'un nombre à 4 chiffres
     // (ex : une année "2020") en une capture à 3 chiffres qui serait prise pour une fin de plage.
-    private static readonly Regex FrenchRangeRegex  = new(@"T(\d{1,3})\b[\s.]*à[\s.]*T?(\d{1,3})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Accepte "T"/"Tome"/"Tomes" (singulier ou pluriel) et "a" non accentué en plus de "à", pour
+    // couvrir la convention scène "Tomes.01.a.24" en plus de "T1 à T41".
+    private static readonly Regex FrenchRangeRegex  = new(@"(?:T|Tomes?)[\s.]?(\d{1,3})\b[\s.]*[aà][\s.]*(?:T|Tomes?)?[\s.]?(\d{1,3})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BracketRangeRegex = new(@"\[?T(\d{1,3})\b\s*\.\s*T(\d{1,3})\b\]?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex DashRangeRegex    = new(@"(?:T|Vol|Tome|#)[\s.]?(\d{1,3})\b[\s.]*[-–][\s.]*(?:T|Vol|Tome|#)?[\s.]?(\d{1,3})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex SingleNumberRegex = new(@"(?:T|Tome|Vol|#)[\s.]?(\d{1,3})\b",   RegexOptions.IgnoreCase | RegexOptions.Compiled);

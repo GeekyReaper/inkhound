@@ -18,16 +18,17 @@ public static class ScoringTorrent
         var analysis         = TorrentTypeAnalyzer.Analyze(result.Title, result.Size, volume.CountOfIssues);
         var titleMatch       = ScoreTitle(volume, result);
         var issueNumberMatch = ScoreIssueNumber(issue, result);
-        var yearMatch        = ScoreYear(volume, issue, result);
+        var yearMatch        = ScoreYear(volume, issue, result, analysis.Type);
         var authorMatch      = ScoreAuthor(issue, volume, result);
+        var publisherMatch   = ScorePublisher(volume, result);
         var sizePlausibility = ScoreSize(result, analysis.Type);
         var seederScore      = ScoreSeeders(result);
         var formatScore      = ScoreFormat(result, analysis.Type);
 
-        var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + sizePlausibility + seederScore + formatScore;
-        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch);
+        var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + publisherMatch + sizePlausibility + seederScore + formatScore;
+        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch);
 
-        var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, sizePlausibility, seederScore, formatScore);
+        var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, publisherMatch, sizePlausibility, seederScore, formatScore);
         return new ScoredSearchResultTorrent(result, total, details, analysis);
     }
 
@@ -43,12 +44,13 @@ public static class ScoringTorrent
     // ── Ajustement selon le type de torrent détecté ────────────────────────
 
     private static float ApplyTypeAdjustment(
-        float baseScore, TorrentAnalysis analysis, int issueNumber, long sizeBytes, float yearMatch, float authorMatch)
+        float baseScore, TorrentAnalysis analysis, int issueNumber, long sizeBytes,
+        float yearMatch, float authorMatch, float publisherMatch)
     {
-        // Réassurance : quand le numéro d'issue est confirmé, l'année et l'auteur ne changent pas la nature
-        // du match mais renforcent la confiance qu'on a affaire à la bonne issue (ex : même tome republié
-        // sous un autre nom, homonymie de série...). Petite bonification, plafonnée par le Clamp final.
-        var reassurance = yearMatch * 0.5f + authorMatch * 0.5f;
+        // Réassurance : quand le numéro d'issue est confirmé, l'année, l'auteur et l'éditeur ne changent pas
+        // la nature du match mais renforcent la confiance qu'on a affaire à la bonne issue (ex : même tome
+        // republié sous un autre nom, homonymie de série...). Petite bonification, plafonnée par le Clamp final.
+        var reassurance = yearMatch * 0.5f + authorMatch * 0.5f + publisherMatch * 0.5f;
 
         if (analysis.Type == "SINGLE")
         {
@@ -123,10 +125,14 @@ public static class ScoringTorrent
     }
 
     // Présence d'un nom d'auteur (prénom ou nom, insensible aux accents/casse) dans le titre (max 12).
-    // Utilise issue.Authors, avec repli sur volume.Authors si l'issue n'a pas encore de credits individuels.
+    // Union de issue.Authors et volume.Authors (dédoublonnés) : une compilation/PACK cite souvent
+    // l'équipe créative globale du volume plutôt que les seuls crédits d'une issue précise.
     private static float ScoreAuthor(Issue issue, Volume volume, ProwlarrSearchResult result)
     {
-        var authors = issue.Authors.Count > 0 ? issue.Authors : volume.Authors;
+        var authors = issue.Authors
+            .Concat(volume.Authors)
+            .DistinctBy(a => TextSimilarity.Normalize(a.Name))
+            .ToList();
         if (authors.Count == 0) return 0f;
 
         var titleTokens = TextSimilarity.Normalize(result.Title)
@@ -154,15 +160,43 @@ public static class ScoringTorrent
         return best;
     }
 
-    // Correspondance d'année : issue.Year ?? volume.Year (max 10)
-    private static float ScoreYear(Volume volume, Issue issue, ProwlarrSearchResult result)
+    // Correspondance d'année (max 10). Pour un SINGLE, l'année exacte de issue.Year ?? volume.Year
+    // est attendue. Pour un PACK, une compilation affiche typiquement l'année du scan plutôt que
+    // celle d'une issue précise : on accepte alors toute année entre le début du volume et aujourd'hui.
+    private static float ScoreYear(Volume volume, Issue issue, ProwlarrSearchResult result, string torrentType)
     {
+        if (torrentType == "PACK")
+        {
+            if (volume.Year is not { } start) return 0f;
+            var end = DateTime.UtcNow.Year;
+
+            if (result.PublishDate is { } published && published.Year >= start && published.Year <= end)
+                return 10f;
+
+            for (var y = start; y <= end; y++)
+                if (result.Title.Contains(y.ToString(), StringComparison.Ordinal))
+                    return 6f;
+
+            return 0f;
+        }
+
         var year = issue.Year ?? volume.Year;
         if (year is null) return 0f;
 
         if (result.PublishDate?.Year == year) return 10f;
         if (result.Title.Contains(year.Value.ToString(), StringComparison.Ordinal)) return 7f;
         return 0f;
+    }
+
+    // Présence de l'éditeur du volume dans le titre (max 8)
+    private static float ScorePublisher(Volume volume, ProwlarrSearchResult result)
+    {
+        if (string.IsNullOrWhiteSpace(volume.Publisher)) return 0f;
+
+        var publisherNorm = TextSimilarity.Normalize(volume.Publisher);
+        if (publisherNorm.Length == 0) return 0f;
+
+        return TextSimilarity.Normalize(result.Title).Contains(publisherNorm) ? 8f : 0f;
     }
 
     // Plausibilité de la taille (max 10) — progressive pour les PACKs, plage fixe pour les SINGLEs
