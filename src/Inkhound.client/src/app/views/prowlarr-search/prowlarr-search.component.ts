@@ -237,7 +237,7 @@ export class ProwlarrSearchComponent {
         return;
       }
       const ids = this.grabIds();
-      this.qbittorrentService.grab(row.result.downloadUrl, ids.issueId, ids.volumeId)
+      this.qbittorrentService.grab(row.result.downloadUrl, row.result.title, row.result.indexer, ids.issueId, ids.volumeId)
         .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.grabbingGuid.set(null)))
         .subscribe({
           next:  () => this.grabSuccess.set(`"${row.result.title}" sent to QBittorrent.`),
@@ -293,7 +293,7 @@ export class ProwlarrSearchComponent {
     this.searchError.set(null);
 
     const ids = this.grabIds();
-    this.qbittorrentService.grab(row.result.downloadUrl, ids.issueId, ids.volumeId, true)
+    this.qbittorrentService.grab(row.result.downloadUrl, row.result.title, row.result.indexer, ids.issueId, ids.volumeId, true)
       .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.grabbingGuid.set(null)))
       .subscribe({
         next: resp => {
@@ -379,7 +379,8 @@ export class ProwlarrSearchComponent {
 
   onApplySelection(): void {
     const hash = this.pendingTorrentHash();
-    if (!hash) return;
+    const row = this.pendingResult();
+    if (!hash || !row) return;
     const selected = [...this.selectedFileIndices()];
     const overrides: Record<number, string> = {};
     for (const index of selected) {
@@ -390,7 +391,10 @@ export class ProwlarrSearchComponent {
     this.applyingSelection.set(true);
     const ids = this.grabIds();
 
-    this.qbittorrentService.applySelection(hash, ids.issueId, ids.volumeId, selected, overrides)
+    this.qbittorrentService.applySelection(
+      hash, row.result.downloadUrl ?? '', row.result.title, row.result.indexer,
+      ids.issueId, ids.volumeId, selected, overrides
+    )
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
         finalize(() => { this.applyingSelection.set(false); this.closePackModal(); })

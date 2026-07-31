@@ -6,19 +6,20 @@ export interface QBittorrentCategory {
   savePath: string;
 }
 
-export type DownloadStatus = 'Downloading' | 'Paused' | 'Finished' | 'Syncing' | 'Done' | 'Error' | 'Unknown';
+export type DownloadStatus = 'Downloading' | 'Paused' | 'Finished' | 'Syncing' | 'Done' | 'Error' | 'Unknown' | 'NotFound';
 
 export interface DownloadItem {
   id: string;
   issueId: string;
   torrentHash: string;
+  torrentTitle: string;
+  trackerName: string | null;
   status: DownloadStatus;
   addedAt: string;
   updatedAt: string | null;
   issueNumber: number | null;
   issueTitle: string | null;
   volumeTitle: string | null;
-  torrentName: string | null;
   progress: number | null;
   dlspeed: number | null;
   eta: number | null;
@@ -57,21 +58,35 @@ export class QBittorrentService {
 
   // issueId (flux page Issue) ou volumeId (flux page Volume) — passer l'autre à null.
   // issueId est requis quand selective=false (grab direct, cible toujours une issue précise).
-  grab(downloadUrl: string, issueId: string | null, volumeId: string | null, selective = false) {
-    return this.http.post<GrabResponse>('/api/qbittorrent/grab', { downloadUrl, issueId, volumeId, selective });
+  // title/trackerName sont persistés sur l'IssueDownload créé (identité propre de l'item, cf.
+  // page Downloads qui n'affiche plus une donnée live QBittorrent pour son titre).
+  grab(
+    downloadUrl: string,
+    title: string,
+    trackerName: string | null,
+    issueId: string | null,
+    volumeId: string | null,
+    selective = false
+  ) {
+    return this.http.post<GrabResponse>('/api/qbittorrent/grab', {
+      downloadUrl, title, trackerName, issueId, volumeId, selective
+    });
   }
 
   // fileIssueOverrides : index de fichier → issueId, pour les fichiers dont le numéro de tome n'a
   // pas pu être extrait automatiquement (assignation manuelle) — ou pour confirmer une association.
   applySelection(
     torrentHash: string,
+    downloadUrl: string,
+    title: string,
+    trackerName: string | null,
     issueId: string | null,
     volumeId: string | null,
     selectedFileIndices: number[],
     fileIssueOverrides?: Record<number, string>
   ) {
     return this.http.post<void>('/api/qbittorrent/apply-selection', {
-      torrentHash, issueId, volumeId, selectedFileIndices, fileIssueOverrides
+      torrentHash, downloadUrl, title, trackerName, issueId, volumeId, selectedFileIndices, fileIssueOverrides
     });
   }
 
@@ -88,5 +103,18 @@ export class QBittorrentService {
 
   processDownload(id: string) {
     return this.http.post<{ message: string }>(`/api/qbittorrent/downloads/${id}/process`, {});
+  }
+
+  // Revérifie toute la table IssueDownloads contre l'état réel de QBittorrent (job).
+  refreshDownloads() {
+    return this.http.post<{ message: string }>('/api/qbittorrent/downloads/refresh', {});
+  }
+
+  updateDownloadHash(id: string, hash: string) {
+    return this.http.put<DownloadItem>(`/api/qbittorrent/downloads/${id}/hash`, { hash });
+  }
+
+  deleteDownload(id: string) {
+    return this.http.delete<void>(`/api/qbittorrent/downloads/${id}`);
   }
 }

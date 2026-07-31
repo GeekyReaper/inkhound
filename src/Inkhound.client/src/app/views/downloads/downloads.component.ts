@@ -3,9 +3,11 @@ import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { interval, merge, switchMap, finalize } from 'rxjs';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import {
-  AlertComponent, BadgeComponent, ButtonDirective,
+  AlertComponent, BadgeComponent, ButtonCloseDirective, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
+  FormControlDirective, FormLabelDirective,
+  ModalBodyComponent, ModalComponent, ModalFooterComponent, ModalHeaderComponent, ModalTitleDirective,
   PageItemComponent, PageLinkDirective, PaginationComponent,
   ProgressBarComponent, ProgressComponent,
   RowComponent, SpinnerComponent, TableDirective
@@ -27,6 +29,8 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     PaginationComponent, PageItemComponent, PageLinkDirective,
     DatePipe, DecimalPipe, IconDirective,
     JobConsoleModalComponent,
+    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
+    ModalTitleDirective, ButtonCloseDirective, FormControlDirective, FormLabelDirective,
   ],
   templateUrl: './downloads.component.html'
 })
@@ -45,9 +49,19 @@ export class DownloadsComponent {
 
   processing    = signal(false);
   processingIds = signal<Set<string>>(new Set());
+  refreshing    = signal(false);
 
   selectedJob    = signal<JobContext | null>(null);
   consoleVisible = signal(false);
+
+  // --- État de la modale d'édition (correction de hash / suppression) ---
+  editModalVisible = signal(false);
+  editingItem       = signal<DownloadItem | null>(null);
+  editHashInput     = signal('');
+  editSaving        = signal(false);
+  editError         = signal<string | null>(null);
+  confirmingDelete  = signal(false);
+  deleting          = signal(false);
 
   // Choix exclusif — Active par défaut (Done, déjà traités, n'a que peu d'intérêt à être vu en
   // premier).
@@ -75,7 +89,7 @@ export class DownloadsComponent {
   readonly activeJobs = computed(() =>
     this.hub.jobs().filter(j =>
       (j.state === 'RUNNING' || j.state === 'INITIALIZING') &&
-      (j.title === 'Process downloads' || j.title.startsWith('Process download '))
+      (j.title === 'Process downloads' || j.title.startsWith('Process download ') || j.title === 'Refresh downloads')
     )
   );
 
@@ -124,6 +138,7 @@ export class DownloadsComponent {
       case 'Syncing':     return 'info';
       case 'Done':        return 'success';
       case 'Error':       return 'danger';
+      case 'NotFound':    return 'dark';
       default:            return 'secondary';
     }
   }
@@ -145,6 +160,14 @@ export class DownloadsComponent {
       .subscribe({ next: () => {}, error: () => {} });
   }
 
+  refreshDownloads(): void {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    this.qbService.refreshDownloads()
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.refreshing.set(false)))
+      .subscribe({ next: () => {}, error: () => {} });
+  }
+
   processOne(item: DownloadItem): void {
     if (this.processingIds().has(item.id)) return;
     this.processingIds.update(ids => new Set(ids).add(item.id));
@@ -158,6 +181,62 @@ export class DownloadsComponent {
         }))
       )
       .subscribe({ next: () => {}, error: () => {} });
+  }
+
+  // --- Modale d'édition (ligne NotFound : corriger le hash ou supprimer le suivi) ---
+
+  openEditModal(item: DownloadItem): void {
+    this.editingItem.set(item);
+    this.editHashInput.set('');
+    this.editError.set(null);
+    this.confirmingDelete.set(false);
+    this.editModalVisible.set(true);
+  }
+
+  onEditModalVisibleChange(visible: boolean): void {
+    if (!visible) this.closeEditModal();
+  }
+
+  closeEditModal(): void {
+    this.editModalVisible.set(false);
+    this.editingItem.set(null);
+    this.editHashInput.set('');
+    this.editError.set(null);
+    this.confirmingDelete.set(false);
+  }
+
+  saveHash(): void {
+    const item = this.editingItem();
+    const hash = this.editHashInput().trim();
+    if (!item || !hash || this.editSaving()) return;
+
+    this.editSaving.set(true);
+    this.editError.set(null);
+    this.qbService.updateDownloadHash(item.id, hash)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.editSaving.set(false)))
+      .subscribe({
+        next:  () => this.closeEditModal(),
+        error: err => this.editError.set(err?.error?.message ?? 'Failed to update hash.')
+      });
+  }
+
+  requestDelete(): void {
+    this.editError.set(null);
+    this.confirmingDelete.set(true);
+  }
+
+  confirmDelete(): void {
+    const item = this.editingItem();
+    if (!item || this.deleting()) return;
+
+    this.deleting.set(true);
+    this.editError.set(null);
+    this.qbService.deleteDownload(item.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.deleting.set(false)))
+      .subscribe({
+        next:  () => this.closeEditModal(),
+        error: err => this.editError.set(err?.error?.message ?? 'Failed to delete download.')
+      });
   }
 
   formatSpeed(bytesPerSec: number | null): string {

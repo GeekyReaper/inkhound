@@ -249,6 +249,15 @@ public class DbStorageService : BaseService<DbStorageOption>
 
             await ImportLegacyUsersAsync(db);
         }
+
+        // IssueDownloads.TorrentTitle/DownloadUrl/TrackerName ajoutés en juillet 2026 — l'item de
+        // téléchargement porte désormais sa propre identité (titre, URL d'origine, tracker), au lieu
+        // de dépendre entièrement de ce que qBittorrent peut retrouver en direct via le hash (un hash
+        // orphelin laissait la ligne sans aucune information affichable). Lignes déjà en base : titre/URL
+        // vides, rattrapés au prochain refresh si le hash finit par être retrouvé (voir EnrichDownloadsAsync).
+        await AddColumnIfMissingAsync(db, "IssueDownloads", "TorrentTitle", "TEXT NOT NULL DEFAULT ''");
+        await AddColumnIfMissingAsync(db, "IssueDownloads", "DownloadUrl", "TEXT NOT NULL DEFAULT ''");
+        await AddColumnIfMissingAsync(db, "IssueDownloads", "TrackerName", "TEXT NULL");
     }
 
     // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien

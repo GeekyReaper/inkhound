@@ -2275,6 +2275,8 @@ public class InkhoundManager : BaseServiceManager
 
     public async Task<(bool Success, string? TorrentHash)> GrabToQBittorrentAsync(
         string downloadUrl,
+        string title,
+        string? trackerName,
         Guid issueId,
         CancellationToken ct = default)
     {
@@ -2292,6 +2294,9 @@ public class InkhoundManager : BaseServiceManager
             Id = Guid.NewGuid(),
             IssueId = issueId,
             TorrentHash = hash,
+            TorrentTitle = title,
+            DownloadUrl = downloadUrl,
+            TrackerName = trackerName,
             Status = DownloadStatus.Unknown,
             AddedAt = DateTime.UtcNow
         };
@@ -2342,6 +2347,9 @@ public class InkhoundManager : BaseServiceManager
     // les fichiers dont le numéro de tome n'a pas pu être extrait automatiquement.
     public async Task<bool> ApplyPackSelectionAsync(
         string torrentHash,
+        string downloadUrl,
+        string title,
+        string? trackerName,
         Guid? issueId,
         Guid? volumeId,
         int[] selectedFileIndices,
@@ -2394,7 +2402,8 @@ public class InkhoundManager : BaseServiceManager
                 ctx.IssueDownloads.Add(new IssueDownload
                 {
                     Id = Guid.NewGuid(), IssueId = matched.Id,
-                    TorrentHash = torrentHash, Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
+                    TorrentHash = torrentHash, TorrentTitle = title, DownloadUrl = downloadUrl, TrackerName = trackerName,
+                    Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
                 });
                 matchedIds.Add(matched.Id);
                 OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(matched.Id));
@@ -2411,7 +2420,8 @@ public class InkhoundManager : BaseServiceManager
             ctx.IssueDownloads.Add(new IssueDownload
             {
                 Id = Guid.NewGuid(), IssueId = fallbackIssueId,
-                TorrentHash = torrentHash, Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
+                TorrentHash = torrentHash, TorrentTitle = title, DownloadUrl = downloadUrl, TrackerName = trackerName,
+                Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
             });
             OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(fallbackIssueId));
         }
@@ -2432,7 +2442,7 @@ public class InkhoundManager : BaseServiceManager
             query = query.Where(d => d.Status == statusFilter.Value);
 
         var downloads = await query.OrderByDescending(d => d.AddedAt).ToListAsync(ct);
-        return await EnrichDownloadsAsync(downloads, ct);
+        return await EnrichDownloadsAsync(ctx, downloads, ct);
     }
 
     // Pagination réelle (Skip/Take + CountAsync) pour l'affichage UI — contrairement à
@@ -2455,7 +2465,7 @@ public class InkhoundManager : BaseServiceManager
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var enriched = await EnrichDownloadsAsync(pageItems, ct);
+        var enriched = await EnrichDownloadsAsync(ctx, pageItems, ct);
         return new Page<DownloadItemData>
         {
             Items = enriched,
@@ -2467,11 +2477,15 @@ public class InkhoundManager : BaseServiceManager
 
     // Complète chaque IssueDownload avec son Issue/Volume et son état QBittorrent live, en
     // persistant le statut mappé si besoin. Partagé entre GetDownloadsAsync (liste complète,
-    // usage interne) et GetDownloadsPageAsync (page affichée à l'utilisateur).
-    private async Task<List<DownloadItemData>> EnrichDownloadsAsync(List<IssueDownload> downloads, CancellationToken ct)
+    // usage interne), GetDownloadsPageAsync (page affichée à l'utilisateur) et
+    // UpdateDownloadHashAsync. Prend le DbStorageContext du GetDb() de la méthode APPELANTE — chaque
+    // appel à GetDb() retourne une instance différente (voir son commentaire), donc appeler GetDb()
+    // ici forcerait un SaveChangesAsync() sur un contexte qui n'a jamais chargé/suivi les entités
+    // mutées ci-dessous, et la persistance échouerait silencieusement (les valeurs restent correctes
+    // dans la réponse HTTP de la requête en cours, mais ne sont jamais écrites en base).
+    private async Task<List<DownloadItemData>> EnrichDownloadsAsync(DbStorageContext ctx, List<IssueDownload> downloads, CancellationToken ct)
     {
         if (downloads.Count == 0) return [];
-        var ctx = GetDb();
 
         var issueIds = downloads.Select(d => d.IssueId).Distinct().ToList();
         var issues = await ctx.Issues
@@ -2504,15 +2518,31 @@ public class InkhoundManager : BaseServiceManager
             // Mappe l'état QBittorrent → DownloadStatus et persiste si changé.
             // Une fois qu'Inkhound a pris la main sur le statut (Finished/Syncing/Done), on ne
             // laisse plus le polling QBittorrent l'écraser (QBittorrent reste "terminé" indéfiniment).
+            var alreadyOwnedByInkhound = dl.Status is DownloadStatus.Finished or DownloadStatus.Syncing or DownloadStatus.Done;
             if (torrent is not null)
             {
-                var alreadyOwnedByInkhound = dl.Status is DownloadStatus.Finished or DownloadStatus.Syncing or DownloadStatus.Done;
                 var newStatus = MapQBittorrentState(torrent.State);
                 if (!alreadyOwnedByInkhound && newStatus != dl.Status)
                 {
                     dl.Status = newStatus;
                     dl.UpdatedAt = DateTime.UtcNow;
                 }
+
+                // Rattrapage : le torrent est bien retrouvé mais le titre n'a jamais été renseigné
+                // (lignes créées avant l'ajout de TorrentTitle, ou tout cas où l'info manquait) — on le
+                // récupère depuis QBittorrent à cet instant. Seul le titre est récupérable ainsi :
+                // QBittorrent ne conserve ni l'URL de retéléchargement d'origine ni le nom du tracker
+                // Prowlarr (ce dernier n'existe que côté Inkhound, jamais transmis à QBittorrent).
+                if (string.IsNullOrEmpty(dl.TorrentTitle) && !string.IsNullOrEmpty(torrent.Name))
+                {
+                    dl.TorrentTitle = torrent.Name;
+                    dl.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+            else if (!alreadyOwnedByInkhound && dl.Status != DownloadStatus.NotFound)
+            {
+                dl.Status = DownloadStatus.NotFound;
+                dl.UpdatedAt = DateTime.UtcNow;
             }
 
             result.Add(new DownloadItemData(dl, issue, volume, torrent));
@@ -2530,6 +2560,81 @@ public class InkhoundManager : BaseServiceManager
         "error" or "missingfiles" => DownloadStatus.Error,
         _ => DownloadStatus.Unknown
     };
+
+    // Relit et revérifie TOUTE la table IssueDownloads contre l'état réel de QBittorrent (via
+    // EnrichDownloadsAsync, qui détecte désormais aussi les hash orphelins — voir NotFound).
+    public async Task LaunchJobRefreshDownloads(RefreshDownloadsJobParameters parameters)
+    {
+        var job = StartJob("Refresh downloads", parameters);
+        job.SetState(JobState.RUNNING);
+
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK)
+        {
+            JobSendTrace("[Refresh] QBittorrent service unavailable", ETraceLevel.ERROR);
+            EndJob(false);
+            return;
+        }
+
+        var downloads = await GetDownloadsAsync(null);
+        var byStatus = downloads.GroupBy(d => d.Download.Status).ToDictionary(g => g.Key, g => g.Count());
+
+        JobSendTrace($"[Refresh] {downloads.Count} download(s) checked");
+        foreach (var (status, count) in byStatus)
+            JobSendTrace($"[Refresh] {count} {status}");
+
+        if (byStatus.GetValueOrDefault(DownloadStatus.NotFound) is > 0 and var notFound)
+            JobSendTrace($"[Refresh] {notFound} download(s) could not be matched to a QBittorrent torrent — edit them from the Downloads page", ETraceLevel.WARNING);
+
+        EndJob(true);
+    }
+
+    // Corrige manuellement le hash d'un download (ex. après un hash orphelin détecté par le
+    // refresh) : vérifié auprès de QBittorrent avant d'être persisté, puis le statut est recalculé
+    // normalement via EnrichDownloadsAsync (qui rattrape aussi le titre si absent, voir § A.3).
+    public async Task<(bool Success, string? Error, DownloadItemData? Item)> UpdateDownloadHashAsync(
+        Guid downloadId, string newHash, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var download = await ctx.IssueDownloads.FindAsync([downloadId], ct);
+        if (download is null) return (false, "Download not found.", null);
+
+        var trimmedHash = newHash.Trim();
+        if (string.IsNullOrEmpty(trimmedHash)) return (false, "Hash is required.", null);
+
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return (false, "QBittorrent service unavailable.", null);
+
+        var torrents = await qb.GetTorrentsAsync([trimmedHash], ct);
+        if (torrents.Count == 0) return (false, "No torrent found in QBittorrent with this hash.", null);
+
+        download.TorrentHash = trimmedHash;
+        download.Status = DownloadStatus.Unknown; // laisse EnrichDownloadsAsync recalculer normalement
+        await ctx.SaveChangesAsync(ct);
+
+        var enriched = await EnrichDownloadsAsync(ctx, [download], ct);
+        return (true, null, enriched.FirstOrDefault());
+    }
+
+    // Supprime le suivi d'un download (ex. hash orphelin irrécupérable) — l'Issue associée redevient
+    // MISSING si plus rien ne la télécharge, pour rester cherchable/téléchargeable à nouveau.
+    public async Task<(bool Success, string? Error)> DeleteDownloadAsync(Guid downloadId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var download = await ctx.IssueDownloads.FindAsync([downloadId], ct);
+        if (download is null) return (false, "Download not found.");
+
+        var issue = await ctx.Issues.FindAsync([download.IssueId], ct);
+        if (issue is not null && issue.Status == IssueStatus.DOWNLOADING)
+        {
+            issue.Status = IssueStatus.MISSING;
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+        }
+
+        ctx.IssueDownloads.Remove(download);
+        await ctx.SaveChangesAsync(ct);
+        return (true, null);
+    }
 
     public async Task LaunchJobProcessDownloads(ProcessDownloadsJobParameters parameters)
     {

@@ -9,10 +9,16 @@ namespace Inkhound.Web.Controllers;
 
 // IssueId (flux page Issue) ou VolumeId (flux page Volume) — IssueId requis quand Selective=false
 // (grab direct, cible toujours une issue précise) ; l'un des deux requis quand Selective=true.
-public record QBittorrentGrabRequest(string DownloadUrl, Guid? IssueId, Guid? VolumeId, bool Selective = false);
+// Title/TrackerName sont persistés sur l'IssueDownload créé — l'item porte sa propre identité,
+// indépendante de ce que QBittorrent peut ou non retrouver en direct par la suite.
+public record QBittorrentGrabRequest(
+    string DownloadUrl, string Title, string? TrackerName,
+    Guid? IssueId, Guid? VolumeId, bool Selective = false);
 public record ApplySelectionRequest(
-    string TorrentHash, Guid? IssueId, Guid? VolumeId,
+    string TorrentHash, string DownloadUrl, string Title, string? TrackerName,
+    Guid? IssueId, Guid? VolumeId,
     int[] SelectedFileIndices, Dictionary<int, Guid>? FileIssueOverrides);
+public record UpdateDownloadHashRequest(string Hash);
 
 [ApiController]
 [Route("api/qbittorrent")]
@@ -32,29 +38,35 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         Guid Id,
         Guid IssueId,
         string TorrentHash,
+        string TorrentTitle,
+        string? TrackerName,
         string Status,
         DateTime AddedAt,
         DateTime? UpdatedAt,
         int? IssueNumber,
         string? IssueTitle,
         string? VolumeTitle,
-        string? TorrentName,
         double? Progress,
         long? Dlspeed,
         long? Eta,
         long? Size);
 
+    // TorrentTitle vient de l'item stocké (d.Download.TorrentTitle), pas d'une lecture live QBittorrent
+    // (d.Torrent?.Name) : l'identité du download reste affichable même si QBittorrent ne retrouve plus
+    // le torrent (hash orphelin, torrent supprimé...). Progress/Dlspeed/Eta/Size restent des indicateurs
+    // live optionnels, absents quand QBittorrent ne retrouve pas le torrent.
     private static DownloadItemDto ToDto(DownloadItemData d) => new(
         d.Download.Id,
         d.Download.IssueId,
         d.Download.TorrentHash,
+        d.Download.TorrentTitle,
+        d.Download.TrackerName,
         d.Download.Status.ToString(),
         d.Download.AddedAt,
         d.Download.UpdatedAt,
         d.Issue?.IssueNumber,
         d.Issue?.Title,
         d.Volume?.Title,
-        d.Torrent?.Name,
         d.Torrent?.Progress,
         d.Torrent?.Dlspeed,
         d.Torrent?.Eta,
@@ -77,6 +89,8 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(req.DownloadUrl))
             return BadRequest(new { message = "DownloadUrl is required." });
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { message = "Title is required." });
 
         if (req.Selective)
         {
@@ -95,7 +109,8 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
             if (req.IssueId is not { } issueId)
                 return BadRequest(new { message = "IssueId is required for a non-selective grab." });
 
-            var (success, torrentHash) = await manager.GrabToQBittorrentAsync(req.DownloadUrl, issueId);
+            var (success, torrentHash) = await manager.GrabToQBittorrentAsync(
+                req.DownloadUrl, req.Title, req.TrackerName, issueId);
             if (!success)
                 return StatusCode(502, new { message = "Failed to add torrent to QBittorrent." });
 
@@ -109,13 +124,16 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(req.TorrentHash))
             return BadRequest(new { message = "TorrentHash is required." });
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { message = "Title is required." });
         if (req.SelectedFileIndices is null || req.SelectedFileIndices.Length == 0)
             return BadRequest(new { message = "At least one file must be selected." });
         if (req.IssueId is null && req.VolumeId is null)
             return BadRequest(new { message = "IssueId or VolumeId is required." });
 
         var success = await manager.ApplyPackSelectionAsync(
-            req.TorrentHash, req.IssueId, req.VolumeId, req.SelectedFileIndices, req.FileIssueOverrides);
+            req.TorrentHash, req.DownloadUrl, req.Title, req.TrackerName,
+            req.IssueId, req.VolumeId, req.SelectedFileIndices, req.FileIssueOverrides);
         if (!success)
             return StatusCode(502, new { message = "Failed to apply file selection." });
 
@@ -160,5 +178,29 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     {
         _ = manager.LaunchJobProcessDownloads(new ProcessDownloadsJobParameters { IssueDownloadId = id });
         return Accepted(new { message = "Download processing started." });
+    }
+
+    // POST /api/qbittorrent/downloads/refresh — revérifie toute la table contre QBittorrent
+    [HttpPost("downloads/refresh")]
+    public IActionResult RefreshDownloads()
+    {
+        _ = manager.LaunchJobRefreshDownloads(new RefreshDownloadsJobParameters());
+        return Accepted(new { message = "Download refresh started." });
+    }
+
+    // PUT /api/qbittorrent/downloads/{id}/hash — corrige manuellement un hash orphelin (NotFound)
+    [HttpPut("downloads/{id:guid}/hash")]
+    public async Task<IActionResult> UpdateDownloadHash(Guid id, [FromBody] UpdateDownloadHashRequest req)
+    {
+        var (success, error, item) = await manager.UpdateDownloadHashAsync(id, req.Hash);
+        return success ? Ok(ToDto(item!)) : BadRequest(new { message = error });
+    }
+
+    // DELETE /api/qbittorrent/downloads/{id}
+    [HttpDelete("downloads/{id:guid}")]
+    public async Task<IActionResult> DeleteDownload(Guid id)
+    {
+        var (success, error) = await manager.DeleteDownloadAsync(id);
+        return success ? NoContent() : NotFound(new { message = error });
     }
 }

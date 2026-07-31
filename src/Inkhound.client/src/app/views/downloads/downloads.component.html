@@ -7,7 +7,15 @@
         <span class="text-body-secondary small">{{ pr.totalItems }} matching current filter</span>
       }
     </c-col>
-    <c-col class="col-auto">
+    <c-col class="col-auto d-flex gap-2">
+      <button cButton color="secondary" variant="outline" size="sm" [disabled]="refreshing()" (click)="refreshDownloads()">
+        @if (refreshing()) {
+          <c-spinner size="sm" class="me-2"></c-spinner>Refreshing…
+        } @else {
+          <svg cIcon name="cilReload" size="sm" class="me-1"></svg>
+          Refresh Downloads
+        }
+      </button>
       <button cButton color="primary" size="sm" [disabled]="processing()" (click)="processAll()">
         @if (processing()) {
           <c-spinner size="sm" class="me-2"></c-spinner>Processing…
@@ -110,7 +118,7 @@
                         }
                       </td>
                       <td class="align-middle text-break small">
-                        {{ item.torrentName ?? item.torrentHash || '—' }}
+                        {{ item.torrentTitle || item.torrentHash || '—' }}
                       </td>
                       <td class="align-middle">
                         <c-badge [color]="statusBadgeColor(item.status)">{{ item.status }}</c-badge>
@@ -138,12 +146,20 @@
                         @if (canProcess(item)) {
                           <button cButton color="secondary" variant="ghost" size="sm"
                                   [disabled]="processingIds().has(item.id)"
-                                  (click)="processOne(item)">
+                                  (click)="processOne(item)"
+                                  title="Process">
                             @if (processingIds().has(item.id)) {
                               <c-spinner size="sm"></c-spinner>
                             } @else {
                               <svg cIcon name="cilCloudDownload" size="sm"></svg>
                             }
+                          </button>
+                        }
+                        @if (item.status === 'NotFound') {
+                          <button cButton color="secondary" variant="ghost" size="sm"
+                                  (click)="openEditModal(item)"
+                                  title="Edit">
+                            <svg cIcon name="cilPencil" size="sm"></svg>
                           </button>
                         }
                       </td>
@@ -181,3 +197,75 @@
 </c-container>
 
 <app-job-console-modal [job]="selectedJob()" [(visible)]="consoleVisible" />
+
+<!-- Modale d'édition d'un download NotFound (corriger le hash / supprimer le suivi) -->
+<c-modal
+  id="editDownloadModal"
+  [visible]="editModalVisible()"
+  (visibleChange)="onEditModalVisibleChange($event)"
+  backdrop="static">
+
+  <c-modal-header>
+    <h5 cModalTitle>Fix download</h5>
+    <button cButtonClose (click)="closeEditModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+    @if (editingItem(); as item) {
+      <p class="text-body-secondary small">
+        <strong>{{ item.torrentTitle || item.torrentHash || 'This download' }}</strong>
+        could not be matched to any torrent in QBittorrent. Enter the correct hash below, or remove
+        this download's tracking entirely.
+      </p>
+
+      @if (editError()) {
+        <c-alert color="danger" class="mb-3">{{ editError() }}</c-alert>
+      }
+
+      @if (!confirmingDelete()) {
+        <div class="mb-2">
+          <label cLabel for="editHash">Torrent hash</label>
+          <input cFormControl id="editHash" type="text" [value]="editHashInput()"
+                 (input)="editHashInput.set($any($event.target).value)"
+                 placeholder="40-character QBittorrent torrent hash" />
+        </div>
+      } @else {
+        <c-alert color="warning" class="mb-0">
+          Remove tracking for this download? The associated issue will go back to MISSING.
+        </c-alert>
+      }
+    }
+  </c-modal-body>
+
+  <c-modal-footer>
+    @if (!confirmingDelete()) {
+      <button cButton color="danger" variant="outline" (click)="requestDelete()">
+        Delete download
+      </button>
+      <button cButton color="secondary" variant="outline" (click)="closeEditModal()">
+        Cancel
+      </button>
+      <button cButton color="primary" [disabled]="!editHashInput().trim() || editSaving()" (click)="saveHash()">
+        @if (editSaving()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+          Verifying...
+        } @else {
+          Save hash
+        }
+      </button>
+    } @else {
+      <button cButton color="secondary" variant="outline" (click)="confirmingDelete.set(false)">
+        Cancel
+      </button>
+      <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+        @if (deleting()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+          Deleting...
+        } @else {
+          Confirm delete
+        }
+      </button>
+    }
+  </c-modal-footer>
+
+</c-modal>

@@ -111,14 +111,24 @@ public class QBittorrentService : BaseService<QBittorrentOptions>
             if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
                 return ExtractMagnetHash(url);
 
-            // Pour les URLs HTTP .torrent : on identifie le torrent ajouté par son timestamp.
-            // On ne peut pas faire FirstOrDefault() car d'autres torrents récents
-            // (ajoutés lors d'une session précédente) seraient retournés à la place.
+            // Pour les URLs HTTP .torrent : qBittorrent ne renvoie pas le hash à l'ajout, on identifie
+            // le torrent ajouté par son timestamp. On ne peut pas faire FirstOrDefault() tout court car
+            // d'autres torrents récents (ajoutés lors d'une session précédente) seraient retournés à la
+            // place. Nouvelles tentatives (comme GrabPackSelectiveAsync) plutôt qu'une seule attente fixe :
+            // si qBittorrent met plus de temps que prévu à enregistrer le torrent, un ancien fallback sur
+            // "le plus récent existant" renverrait silencieusement le hash d'un AUTRE torrent, laissant le
+            // suivi bloqué indéfiniment sur un hash qui ne correspond à rien.
             var addedAfter = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 5; // -5 s pour décalage d'horloge
-            await Task.Delay(1500, ct);
-            var recent = await GetTorrentsAsync(null, ct);
-            var added = recent.FirstOrDefault(t => t.AddedOn >= addedAfter);
-            return added?.Hash ?? recent.FirstOrDefault()?.Hash; // fallback défensif
+            for (var attempt = 0; attempt < 10; attempt++)
+            {
+                await Task.Delay(1000, ct);
+                var recent = await GetTorrentsAsync(null, ct);
+                var added = recent.FirstOrDefault(t => t.AddedOn >= addedAfter);
+                if (added is not null) return added.Hash;
+            }
+
+            SendTrace($"AddTorrentAsync: could not identify the added torrent's hash after retries (url: {url})", ETraceLevel.WARNING);
+            return null;
         }
         catch (Exception ex)
         {
