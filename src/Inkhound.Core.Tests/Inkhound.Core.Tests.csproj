@@ -22,4 +22,9 @@
     <ProjectReference Include="..\Inkhound.Core\Inkhound.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Fichiers d'exemple utilisés par les tests (ex: ArchiveServiceGetArchiveTypeTests) -->
+    <None Include="data\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

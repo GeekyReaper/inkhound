@@ -1,4 +1,5 @@
 using System.Data;
+using System.Formats.Tar;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
@@ -15,7 +16,7 @@ using SkiaSharp;
 
 namespace Inkhound.Core.ComicArchiveGenerator;
 
-public enum EArchiveType { PDF, CBR, CBZ, UNKNOW }
+public enum EArchiveType { PDF, CBR, CBZ, TAR, UNKNOW }
 public class ArchiveService : BaseService<ArchiveOption>
 {
     public ArchiveService()
@@ -329,6 +330,83 @@ public class ArchiveService : BaseService<ArchiveOption>
         return imagePaths;
     }
 
+    public async Task<List<FileInfo>?> ConvertTarToImages(FileInfo source, string destinationPath, ProgressionCallback? progression = null)
+    {
+        if (source.Length == 0)
+        {
+            SendTrace($"TAR source file is empty: {source.FullName}", new TraceDefinition() { Level = ETraceLevel.ERROR });
+            return null;
+        }
+
+        var fullDestPath = Path.Combine(Options.WorkingPath, destinationPath);
+        Directory.CreateDirectory(fullDestPath);
+
+        string[] imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+
+        // Contrairement à ZipArchive/RarArchive, TarReader ne lit qu'en avant et ne permet pas d'énumérer
+        // les entrées puis d'y accéder dans un ordre arbitraire : on extrait donc d'abord les entrées image
+        // vers un dossier de travail temporaire, puis on les traite triées par nom (comme CBR/CBZ) pour
+        // garantir une numérotation de pages cohérente.
+        var rawDir = Directory.CreateDirectory(Path.Combine(fullDestPath, $"_tar_raw_{Guid.NewGuid():N}"));
+        try
+        {
+            var extractedEntries = new List<(string Name, string Extension, FileInfo RawFile)>();
+
+            await using (var fs = File.OpenRead(source.FullName))
+            await using (var reader = new TarReader(fs))
+            {
+                var rawIndex = 0;
+                TarEntry? entry;
+                while ((entry = await reader.GetNextEntryAsync()) is not null)
+                {
+                    if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
+                        continue;
+
+                    var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
+                    if (!imageExtensions.Contains(ext))
+                        continue;
+
+                    var rawPath = Path.Combine(rawDir.FullName, $"raw_{rawIndex++:D5}{ext}");
+                    await entry.ExtractToFileAsync(rawPath, overwrite: true);
+                    extractedEntries.Add((entry.Name, ext, new FileInfo(rawPath)));
+                }
+            }
+
+            var orderedEntries = extractedEntries.OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
+
+            progression?.UpdateTotal(orderedEntries.Count);
+            var internalProgress = new Progression { Total = orderedEntries.Count, Completed = 0, Error = 0 };
+
+            var imagePaths = new List<FileInfo>();
+            int index = 0;
+            foreach (var (_, ext, rawFile) in orderedEntries)
+            {
+                try
+                {
+                    ++index;
+                    await using var entryStream = rawFile.OpenRead();
+                    var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
+
+                    imagePaths.Add(converted);
+                    internalProgress.Increment();
+                    SendTrace($"Successfully extracted page {index}/{orderedEntries.Count}");
+                }
+                catch (Exception ex)
+                {
+                    SendTrace($"Error extracting page {index}", ex);
+                    internalProgress.Increment(success: false);
+                }
+                progression?.Callback(internalProgress);
+            }
+
+            return imagePaths;
+        }
+        finally
+        {
+            rawDir.Delete(recursive: true);
+        }
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     [System.Runtime.Versioning.SupportedOSPlatform("osx")]
@@ -340,6 +418,7 @@ public class ArchiveService : BaseService<ArchiveOption>
             EArchiveType.PDF => await ConvertPdfToImages(source, destinationPath, progression),
             EArchiveType.CBR => await ConvertCbrToImages(source, destinationPath, progression),
             EArchiveType.CBZ => await ConvertCbzToImages(source, destinationPath, progression),
+            EArchiveType.TAR => await ConvertTarToImages(source, destinationPath, progression),
             _ => null
         };
     }
@@ -624,6 +703,19 @@ public class ArchiveService : BaseService<ArchiveOption>
         // CBR (RAR): Rar!
         if (header[0] == 0x52 && header[1] == 0x61 && header[2] == 0x72 && header[3] == 0x21)
             return EArchiveType.CBR;
+
+        // TAR (POSIX/USTAR) : pas de magic bytes en tête de fichier — le marqueur "ustar" se trouve
+        // à l'offset 257 du premier bloc d'en-tête (512 octets), juste après le champ checksum.
+        const int ustarMagicOffset = 257;
+        const string ustarMagic = "ustar";
+        if (fs.Length >= ustarMagicOffset + ustarMagic.Length)
+        {
+            fs.Position = ustarMagicOffset;
+            var tarMagic = new byte[ustarMagic.Length];
+            await fs.ReadExactlyAsync(tarMagic);
+            if (Encoding.ASCII.GetString(tarMagic) == ustarMagic)
+                return EArchiveType.TAR;
+        }
 
         SendTrace($"GetArchiveType Unrecognized archive format: {filepath}", ETraceLevel.DEBUG);
         return EArchiveType.UNKNOW;
