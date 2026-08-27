@@ -1,187 +1,123 @@
-import { Component, DestroyRef, DOCUMENT, effect, inject, OnInit, Renderer2, signal, WritableSignal } from '@angular/core';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { ChartOptions } from 'chart.js';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { finalize } from 'rxjs';
 import {
-  AvatarComponent,
+  AlertComponent,
+  BadgeComponent,
   ButtonDirective,
-  ButtonGroupComponent,
   CardBodyComponent,
   CardComponent,
-  CardFooterComponent,
-  CardHeaderComponent,
   ColComponent,
-  FormCheckLabelDirective,
-  GutterDirective,
+  ContainerComponent,
+  ProgressBarComponent,
   ProgressComponent,
   RowComponent,
-  TableDirective
+  SpinnerComponent,
+  TemplateIdDirective,
+  TooltipDirective,
+  WidgetStatCComponent
 } from '@coreui/angular';
-import { ChartjsComponent } from '@coreui/angular-chartjs';
 import { IconDirective } from '@coreui/icons-angular';
-
-import { WidgetsBrandComponent } from '../widgets/widgets-brand/widgets-brand.component';
-import { WidgetsDropdownComponent } from '../widgets/widgets-dropdown/widgets-dropdown.component';
-import { DashboardChartsData, IChartProps } from './dashboard-charts-data';
-
-interface IUser {
-  name: string;
-  state: string;
-  registered: string;
-  country: string;
-  usage: number;
-  period: string;
-  payment: string;
-  activity: string;
-  avatar: string;
-  status: string;
-  color: string;
-}
+import { DashboardService, DashboardStats } from '../../core/services/dashboard.service';
+import { HubService } from '../../core/services/hub.service';
+import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
+import { VolumeStatus } from '../../core/services/volume.service';
 
 @Component({
-  templateUrl: 'dashboard.component.html',
-  styleUrls: ['dashboard.component.scss'],
-  imports: [WidgetsDropdownComponent, CardComponent, CardBodyComponent, RowComponent, ColComponent, ButtonDirective, IconDirective, ReactiveFormsModule, ButtonGroupComponent, FormCheckLabelDirective, ChartjsComponent, CardFooterComponent, GutterDirective, ProgressComponent, WidgetsBrandComponent, CardHeaderComponent, TableDirective, AvatarComponent]
+  selector: 'app-dashboard',
+  templateUrl: './dashboard.component.html',
+  imports: [
+    ContainerComponent, RowComponent, ColComponent,
+    CardComponent, CardBodyComponent,
+    SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
+    ProgressComponent, ProgressBarComponent, TooltipDirective,
+    WidgetStatCComponent, TemplateIdDirective, IconDirective, DatePipe, RouterLink
+  ]
 })
-export class DashboardComponent implements OnInit {
+export class DashboardComponent {
+  private dashboardService = inject(DashboardService);
+  private qbService        = inject(QBittorrentService);
+  private hub               = inject(HubService);
+  readonly #destroyRef      = inject(DestroyRef);
 
-  readonly #destroyRef: DestroyRef = inject(DestroyRef);
-  readonly #document: Document = inject(DOCUMENT);
-  readonly #renderer: Renderer2 = inject(Renderer2);
-  readonly #chartsData: DashboardChartsData = inject(DashboardChartsData);
+  private readonly ACTIVE_DOWNLOAD_STATUSES: DownloadStatus[] =
+    ['Downloading', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
 
-  public users: IUser[] = [
-    {
-      name: 'Yiorgos Avraamu',
-      state: 'New',
-      registered: 'Jan 1, 2021',
-      country: 'Us',
-      usage: 50,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'Mastercard',
-      activity: '10 sec ago',
-      avatar: './assets/images/avatars/1.jpg',
-      status: 'success',
-      color: 'success'
-    },
-    {
-      name: 'Avram Tarasios',
-      state: 'Recurring ',
-      registered: 'Jan 1, 2021',
-      country: 'Br',
-      usage: 10,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'Visa',
-      activity: '5 minutes ago',
-      avatar: './assets/images/avatars/2.jpg',
-      status: 'danger',
-      color: 'info'
-    },
-    {
-      name: 'Quintin Ed',
-      state: 'New',
-      registered: 'Jan 1, 2021',
-      country: 'In',
-      usage: 74,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'Stripe',
-      activity: '1 hour ago',
-      avatar: './assets/images/avatars/3.jpg',
-      status: 'warning',
-      color: 'warning'
-    },
-    {
-      name: 'Enéas Kwadwo',
-      state: 'Sleep',
-      registered: 'Jan 1, 2021',
-      country: 'Fr',
-      usage: 98,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'Paypal',
-      activity: 'Last month',
-      avatar: './assets/images/avatars/4.jpg',
-      status: 'secondary',
-      color: 'danger'
-    },
-    {
-      name: 'Agapetus Tadeáš',
-      state: 'New',
-      registered: 'Jan 1, 2021',
-      country: 'Es',
-      usage: 22,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'ApplePay',
-      activity: 'Last week',
-      avatar: './assets/images/avatars/5.jpg',
-      status: 'success',
-      color: 'primary'
-    },
-    {
-      name: 'Friderik Dávid',
-      state: 'New',
-      registered: 'Jan 1, 2021',
-      country: 'Pl',
-      usage: 43,
-      period: 'Jun 11, 2021 - Jul 10, 2021',
-      payment: 'Amex',
-      activity: 'Yesterday',
-      avatar: './assets/images/avatars/6.jpg',
-      status: 'info',
-      color: 'dark'
-    }
-  ];
+  loading = signal(true);
+  error   = signal<string | null>(null);
+  stats   = signal<DashboardStats | null>(null);
 
-  public mainChart: IChartProps = { type: 'line' };
-  public mainChartRef: WritableSignal<any> = signal(undefined);
-  #mainChartRefEffect = effect(() => {
-    if (this.mainChartRef()) {
-      this.setChartStyles();
-    }
-  });
-  public chart: Array<IChartProps> = [];
-  public trafficRadioGroup = new FormGroup({
-    trafficRadio: new FormControl('Month')
+  recentDownloads     = signal<DownloadItem[]>([]);
+  recentDownloadsTotal = signal(0);
+  downloadsLoading     = signal(true);
+
+  readonly activeJobs = computed(() =>
+    this.hub.jobs().filter(j => j.state === 'RUNNING' || j.state === 'INITIALIZING').slice(0, 5)
+  );
+
+  readonly issuesProgressPercent = computed(() => {
+    const s = this.stats();
+    if (!s || !s.issuesCount) return 0;
+    return Math.round((s.issuesDownloaded / s.issuesCount) * 100);
   });
 
-  ngOnInit(): void {
-    this.initCharts();
-    this.updateChartOnColorModeChange();
-  }
-
-  initCharts(): void {
-    this.mainChartRef()?.stop();
-    this.mainChart = this.#chartsData.mainChart;
-  }
-
-  setTrafficPeriod(value: string): void {
-    this.trafficRadioGroup.setValue({ trafficRadio: value });
-    this.#chartsData.initMainChart(value);
-    this.initCharts();
-  }
-
-  handleChartRef($chartRef: any) {
-    if ($chartRef) {
-      this.mainChartRef.set($chartRef);
-    }
-  }
-
-  updateChartOnColorModeChange() {
-    const unListen = this.#renderer.listen(this.#document.documentElement, 'ColorSchemeChange', () => {
-      this.setChartStyles();
-    });
-
-    this.#destroyRef.onDestroy(() => {
-      unListen();
-    });
-  }
-
-  setChartStyles() {
-    if (this.mainChartRef()) {
-      setTimeout(() => {
-        const options: ChartOptions = { ...this.mainChart.options };
-        const scales = this.#chartsData.getScales();
-        this.mainChartRef().options.scales = { ...options.scales, ...scales };
-        this.mainChartRef().update();
+  constructor() {
+    this.dashboardService.getStats()
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.loading.set(false)))
+      .subscribe({
+        next: stats => this.stats.set(stats),
+        error: err  => this.error.set(err?.error?.message ?? 'Failed to load dashboard data.')
       });
+
+    this.qbService.getDownloads(this.ACTIVE_DOWNLOAD_STATUSES, 1, 5)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.downloadsLoading.set(false)))
+      .subscribe({
+        next: res => {
+          this.recentDownloads.set(res.items);
+          this.recentDownloadsTotal.set(res.totalItems);
+        },
+        error: () => {}
+      });
+  }
+
+  libraryProgressPercent(lib: { issuesCount: number; downloadedIssuesCount: number }): number {
+    if (!lib.issuesCount) return 0;
+    return Math.round((lib.downloadedIssuesCount / lib.issuesCount) * 100);
+  }
+
+  volumeStatusBadgeColor(status: VolumeStatus): string {
+    const map: Record<VolumeStatus, string> = {
+      MONITORED: 'primary',
+      COMPLETED: 'success',
+      PAUSED:    'secondary'
+    };
+    return map[status];
+  }
+
+  jobProgressColor(state: string): string {
+    if (state === 'ERROR')   return 'danger';
+    if (state === 'SUCCESS') return 'success';
+    return 'primary';
+  }
+
+  downloadStatusBadgeColor(status: DownloadStatus): string {
+    switch (status) {
+      case 'Downloading': return 'info';
+      case 'Paused':      return 'warning';
+      case 'Finished':    return 'success';
+      case 'Syncing':     return 'info';
+      case 'Done':        return 'success';
+      case 'Error':       return 'danger';
+      default:            return 'secondary';
     }
+  }
+
+  formatSize(bytes: number | null): string {
+    if (bytes === null || bytes <= 0) return '—';
+    const mb = bytes / 1_048_576;
+    if (mb >= 1_048_576) return `${(mb / 1_048_576).toFixed(1)} TB`;
+    return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
   }
 }

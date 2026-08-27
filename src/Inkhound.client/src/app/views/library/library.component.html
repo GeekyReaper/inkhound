@@ -18,12 +18,20 @@
       <c-col>
         <h2 class="mb-0">{{ library()!.name }}</h2>
       </c-col>
-      <c-col xs="auto">
+      <c-col xs="auto" class="d-flex gap-2">
         <button cButton color="primary" [disabled]="syncing()" (click)="synchronize()">
           @if (syncing()) {
             <c-spinner size="sm" class="me-2"></c-spinner>Synchronizing…
           } @else {
             Synchronize
+          }
+        </button>
+        <button cButton color="secondary" [disabled]="recalculatingStats()" (click)="recalculateStatistics()">
+          @if (recalculatingStats()) {
+            <c-spinner size="sm" class="me-2"></c-spinner>Recalculating…
+          } @else {
+            <svg cIcon name="cilReload" class="me-1"></svg>
+            Statistics
           }
         </button>
       </c-col>
@@ -34,6 +42,16 @@
         <c-col>
           <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
             {{ syncDone() }}
+          </c-alert>
+        </c-col>
+      </c-row>
+    }
+
+    @if (recalculateStatsDone()) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-alert color="success" [dismissible]="true" (visibleChange)="recalculateStatsDone.set(null)">
+            {{ recalculateStatsDone() }}
           </c-alert>
         </c-col>
       </c-row>

@@ -29,9 +29,14 @@ Thumbs.db
 
 # Runtime data
 src/Inkhound.Console/data/
+src/Inkhound.Web/data/
+src/Inkhound.Web/data.bak-*/
 
 # Fixtures de test volumineuses (fichiers binaires réels, pas de Git LFS configuré)
 src/Inkhound.Core.Tests/data/
+
+# lscache — cache généré par un outil/extension IDE, présent dans plusieurs projets
+*.csproj.lscache
 
 # Residual folders
 src/Inkhound.Client.old/

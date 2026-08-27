@@ -125,6 +125,16 @@
           }
           Refresh Kavita
         </button>
+        <button cButton color="secondary" size="sm"
+                [disabled]="recalculatingStats()"
+                (click)="onRecalculateStatistics()">
+          @if (recalculatingStats()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          } @else {
+            <svg cIcon name="cilReload" class="me-1"></svg>
+          }
+          Statistics
+        </button>
         <button cButton color="danger" size="sm" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete
@@ -137,6 +147,11 @@
         @if (regenerateSuccess()) {
           <c-alert color="success" class="mb-0 py-1 small">
             Job started — follow progress in Jobs view.
+          </c-alert>
+        }
+        @if (recalculateStatsSuccess()) {
+          <c-alert color="success" class="mb-0 py-1 small">
+            Statistics recalculated.
           </c-alert>
         }
       </c-col>

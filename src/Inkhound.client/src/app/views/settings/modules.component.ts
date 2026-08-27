@@ -44,6 +44,8 @@ export class ModulesComponent implements OnInit {
   pathPickerVisible = signal(false);
   activePathOption  = signal<string | null>(null);
 
+  refreshingState = signal(false);
+
   readonly groupedOptions = computed(() => {
     const groups: { section: string; options: OptionDefinition[] }[] = [];
     for (const def of this.options()) {
@@ -109,6 +111,22 @@ export class ModulesComponent implements OnInit {
       .subscribe({
         next:  () => { this.saving.set(false); this.saveStatus.set('success'); },
         error: () => { this.saving.set(false); this.saveStatus.set('error'); }
+      });
+  }
+
+  // Bypass le cache de StateRefreshDelay côté service (ex: 180 min pour Bedetheque) — utile pour
+  // valider immédiatement un changement de config (proxy activé, etc.) sans attendre le prochain
+  // cycle de monitoring. Le badge d'état se met à jour tout seul via SignalR (ManagerStateChanged),
+  // pas besoin de traiter la réponse HTTP ici.
+  refreshState(): void {
+    const name = this.activeTab();
+    if (!name || this.refreshingState()) return;
+    this.refreshingState.set(true);
+    this.optionsService.refreshState(name)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  () => this.refreshingState.set(false),
+        error: () => this.refreshingState.set(false)
       });
   }
 

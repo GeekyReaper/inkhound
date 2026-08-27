@@ -69,6 +69,9 @@ export class VolumeComponent {
   regenerating      = signal(false);
   regenerateSuccess = signal(false);
 
+  recalculatingStats     = signal(false);
+  recalculateStatsSuccess = signal(false);
+
   constructor() {
     this.route.parent!.params
       .pipe(
@@ -192,6 +195,26 @@ export class VolumeComponent {
       .subscribe({
         next:  () => { this.regenerating.set(false); this.regenerateSuccess.set(true); },
         error: err => { this.error.set(err?.error?.message ?? 'Regeneration failed.'); this.regenerating.set(false); }
+      });
+  }
+
+  onRecalculateStatistics(): void {
+    const vol = this.volume();
+    if (!vol || this.recalculatingStats()) return;
+    this.recalculatingStats.set(true);
+    this.recalculateStatsSuccess.set(false);
+    this.volumeService.recalculateStatistics(vol.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next: updated => {
+          this.volume.set(updated);
+          this.recalculatingStats.set(false);
+          this.recalculateStatsSuccess.set(true);
+        },
+        error: err => {
+          this.error.set(err?.error?.message ?? 'Recalculation failed.');
+          this.recalculatingStats.set(false);
+        }
       });
   }
 

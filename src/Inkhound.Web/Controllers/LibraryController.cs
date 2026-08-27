@@ -139,4 +139,12 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         _ = manager.LaunchJobSynchronizeLibrary(new SynchronizeLibraryJobParameters { LibraryId = id });
         return Accepted(new { message = $"Synchronization of library {id} started." });
     }
+
+    // POST /api/libraries/{id}/recalculate-statistics
+    [HttpPost("{id:guid}/recalculate-statistics")]
+    public IActionResult RecalculateStatistics(Guid id)
+    {
+        _ = manager.LaunchJobRecalculateLibraryStatistics(new RecalculateLibraryStatisticsJobParameters { LibraryId = id });
+        return Accepted(new { message = $"Statistics recalculation started for library {id}." });
+    }
 }

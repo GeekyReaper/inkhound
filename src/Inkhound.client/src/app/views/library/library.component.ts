@@ -17,6 +17,7 @@ import {
   SpinnerComponent,
   TooltipDirective
 } from '@coreui/angular';
+import { IconDirective } from '@coreui/icons-angular';
 import { Library, LibraryService, libraryPageKey } from '../../core/services/library.service';
 import { KavitaService } from '../../core/services/kavita.service';
 import { AGE_RATINGS, AgeRating, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
@@ -33,7 +34,7 @@ import { UpdatedData } from '../../core/models/hub.models';
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink,
     BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent
+    JobPanelComponent, IconDirective
   ]
 })
 export class LibraryComponent {
@@ -52,6 +53,9 @@ export class LibraryComponent {
   syncDone       = signal<string | null>(null);
   volumes        = signal<Volume[]>([]);
   volumesLoading = signal(false);
+
+  recalculatingStats  = signal(false);
+  recalculateStatsDone = signal<string | null>(null);
 
   // Clé de page dérivée (pas figée à la construction) : ce composant peut être réutilisé d'une
   // library à l'autre sans être détruit — d'où le switchMap sur route.params ci-dessous.
@@ -184,6 +188,28 @@ export class LibraryComponent {
         error: err => {
           this.error.set(err?.error?.message ?? 'Failed to start synchronization.');
           this.syncing.set(false);
+        }
+      });
+  }
+
+  recalculateStatistics(): void {
+    const lib = this.library();
+    if (!lib || this.recalculatingStats()) return;
+
+    this.recalculatingStats.set(true);
+    this.recalculateStatsDone.set(null);
+    this.error.set(null);
+
+    this.libraryService.recalculateStatistics(lib.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next: res => {
+          this.recalculateStatsDone.set(res.message);
+          this.recalculatingStats.set(false);
+        },
+        error: err => {
+          this.error.set(err?.error?.message ?? 'Failed to start statistics recalculation.');
+          this.recalculatingStats.set(false);
         }
       });
   }

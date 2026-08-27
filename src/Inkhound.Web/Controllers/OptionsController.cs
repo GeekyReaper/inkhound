@@ -34,4 +34,16 @@ public class OptionsController(InkhoundManager manager) : ControllerBase
             return StatusCode(503, new { message = "Database service unavailable." });
         return NoContent();
     }
+
+    // POST /api/options/{serviceName}/refresh-state
+    // Force un recalcul immédiat de l'état du service (bypass le cache de StateRefreshDelay) —
+    // utile pour valider un changement de config (ex: proxy) sans attendre le prochain cycle.
+    [HttpPost("{serviceName}/refresh-state")]
+    public async Task<IActionResult> RefreshState(string serviceName)
+    {
+        var state = await manager.RefreshServiceStateAsync(serviceName);
+        if (state is null)
+            return NotFound(new { message = $"Service '{serviceName}' not found." });
+        return Ok(state);
+    }
 }

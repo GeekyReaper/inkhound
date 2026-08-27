@@ -26,6 +26,20 @@
                 } @else if (noOptions()) {
                   <p class="text-muted fst-italic py-3">No options available for this service.</p>
                 } @else {
+                  <div class="d-flex align-items-center gap-2 mb-3">
+                    <span class="text-muted small">Status:</span>
+                    <c-badge [color]="getBadgeColor(getServiceState(name))">{{ getServiceState(name) }}</c-badge>
+                    <button cButton color="secondary" variant="outline" size="sm"
+                            [disabled]="refreshingState()" (click)="refreshState()">
+                      @if (refreshingState()) {
+                        <c-spinner size="sm" class="me-1" />
+                      } @else {
+                        <svg cIcon name="cilSync" class="me-1"></svg>
+                      }
+                      Check now
+                    </button>
+                  </div>
+
                   <form cForm [formGroup]="form()" (ngSubmit)="saveOptions()" novalidate>
 
                     @for (group of groupedOptions(); track group.section + '-' + $index) {

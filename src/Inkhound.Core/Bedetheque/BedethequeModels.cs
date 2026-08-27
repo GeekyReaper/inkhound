@@ -36,7 +36,8 @@ public record BdSerie(
     string? Description,
     string? CoverUrl,
     string Url,
-    List<BdAlbumSummary> Albums);
+    List<BdAlbumSummary> Albums,
+    string? Editeur);
 
 public record BdAlbum(
     int Id,

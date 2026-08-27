@@ -61,4 +61,8 @@ export class LibraryService {
   sync(id: string) {
     return this.http.post<{ message: string }>(`/api/libraries/${id}/sync`, null);
   }
+
+  recalculateStatistics(id: string) {
+    return this.http.post<{ message: string }>(`/api/libraries/${id}/recalculate-statistics`, null);
+  }
 }

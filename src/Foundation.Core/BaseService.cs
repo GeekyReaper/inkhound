@@ -53,6 +53,10 @@ public abstract class BaseService<T> : IService where T : IOptionList, new()
     // si aucun n'est disponible / aucun fournisseur de proxy n'est enregistré).
     protected ProxyEndpoint? NotifyProxyBanned() => _requestProxyRotation?.Invoke();
 
+    // Lecture seule (pas de rotation) — utile pour journaliser quel proxy est utilisé lors d'une
+    // tentative avant de savoir si elle échoue, sans consommer un cran de rotation.
+    protected ProxyEndpoint? GetActiveProxy() => _getActiveProxy?.Invoke();
+
     protected virtual void SendTrace(string title, Exception ex, TraceDefinition? trace = null)
     {
         var tracemessage = new List<string>();

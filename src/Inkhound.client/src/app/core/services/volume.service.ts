@@ -201,6 +201,10 @@ export class VolumeService {
     return this.http.post<{ message: string }>(`/api/volumes/${volumeId}/regenerate-comic-info`, {});
   }
 
+  recalculateStatistics(volumeId: string) {
+    return this.http.post<Volume>(`/api/volumes/${volumeId}/recalculate-statistics`, {});
+  }
+
   patchAgeRating(volumeId: string, ageRating: AgeRating) {
     return this.http.patch<void>(`/api/volumes/${volumeId}/age-rating`, { ageRating });
   }

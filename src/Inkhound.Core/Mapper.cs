@@ -56,6 +56,7 @@ public static class Mapper
             Title = serie.Titre,
             Year = year == 0 ? null : year,
             Description = serie.Description,
+            Publisher = serie.Editeur,
             Image = serie.CoverUrl is { } url ? new VolumeImage(url, url, url, url, url, url, url, url, url, null) : null,
             Genres = serie.Genre is { } g ? [g] : [],
             CountOfIssues = serie.NombreAlbums ?? serie.Albums.Count,

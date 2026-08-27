@@ -6,3 +6,9 @@
 **/.vscode
 **/wwwroot
 src/Inkhound.Web/data
+src/Inkhound.Web/data.bak-*
+src/Inkhound.Web/data-*
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.lscache

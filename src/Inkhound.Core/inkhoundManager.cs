@@ -87,6 +87,16 @@ public class InkhoundManager : BaseServiceManager
         return true;
     }
 
+    // Force un recalcul immédiat de l'état d'un service (bypass le cache de StateRefreshDelay).
+    // Utile pour les services scrapés (ex. Bedetheque, mis en cache 180 min) après un changement
+    // de configuration (proxy activé, etc.) : sans ça, un état ERROR resterait affiché jusqu'à
+    // expiration du cache même une fois le problème résolu.
+    public async Task<StateService?> RefreshServiceStateAsync(string serviceName)
+    {
+        var service = Services.Values.FirstOrDefault(s => s.GetServiceName() == serviceName);
+        return service is null ? null : await service.GetState(force: true);
+    }
+
     public async Task AutomaticLoadServices()
     {
         // Instantiate services
@@ -315,6 +325,40 @@ public class InkhoundManager : BaseServiceManager
     public async Task<Volume?> GetVolumeAsync(Guid id)
     {
         return await GetDb().Volumes.FindAsync(id);
+    }
+
+    // Recalcule CountOfIssues / CountOfDownloadedIssues (et le Status COMPLETED/MONITORED) d'un
+    // volume à partir de l'état réel des issues en base. Surcharge publique utilisable directement
+    // par le controller (ouvre son propre contexte EF Core).
+    public async Task<Volume?> RecalculateVolumeStatisticsAsync(Guid volumeId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        if (!await ctx.Volumes.AnyAsync(v => v.Id == volumeId, ct)) return null;
+        await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
+        return await ctx.Volumes.FindAsync([volumeId], ct);
+    }
+
+    // Surcharge interne réutilisant le ctx de l'appelant — à utiliser à l'intérieur d'un job, après
+    // que les changements sur les Issues concernées ont été persistés via SaveChangesAsync (sans quoi
+    // le ChangeTracker EF Core ne voit pas encore les modifications en attente et le compteur reste
+    // en retard d'une issue).
+    private async Task RecalculateVolumeStatisticsAsync(DbStorageContext ctx, Guid volumeId, CancellationToken ct = default)
+    {
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return;
+
+        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
+        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
+        if (volume.Status != VolumeStatus.PAUSED)
+        {
+            volume.Status = volume.CountOfIssues > 0 && volume.CountOfIssues == volume.CountOfDownloadedIssues
+                ? VolumeStatus.COMPLETED
+                : VolumeStatus.MONITORED;
+        }
+        volume.UpdatedAt = DateTime.UtcNow;
+
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
     }
 
     public async Task<List<Volume>> GetVolumesByLibraryAsync(Guid libraryId)
@@ -997,19 +1041,8 @@ public class InkhoundManager : BaseServiceManager
                     ? new VolumeAuthor(a.Name, role ?? string.Empty)
                     : a)
                 .ToList();
-            volume.CountOfIssues = localIssues.Count;
-            volume.CountOfDownloadedIssues = localIssues.Count(i => i.Status == IssueStatus.DOWNLOADED);
-
-
-            volume.UpdatedAt = DateTime.UtcNow;
-            volume.CountOfIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id);
-            volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED);
-            volume.Status = volume.CountOfIssues == volume.CountOfDownloadedIssues ? VolumeStatus.COMPLETED : VolumeStatus.MONITORED;
-
             await ctx.SaveChangesAsync();
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
-
-
+            await RecalculateVolumeStatisticsAsync(ctx, volume.Id);
         }
 
         library.UpdatedAt = DateTime.UtcNow;
@@ -1028,8 +1061,48 @@ public class InkhoundManager : BaseServiceManager
         }
     }
 
+    // Recalcule CountOfIssues / CountOfDownloadedIssues (+ Status) de tous les volumes d'une
+    // library, un par un, via la méthode partagée RecalculateVolumeStatisticsAsync. Chaque volume
+    // recalculé émet son propre OnDataUpdated<Volume> — le frontend (LibraryComponent) rafraîchit
+    // déjà sa liste de volumes sur cet événement, aucune plomberie supplémentaire n'est nécessaire.
+    public async Task LaunchJobRecalculateLibraryStatistics(RecalculateLibraryStatisticsJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var library = await ctx.Libraries.FindAsync(parameters.LibraryId);
+        var jobTitle = library is not null
+            ? $"Recalculate statistics — {library.Name}"
+            : $"Recalculate statistics — {parameters.LibraryId}";
 
+        var job = StartJob(jobTitle, parameters);
+        job.SetState(JobState.RUNNING);
+        try
+        {
+            if (library is null) { EndJob(false); return; }
 
+            var volumeIds = await ctx.Volumes
+                .Where(v => v.LibraryId == parameters.LibraryId)
+                .Select(v => v.Id)
+                .ToListAsync();
+
+            JobSendTrace($"[Stats] {volumeIds.Count} volumes to recalculate in library {library.Name}");
+            job.CallbackHandler.UpdateTotal(volumeIds.Count);
+
+            foreach (var volumeId in volumeIds)
+            {
+                await RecalculateVolumeStatisticsAsync(ctx, volumeId);
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+            }
+
+            JobSendTrace($"[Stats] Statistics recalculation complete for library {library.Name}");
+            EndJob(true);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Stats] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+    }
 
     #endregion
 
@@ -1208,12 +1281,7 @@ public class InkhoundManager : BaseServiceManager
         }
 
         await ctx.SaveChangesAsync(ct);
-
-        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
-        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
-        await ctx.SaveChangesAsync(ct);
-
-        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
         return true;
     }
 
@@ -1390,12 +1458,7 @@ public class InkhoundManager : BaseServiceManager
         }
 
         await ctx.SaveChangesAsync(ct);
-
-        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
-        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
-        await ctx.SaveChangesAsync(ct);
-
-        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
         return true;
     }
 
@@ -1580,11 +1643,7 @@ public class InkhoundManager : BaseServiceManager
         }
 
         await ctx.SaveChangesAsync(ct);
-
-        volume.CountOfIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
-        await ctx.SaveChangesAsync(ct);
-
-        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
         return true;
     }
 
@@ -1746,11 +1805,13 @@ public class InkhoundManager : BaseServiceManager
                 issue.CbzFilename = archive.Name;
                 issue.FileSizeBytes = (int)archive.Length;
                 issue.Status = IssueStatus.DOWNLOADED;
-                volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED, ct);
-                volume.UpdatedAt = DateTime.UtcNow;
+                // Persiste d'abord le changement de statut de l'issue : le recalcul du compteur ci-
+                // dessous interroge la base via CountAsync, qui ne verrait pas cette issue si elle
+                // n'était pas encore sauvegardée (bug historique : le dernier item traité n'était
+                // jamais comptabilisé).
                 await ctx.SaveChangesAsync(ct);
+                await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
                 OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
                 JobSendTrace($"Successfully imported file {file.Name} as issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
@@ -2772,15 +2833,17 @@ public class InkhoundManager : BaseServiceManager
                     issue.FileSizeBytes = (int)archive.Length;
                     issue.Status = IssueStatus.DOWNLOADED;
                     issue.DownloadedAt = DateTime.UtcNow;
-                    volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volume.Id && i.Status == IssueStatus.DOWNLOADED);
-                    volume.UpdatedAt = DateTime.UtcNow;
 
                     download.Status = DownloadStatus.Done;
                     download.UpdatedAt = DateTime.UtcNow;
 
+                    // Persiste d'abord le changement de statut de l'issue : le recalcul du compteur
+                    // ci-dessous interroge la base via CountAsync, qui ne verrait pas cette issue si
+                    // elle n'était pas encore sauvegardée (bug historique : le dernier item traité
+                    // n'était jamais comptabilisé).
                     await ctx.SaveChangesAsync();
+                    await RecalculateVolumeStatisticsAsync(ctx, volume.Id);
                     OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
                     touchedVolumeIds.Add(volume.Id);
 
                     JobSendTrace($"[Downloads] Issue #{issue.IssueNumber} — {volume.Title} imported successfully");

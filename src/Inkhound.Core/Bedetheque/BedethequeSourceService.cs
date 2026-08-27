@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Foundation.Core;
 using Foundation.Core.Interface;
@@ -17,15 +20,33 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     private const string SourceKeyConst = "bedetheque";
     public string SourceKey => SourceKeyConst;
 
-    private static readonly string[] LeadingArticles = ["les ", "le ", "la ", "l'", "des ", "un ", "une "];
-
     private readonly CookieContainer _cookies = new();
     private HttpClient _http;
     private RateLimiter _rateLimiter = null!;
 
+    // FlareSolverr (navigateur headless réel piloté à distance) : chemin HTTP unique utilisé pour
+    // TOUTES les requêtes quand configuré — voir GetHtmlAsync/GetHtmlViaFlareSolverrAsync. Une
+    // session persistante est créée une seule fois puis réutilisée (évite de re-résoudre le
+    // challenge Cloudflare à chaque appel) ; les appels sont sérialisés (_flareSolverrLock) car un
+    // navigateur headless ne supporte pas des requêtes concurrentes fiables.
+    private FlareSolverrClient? _flareSolverr;
+    private string? _flareSolverrSessionId;
+    private readonly SemaphoreSlim _flareSolverrLock = new(1, 1);
+
+    // Cache mémoire (24h, par instance) des informations de série — voir GetOrFetchSerieAsync.
+    private static readonly TimeSpan SerieCacheDuration = TimeSpan.FromHours(24);
+    private readonly ConcurrentDictionary<int, SerieCacheEntry> _serieCache = new();
+    private sealed record SerieCacheEntry(BdSerie Detail, DateTime CachedAtUtc, bool Complete);
+
+    // Cache mémoire (24h, par instance) des détails d'album — voir GetAlbumAsync.
+    private static readonly TimeSpan AlbumCacheDuration = TimeSpan.FromHours(24);
+    private readonly ConcurrentDictionary<int, AlbumCacheEntry> _albumCache = new();
+    private sealed record AlbumCacheEntry(BdAlbum Detail, DateTime CachedAtUtc);
+
     public BedethequeSourceService()
     {
         _http = BuildHttpClient();
+        _flareSolverr = BuildFlareSolverrClient();
         _rateLimiter = new RateLimiter(Options.RateLimitMs);
 
         // Sans ça, GetState() ré-exécute CheckInternalState() (donc une vraie requête HTTP vers
@@ -45,6 +66,14 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     {
         Options.LoadOptions(optionList, out _);
         _http = BuildHttpClient();
+
+        // La config FlareSolverr a pu changer (URL, activation) — on jette l'ancien client/session
+        // et on en reconstruit un neuf paresseusement au prochain appel.
+        var oldFlareSolverr = _flareSolverr;
+        _flareSolverr = BuildFlareSolverrClient();
+        _flareSolverrSessionId = null;
+        oldFlareSolverr?.Dispose();
+
         var old = _rateLimiter;
         _rateLimiter = new RateLimiter(Options.RateLimitMs);
         old.Dispose();
@@ -89,100 +118,162 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return client;
     }
 
+    private FlareSolverrClient? BuildFlareSolverrClient() =>
+        Options.UseFlareSolverr && !string.IsNullOrWhiteSpace(Options.FlareSolverrUrl)
+            ? new FlareSolverrClient(Options.FlareSolverrUrl)
+            : null;
+
     #region API Mapping — recherche de séries
 
-    // Recherche par formulaire (/search/albums) : la seule méthode fiable pour une requête
-    // multi-mots (l'autocomplete AJAX du site ne matche que sur le premier mot). Le site
-    // n'expose aucune pagination côté serveur pour cette recherche : on récupère la liste
-    // complète, dédupliquée par nom de série, puis on résout l'ID réel de chaque série via
-    // la page du premier album trouvé (seul moyen fiable de l'obtenir depuis ce flux).
+    // Recherche via l'autocomplete AJAX du site (/ajax/tout?term=), pas via le formulaire
+    // /search/albums : ce dernier exige un header Referer pointant vers la page de recherche pour
+    // renvoyer de vrais résultats (vérifié : sans lui, réponse 200 mais formulaire vide,
+    // silencieusement) — un Referer que FlareSolverr ne peut pas poser sur une navigation directe.
+    // /ajax/tout n'a pas cette contrainte et renvoie directement des séries (pas des albums à
+    // regrouper) avec leur ID réel, ce qui simplifie aussi tout le flux : plus besoin de dédupliquer
+    // par nom ni de résoudre l'ID via la page d'un album.
+    //
+    // L'endpoint ne matche que depuis le début du nom de série et pas sur plusieurs mots : on
+    // envoie le premier mot et on filtre côté client pour les requêtes multi-mots.
     public async Task<IReadOnlyList<BdSerieSearchResult>> SearchAllSeriesByNameAsync(string query, CancellationToken ct = default)
     {
         var strippedQuery = StripLeadingArticle(query);
+        var firstWord = strippedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? strippedQuery;
 
-        var formHtml = await GetHtmlAsync("/search/albums", ct: ct);
-        var formDoc = new HtmlDocument();
-        formDoc.LoadHtml(formHtml);
-        var csrf = formDoc.DocumentNode
-            .SelectSingleNode("//input[@name='csrf_token_bel']")
-            ?.GetAttributeValue("value", string.Empty);
-        if (string.IsNullOrEmpty(csrf))
-            throw new BedethequeBlockedException("CSRF token not found — Bedetheque may have blocked access or changed its page structure.");
+        var url = $"{Options.BaseUrl}/ajax/tout?term={Uri.EscapeDataString(firstWord)}";
+        var json = await GetHtmlAsync(url, referer: Options.BaseUrl, navigate: false, ct: ct);
 
-        var searchUrl = $"/search/albums?csrf_token_bel={Uri.EscapeDataString(csrf)}" +
-                         $"&RechSerie={Uri.EscapeDataString(strippedQuery)}" +
-                         "&RechLangue=&RechEO=0";
-        var html = await GetHtmlAsync(searchUrl, referer: $"{Options.BaseUrl}/search/albums", ct: ct);
-
-        var doc = new HtmlDocument();
-        doc.LoadHtml(html);
-        var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'search-list')]/li");
-        if (items is null) return [];
-
-        var bySerieName = new Dictionary<string, (string AlbumUrl, string? CoverUrl, string? Langue, string? Origine, int Count, int? MinAnnee, int? MaxAnnee)>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var li in items)
+        var items = ParseAjaxToutItemsResilient(json);
+        var series = new List<(int Id, string Titre, string FlagSrc)>();
+        foreach (var item in items)
         {
-            var link = li.SelectSingleNode(".//a");
-            if (link is null) continue;
+            if (item.GetProperty("category").GetString() != "Séries") continue;
 
-            var albumUrl = link.GetAttributeValue("href", string.Empty);
-            if (string.IsNullOrEmpty(albumUrl)) continue;
-            var coverUrl = link.GetAttributeValue("rel", string.Empty) is { Length: > 0 } r ? r : null;
+            var rawId = item.GetProperty("id").GetString() ?? string.Empty;
+            if (!int.TryParse(rawId.TrimStart('S'), out var id)) continue;
 
-            var serieName = li.SelectSingleNode(".//span[@class='serie']")?.InnerText.Trim();
-            if (string.IsNullOrEmpty(serieName)) continue;
-            serieName = WebUtility.HtmlDecode(serieName);
+            var titre = item.GetProperty("label").GetString();
+            if (string.IsNullOrEmpty(titre)) continue;
 
-            var dlText = li.SelectSingleNode(".//span[@class='dl']")?.InnerText.Trim() ?? string.Empty;
-            var annee = ParseAnneeFromDl(dlText);
+            series.Add((id, WebUtility.HtmlDecode(titre), item.GetProperty("desc").GetString() ?? string.Empty));
+        }
 
-            var flagSrc = li.SelectSingleNode(".//span[@class='ico']/img")?.GetAttributeValue("src", string.Empty) ?? string.Empty;
-            var langue = ExtractLangueFromFlag(flagSrc);
-            var origine = ExtractOrigineFromFlag(flagSrc);
+        if (strippedQuery.Contains(' '))
+            series = series.Where(s => s.Titre.Contains(strippedQuery, StringComparison.OrdinalIgnoreCase)).ToList();
 
-            if (bySerieName.TryGetValue(serieName, out var existing))
-            {
-                var minA = CombineYear(existing.MinAnnee, annee, Math.Min);
-                var maxA = CombineYear(existing.MaxAnnee, annee, Math.Max);
-                bySerieName[serieName] = (existing.AlbumUrl, existing.CoverUrl ?? coverUrl, existing.Langue ?? langue, existing.Origine ?? origine, existing.Count + 1, minA, maxA);
-            }
-            else
-            {
-                bySerieName[serieName] = (albumUrl, coverUrl, langue, origine, 1, annee, annee);
-            }
+        // Filtre par langue AVANT enrichissement (pas après) : chaque série enrichie coûte une
+        // requête réseau supplémentaire en file derrière le sémaphore FlareSolverr — le filtre
+        // exploite le drapeau déjà présent dans la réponse AJAX, sans avoir besoin d'enrichir pour
+        // connaître la langue.
+        if (Options.SearchLanguageFilter != BedethequeSearchLanguage.All)
+        {
+            var wanted = LanguageFilterLabel(Options.SearchLanguageFilter);
+            series = series.Where(s => string.Equals(ExtractLangueFromFlag(s.FlagSrc), wanted, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         using var semaphore = new SemaphoreSlim(Math.Max(1, Options.MaxParallelRequests));
-        var resolveTasks = bySerieName.Select(async kvp =>
+        var enrichTasks = series.Select(async s =>
         {
             await semaphore.WaitAsync(ct);
             try
             {
-                var serieId = await ResolveSerieIdFromAlbumUrlAsync(kvp.Value.AlbumUrl, ct);
-                if (serieId is null) return null;
+                var detail = await GetOrFetchSerieAsync(s.Id, requireComplete: false, ct);
+                var origine = ExtractOrigineFromFlag(s.FlagSrc);
+                var langue = ExtractLangueFromFlag(s.FlagSrc);
+                var coverUrl = detail?.Albums.FirstOrDefault()?.CoverUrl
+                    ?? detail?.CoverUrl
+                    ?? $"{Options.BaseUrl}/cache/thb_series/PlancheS_{s.Id}.jpg";
+
                 return new BdSerieSearchResult(
-                    serieId.Value, kvp.Key, null, kvp.Value.Origine, kvp.Value.Langue,
-                    kvp.Value.MinAnnee?.ToString(), kvp.Value.MaxAnnee?.ToString(), kvp.Value.Count,
-                    kvp.Value.CoverUrl, $"{Options.BaseUrl}/serie-{serieId}-BD-x.html");
+                    s.Id, s.Titre, detail?.Genre, origine, detail?.Langue ?? langue,
+                    detail?.AnneeDebut, detail?.AnneeFin, detail?.NombreAlbums ?? detail?.Albums.Count,
+                    coverUrl, $"{Options.BaseUrl}/serie-{s.Id}-BD-x.html");
             }
             finally { semaphore.Release(); }
         });
 
-        var resolved = await Task.WhenAll(resolveTasks);
-        return resolved.Where(r => r is not null).Select(r => r!).ToList().AsReadOnly();
+        return (await Task.WhenAll(enrichTasks)).ToList().AsReadOnly();
     }
 
-    private async Task<int?> ResolveSerieIdFromAlbumUrlAsync(string albumUrl, CancellationToken ct)
+    private static string LanguageFilterLabel(BedethequeSearchLanguage lang) => lang switch
     {
-        var html = await GetHtmlAsync(albumUrl, ct: ct);
-        var doc = new HtmlDocument();
-        doc.LoadHtml(html);
-        var href = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h1/a")?.GetAttributeValue("href", string.Empty);
-        if (string.IsNullOrEmpty(href)) return null;
-        var match = Regex.Match(href, @"serie-(\d+)-");
-        return match.Success ? int.Parse(match.Groups[1].Value) : null;
+        BedethequeSearchLanguage.Francais => "Français",
+        BedethequeSearchLanguage.Anglais => "Anglais",
+        BedethequeSearchLanguage.Japonais => "Japonais",
+        BedethequeSearchLanguage.Italien => "Italien",
+        BedethequeSearchLanguage.Allemand => "Allemand",
+        BedethequeSearchLanguage.Espagnol => "Espagnol",
+        BedethequeSearchLanguage.Neerlandais => "Néerlandais",
+        BedethequeSearchLanguage.Portugais => "Portugais",
+        _ => lang.ToString(),
+    };
+
+    // FlareSolverr renvoie driver.page_source (le DOM tel que rendu par Chrome), jamais la réponse
+    // HTTP brute — pour un endpoint JSON, certaines entrées peuvent être corrompues par ce rendu
+    // (ex. catégorie "Auteurs", dont le label embarque un tag <i class="icon-user"> que Chrome
+    // interprète parfois comme du vrai DOM plutôt que du texte, cassant le JSON à cet endroit). On
+    // découpe donc le tableau en objets top-level et on parse chacun individuellement, en ignorant
+    // silencieusement ceux qui échouent plutôt que de perdre tout le résultat.
+    private static List<JsonElement> ParseAjaxToutItemsResilient(string json)
+    {
+        var results = new List<JsonElement>();
+        var trimmed = json.Trim();
+        if (trimmed.Length < 2 || trimmed[0] != '[')
+            return results;
+
+        foreach (var objJson in SplitTopLevelJsonObjects(trimmed))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(objJson);
+                results.Add(doc.RootElement.Clone());
+            }
+            catch (JsonException) { /* entrée corrompue par le rendu Chrome, ignorée */ }
+        }
+        return results;
     }
+
+    // Découpe un tableau JSON ("[{...},{...}]") en substrings de ses objets top-level.
+    private static List<string> SplitTopLevelJsonObjects(string jsonArray)
+    {
+        var result = new List<string>();
+        int depth = 0, start = -1;
+        bool inString = false, escape = false;
+
+        for (int i = 1; i < jsonArray.Length; i++)
+        {
+            var c = jsonArray[i];
+            if (inString)
+            {
+                if (escape) escape = false;
+                else if (c == '\\') escape = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+
+            if (c == '"') { inString = true; continue; }
+            if (c == '{')
+            {
+                if (depth == 0) start = i;
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0 && start >= 0)
+                {
+                    result.Add(jsonArray[start..(i + 1)]);
+                    start = -1;
+                }
+            }
+        }
+        return result;
+    }
+
+    // Articles français courants placés en tête de titre par l'utilisateur mais que le site
+    // range en fin de titre : "Les Légendaires" → "Légendaires (Les)". Couvre l'apostrophe droite
+    // et l'apostrophe typographique (celle qu'insèrent certains claviers/correcteurs).
+    private static readonly string[] LeadingArticles = ["l'", "l'", "les ", "le ", "la ", "des ", "un ", "une "];
 
     private static string StripLeadingArticle(string query)
     {
@@ -195,33 +286,52 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return trimmed;
     }
 
-    private static int? ParseAnneeFromDl(string dlText)
-    {
-        var match = Regex.Match(dlText, @"(\d{4})");
-        return match.Success ? int.Parse(match.Groups[1].Value) : null;
-    }
-
-    private static int? CombineYear(int? existing, int? incoming, Func<int, int, int> combine)
-    {
-        if (incoming is null) return existing;
-        if (existing is null) return incoming;
-        return combine(existing.Value, incoming.Value);
-    }
-
     #endregion
 
     #region API Mapping — détail série + albums
 
     public async Task<BdSerie?> GetSerieAsync(int id, CancellationToken ct = default)
+        => await GetOrFetchSerieAsync(id, requireComplete: true, ct);
+
+    // Point d'entrée unique pour récupérer les informations d'une série, avec cache mémoire (24h,
+    // par instance) partagé entre GetSerieAsync et l'enrichissement de SearchAllSeriesByNameAsync
+    // pour éviter de refetcher la même page /serie-{id}-BD-x.html deux fois.
+    // requireComplete: true (GetSerieAsync — flux "ajouter à la bibliothèque"/rematch) exige la
+    // liste complète des albums et n'accepte une entrée en cache que si elle est déjà complète ;
+    // false (enrichissement de recherche) se contente d'un aperçu (page 1) et accepte n'importe
+    // quelle entrée fraîche, complète ou non — moins cher en requêtes pour une recherche qui peut
+    // remonter plusieurs séries à enrichir.
+    private async Task<BdSerie?> GetOrFetchSerieAsync(int id, bool requireComplete, CancellationToken ct)
     {
+        if (_serieCache.TryGetValue(id, out var cached)
+            && DateTime.UtcNow - cached.CachedAtUtc < SerieCacheDuration
+            && (!requireComplete || cached.Complete))
+        {
+            return CloneSerie(cached.Detail);
+        }
+
         // Bedetheque pagine la liste des albums d'une série à 10 par page ; "__10000" est le
-        // suffixe utilisé par le lien "Tout" du site pour renvoyer la liste complète en un seul
-        // GET (vérifié : fonctionne aussi avec le slug générique "x" utilisé ici).
-        var html = await GetHtmlAsync($"/serie-{id}-BD-x__10000.html", ct: ct);
+        // suffixe utilisé par le lien "Tout" du site pour renvoyer la liste complète en un seul GET
+        // (vérifié : fonctionne aussi avec le slug générique "x" utilisé ici) — on ne le demande
+        // que si l'appelant a besoin de la liste complète, sinon la page 1 (plus légère) suffit.
+        var path = requireComplete ? $"/serie-{id}-BD-x__10000.html" : $"/serie-{id}-BD-x.html";
+        var html = await GetHtmlAsync(path, referer: Options.BaseUrl, ct: ct);
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
-        return ParseSerie(doc, id, $"{Options.BaseUrl}/serie-{id}-BD-x.html");
+        var detail = ParseSerie(doc, id, $"{Options.BaseUrl}/serie-{id}-BD-x.html");
+        if (detail is null) return null;
+
+        // "Complet" = la liste d'albums couvre déjà le total annoncé — vrai automatiquement pour
+        // les séries courtes même via le fetch léger (page 1), donc un futur appel requireComplete
+        // peut réutiliser cette entrée sans refetch.
+        var complete = detail.NombreAlbums is not { } total || total <= detail.Albums.Count;
+        _serieCache[id] = new SerieCacheEntry(detail, DateTime.UtcNow, complete);
+        return CloneSerie(detail);
     }
+
+    // Copie superficielle (+ nouvelle liste Albums) pour qu'un appelant qui modifierait l'objet
+    // retourné ne corrompe pas l'entrée en cache partagée entre GetSerieAsync et la recherche.
+    private static BdSerie CloneSerie(BdSerie source) => source with { Albums = source.Albums.ToList() };
 
     public async Task<IReadOnlyList<BdAlbumSummary>> GetAllAlbumSummariesForSerieAsync(int serieId, CancellationToken ct = default)
     {
@@ -244,14 +354,27 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return all.AsReadOnly();
     }
 
+    // Cache mémoire (24h, par instance) — GetAllAlbumsForSerieAsync appelle cette méthode une fois
+    // par album de la série ; un cache évite de refetcher le même album d'une recherche à l'autre
+    // dans la même session.
     public async Task<BdAlbum?> GetAlbumAsync(int id, CancellationToken ct = default)
     {
+        if (_albumCache.TryGetValue(id, out var cached) && DateTime.UtcNow - cached.CachedAtUtc < AlbumCacheDuration)
+            return CloneAlbum(cached.Detail);
+
         var url = $"/BD-x-Tome-1-x-{id}.html";
-        var html = await GetHtmlAsync(url, ct: ct);
+        var html = await GetHtmlAsync(url, referer: Options.BaseUrl, ct: ct);
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
-        return ParseAlbum(doc, id, $"{Options.BaseUrl}{url}");
+        var album = ParseAlbum(doc, id, $"{Options.BaseUrl}{url}");
+        if (album is null) return null;
+
+        _albumCache[id] = new AlbumCacheEntry(album, DateTime.UtcNow);
+        return CloneAlbum(album);
     }
+
+    // Copie superficielle (+ nouvelle liste Auteurs) — même raison que CloneSerie ci-dessus.
+    private static BdAlbum CloneAlbum(BdAlbum source) => source with { Auteurs = source.Auteurs.ToList() };
 
     private BdSerie? ParseSerie(HtmlDocument doc, int id, string serieUrl)
     {
@@ -324,7 +447,26 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         if (string.IsNullOrEmpty(coverUrl))
             coverUrl = albums.FirstOrDefault()?.CoverUrl;
 
-        return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums);
+        // L'éditeur de la série est affiché sous forme d'une mention "© Editeur - Année" juste
+        // sous l'image de couverture (ex : "© Le Lombard - 2026"), PAS dans <ul class="serie-info">.
+        // Le XPath doit être circonscrit à div.serie-image : une recherche non circonscrite peut
+        // matcher un autre élément portant "copyrightserie" dans sa classe ailleurs sur la page et
+        // renvoyer null (confirmé par comparaison avec bdguest-scrapper, qui scope cette recherche
+        // et récupère l'éditeur correctement). Le "©" est optionnel dans le regex (certaines pages
+        // omettent le symbole). Repli sur l'éditeur du premier album si la mention est absente
+        // ("souvent affiché sous l'image", pas toujours).
+        var copyrightText = doc.DocumentNode
+            .SelectSingleNode("//div[contains(@class,'serie-image')]//div[contains(@class,'copyrightserie')]")
+            ?.InnerText.Trim();
+        string? editeur = null;
+        if (!string.IsNullOrEmpty(copyrightText))
+        {
+            var m = Regex.Match(copyrightText, @"^©?\s*(?<publisher>.+?)\s*-\s*\d{4}\s*$");
+            editeur = m.Success ? m.Groups["publisher"].Value.Trim() : copyrightText.TrimStart('©').Trim();
+        }
+        editeur = string.IsNullOrEmpty(editeur) ? albums.FirstOrDefault()?.Editeur : editeur;
+
+        return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums, editeur);
     }
 
     private static List<BdAlbumSummary> ParseAlbumList(HtmlDocument doc)
@@ -547,95 +689,121 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     // ── Bas niveau HTTP ──────────────────────────────────────────────────────
 
-    // Réessaie sur un autre proxy du pool en cas d'échec imputable au proxy/à l'IP de sortie
-    // actuelle :
-    //  - le proxy refuse la connexion/le tunnel (HttpRequestException — ex. un proxy gratuit
-    //    Webshare qui refuse le CONNECT HTTPS avec un 402) ;
-    //  - le site bloque explicitement cette IP (BedethequeBlockedException — 429/403/503 ou
-    //    message "Bloquage de l'IP" détecté dans le HTML) ;
-    //  - le proxy n'arrive pas à joindre bedetheque.com et met trop longtemps à abandonner :
-    //    Webshare peut mettre jusqu'à ~90s avant de renvoyer "target_connect_timeout" côté
-    //    serveur, alors que Options.TimeoutSeconds (30s par défaut) fait déjà échouer la requête
-    //    côté client avec une TaskCanceledException — sans ce cas, un proxy mort n'était jamais
-    //    détecté ni remplacé (confirmé par les logs d'activité Webshare : le même proxy en échec
-    //    était réinterrogé toutes les ~30s par le healthcheck périodique, sans jamais tourner).
-    // Dans tous les cas, changer de proxy est le seul remède : on fait tourner vers le suivant du
-    // pool et on réessaie. N'a d'effet que si UseProxy est actif ; sinon la boucle échoue dès la
-    // première tentative comme avant.
-    private const int MaxProxyRetries = 5;
+    // Point de passage HTTP unique du service : route vers FlareSolverr si configuré, sinon vers
+    // une requête directe classique. `navigate` distingue une page HTML classique (true) d'un
+    // endpoint AJAX/JSON (false) — nécessaire côté FlareSolverr pour désencapsuler correctement la
+    // réponse (voir GetHtmlViaFlareSolverrAsync).
+    private async Task<string> GetHtmlAsync(string url, string? referer = null, bool navigate = true, CancellationToken ct = default)
+        => _flareSolverr is not null
+            ? await GetHtmlViaFlareSolverrAsync(url, navigate, ct)
+            : await GetHtmlDirectAsync(url, referer, navigate, ct);
 
-    private async Task<string> GetHtmlAsync(string url, string? referer = null, CancellationToken ct = default)
-    {
-        for (var attempt = 1; attempt <= MaxProxyRetries; attempt++)
-        {
-            try
-            {
-                return await FetchHtmlAsync(url, referer, ct);
-            }
-            catch (Exception ex) when (Options.UseProxy && attempt < MaxProxyRetries
-                && (ex is HttpRequestException || ex is BedethequeBlockedException
-                    || (ex is TaskCanceledException && !ct.IsCancellationRequested)))
-            {
-                SendTrace($"[Proxy] Request failed (attempt {attempt}/{MaxProxyRetries}): {ex.Message} — rotating to next proxy.", ETraceLevel.WARNING);
-                NotifyProxyBanned();
-                ResetCookies();
-                _http = BuildHttpClient();
-            }
-        }
-        return await FetchHtmlAsync(url, referer, ct);
-    }
-
-    // Les cookies de session ont pu être posés via l'IP maintenant bannie — on les efface avant
-    // de repartir sur un nouveau proxy, sinon un cookie de blocage éventuel survivrait au switch.
-    private void ResetCookies()
-    {
-        foreach (Cookie cookie in _cookies.GetCookies(new Uri(Options.BaseUrl)))
-            cookie.Expired = true;
-    }
-
-    private async Task<string> FetchHtmlAsync(string url, string? referer, CancellationToken ct)
+    private async Task<string> GetHtmlDirectAsync(string url, string? referer, bool navigate, CancellationToken ct)
     {
         var http = _http;
         var task = _rateLimiter.EnqueueAsync(async consumerCt =>
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.TryAddWithoutValidation("sec-fetch-mode", "navigate");
-            req.Headers.TryAddWithoutValidation("sec-fetch-dest", "document");
-            req.Headers.TryAddWithoutValidation("sec-fetch-site", referer is null ? "none" : "same-origin");
+            if (navigate)
+            {
+                req.Headers.TryAddWithoutValidation("sec-fetch-mode", "navigate");
+                req.Headers.TryAddWithoutValidation("sec-fetch-dest", "document");
+                req.Headers.TryAddWithoutValidation("sec-fetch-site", referer is null ? "none" : "same-origin");
+            }
+            else
+            {
+                req.Headers.TryAddWithoutValidation("sec-fetch-mode", "cors");
+                req.Headers.TryAddWithoutValidation("sec-fetch-dest", "empty");
+                req.Headers.TryAddWithoutValidation("sec-fetch-site", "same-origin");
+            }
             if (referer is not null) req.Headers.Referrer = new Uri(referer);
 
             var response = await http.SendAsync(req, consumerCt);
-            ThrowIfBlocked(response.StatusCode);
+            ThrowIfBlocked(response.StatusCode, url);
             var content = await response.Content.ReadAsStringAsync(consumerCt);
-            ThrowIfBlockedHtml(content);
+            ThrowIfBlockedHtml(content, url);
             return content;
         });
         return await task.WaitAsync(ct) ?? throw new BedethequeBlockedException($"Empty response for: {url}");
     }
 
-    private static void ThrowIfBlocked(HttpStatusCode status)
+    // Envoie la requête via FlareSolverr (navigateur headless réel qui résout le challenge
+    // Cloudflare). Une session unique est créée paresseusement puis réutilisée pour éviter de
+    // re-résoudre le challenge à chaque appel ; les appels sont sérialisés (_flareSolverrLock) car
+    // une session FlareSolverr ne supporte pas des requêtes concurrentes fiables (un seul
+    // navigateur/onglet).
+    private async Task<string> GetHtmlViaFlareSolverrAsync(string url, bool navigate, CancellationToken ct)
     {
-        if (status == HttpStatusCode.TooManyRequests)
-            throw new BedethequeBlockedException("Too many requests (429) — automated access detected.", 429);
-        if (status == HttpStatusCode.Forbidden)
-            throw new BedethequeBlockedException("Access denied (403).", 403);
-        if (status == HttpStatusCode.ServiceUnavailable)
-            throw new BedethequeBlockedException("Service unavailable (503) — anti-bot protection likely.", 503);
+        var flareSolverr = _flareSolverr!;
+        var fullUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? url : $"{Options.BaseUrl}{url}";
+
+        await _flareSolverrLock.WaitAsync(ct);
+        try
+        {
+            _flareSolverrSessionId ??= await flareSolverr.CreateSessionAsync(null, ct);
+
+            try
+            {
+                var (status, html, _, _) = await flareSolverr.RequestGetAsync(_flareSolverrSessionId, fullUrl, ct);
+                ThrowIfBlocked((HttpStatusCode)status, fullUrl);
+
+                // Pour les endpoints AJAX/JSON, Chrome (piloté par FlareSolverr) affiche la réponse
+                // encapsulée dans <html><head></head><body>...</body></html> au lieu du JSON brut
+                // (FlareSolverr renvoie driver.page_source, jamais la réponse HTTP brute) — on
+                // désencapsule pour retrouver la réponse originale avant de continuer.
+                if (!navigate)
+                    html = UnwrapFlareSolverrTextResponse(html);
+
+                ThrowIfBlockedHtml(html, fullUrl);
+                return html;
+            }
+            catch (BedethequeBlockedException)
+            {
+                // Session potentiellement corrompue : on la jette pour forcer une re-résolution
+                // propre au prochain appel. Pas de retry automatique ici — c'est l'appelant qui
+                // décide de réessayer.
+                await flareSolverr.DestroySessionAsync(_flareSolverrSessionId, CancellationToken.None);
+                _flareSolverrSessionId = null;
+                throw;
+            }
+        }
+        finally
+        {
+            _flareSolverrLock.Release();
+        }
     }
 
-    private static void ThrowIfBlockedHtml(string html)
+    // Retire l'enveloppe HTML que Chrome ajoute autour d'une réponse non-HTML (ex. JSON) quand on
+    // y navigue directement — utilisé par FlareSolverr, qui pilote un vrai navigateur.
+    private static string UnwrapFlareSolverrTextResponse(string html)
+    {
+        var match = Regex.Match(html, @"<body[^>]*>(.*)</body>", RegexOptions.Singleline);
+        return match.Success ? WebUtility.HtmlDecode(match.Groups[1].Value) : html;
+    }
+
+    private static void ThrowIfBlocked(HttpStatusCode status, string url)
+    {
+        if (status == HttpStatusCode.TooManyRequests)
+            throw new BedethequeBlockedException($"Too many requests (429) — automated access detected. [{url}]", 429);
+        if (status == HttpStatusCode.Forbidden)
+            throw new BedethequeBlockedException($"Access denied (403). [{url}]", 403);
+        if (status == HttpStatusCode.ServiceUnavailable)
+            throw new BedethequeBlockedException($"Service unavailable (503) — anti-bot protection likely. [{url}]", 503);
+    }
+
+    private static void ThrowIfBlockedHtml(string html, string url)
     {
         if (html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase) ||
             html.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase) ||
             html.Contains("captcha", StringComparison.OrdinalIgnoreCase))
-            throw new BedethequeBlockedException("Blocking page detected (CAPTCHA or Cloudflare challenge).");
+            throw new BedethequeBlockedException($"Blocking page detected (CAPTCHA or Cloudflare challenge). [{url}]");
 
         if (html.Contains("Bloquage de l'IP", StringComparison.OrdinalIgnoreCase) ||
             html.Contains("bdgest.com?subject=Bloquage", StringComparison.OrdinalIgnoreCase))
         {
             var ipMatch = Regex.Match(html, @"Bloquage de l'IP\s*:\s*([\d\.]+)", RegexOptions.IgnoreCase);
             var ip = ipMatch.Success ? ipMatch.Groups[1].Value : "unknown";
-            throw new BedethequeBlockedException($"IP blocked by the site (IP: {ip}).");
+            throw new BedethequeBlockedException($"IP blocked by the site (IP: {ip}). [{url}]");
         }
     }
 }
