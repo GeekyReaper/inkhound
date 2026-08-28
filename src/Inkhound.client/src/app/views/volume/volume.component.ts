@@ -20,8 +20,11 @@ import {
   ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
+  ProgressBarComponent,
+  ProgressComponent,
   RowComponent,
-  SpinnerComponent
+  SpinnerComponent,
+  TooltipDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
@@ -46,6 +49,7 @@ import { Library, LibraryService } from '../../core/services/library.service';
     ModalComponent, ModalHeaderComponent, ModalBodyComponent,
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
+    ProgressComponent, ProgressBarComponent, TooltipDirective,
     JobPanelComponent
   ]
 })
@@ -64,6 +68,14 @@ export class VolumeComponent {
 
   isManual      = computed(() => (this.volume()?.sourceType ?? '').toLowerCase() === 'manual');
   isRefreshable = computed(() => !this.isManual());
+
+  // Pourcentage d'issues téléchargées — même calcul que library.component.ts (progressPercent),
+  // affiché ici pour rappeler l'avancement du volume sans redescendre à la vue library.
+  progressPercent = computed(() => {
+    const vol = this.volume();
+    if (!vol || !vol.countOfIssues) return 0;
+    return Math.round((vol.countOfDownloadedIssues / vol.countOfIssues) * 100);
+  });
 
   // Disponibilité des étapes de la popup Refresh — grisées si non applicables (pas de fichier à
   // resynchroniser, ou library non rattachée à Kavita).

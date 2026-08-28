@@ -17,6 +17,11 @@ public class RematchVolumeJobParameters : IJobParameters
     public bool RegenerateComicInfo { get; set; } = true;
     public bool ScanKavita { get; set; } = true;
 
+    // true si lancé depuis "Refresh" (LaunchJobRefreshVolume, même source déjà associée) — pilote
+    // uniquement le libellé du Job ("Refresh — {titre}" au lieu de "Rematch — {titre}"), aucune
+    // différence de comportement.
+    public bool IsRefresh { get; set; } = false;
+
     public bool IsValid(out List<string> errors)
     {
         errors = new List<string>();

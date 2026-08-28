@@ -1522,7 +1522,8 @@ public class InkhoundManager : BaseServiceManager
     {
         var ctx = GetDb();
         var volume = ctx.Volumes.Find(parameters.VolumeId);
-        var jobTitle = volume is not null ? $"Rematch — {volume.Title}" : $"Rematch — {parameters.VolumeId}";
+        var jobLabel = parameters.IsRefresh ? "Refresh" : "Rematch";
+        var jobTitle = volume is not null ? $"{jobLabel} — {volume.Title}" : $"{jobLabel} — {parameters.VolumeId}";
 
         var job = StartJob(jobTitle, parameters);
         if (job.State != JobState.ERROR)
@@ -1556,8 +1557,44 @@ public class InkhoundManager : BaseServiceManager
         {
             VolumeId = volumeId, Source = volume.SourceType, SourceId = volume.SourceId,
             SyncFromSource = syncFromSource, RecalculateStatistics = recalculateStatistics,
-            RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita
+            RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita,
+            IsRefresh = true
         });
+    }
+
+    // Lance un Job "Refresh" indépendant par volume de la library, en réutilisant
+    // LaunchJobRefreshVolume tel quel — pas de job parent (le modèle Job actuel ne supporte pas
+    // l'imbrication : un seul _currentJob ambiant à la fois, EndJob() le réinitialise globalement).
+    // Chaque volume manuel est silencieusement exclu (LaunchJobRefreshVolume lève une exception
+    // pour eux dans tous les cas — comportement connu, cohérent avec le bouton déjà masqué côté
+    // page Volume). Les jobs individuels tournent en parallèle (fire-and-forget déjà interne à
+    // LaunchJobRefreshVolume) ; les sources externes (ComicVine/Bedetheque) ont déjà leur propre
+    // RateLimiter interne, donc pas de throttling supplémentaire nécessaire ici.
+    public async Task<List<Guid>> LaunchJobsRefreshLibrary(
+        Guid libraryId, bool syncFromSource, bool recalculateStatistics,
+        bool regenerateComicInfo, bool scanKavita, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volumeIds = await ctx.Volumes
+            .Where(v => v.LibraryId == libraryId)
+            .Select(v => v.Id)
+            .ToListAsync(ct);
+
+        var jobIds = new List<Guid>();
+        foreach (var volumeId in volumeIds)
+        {
+            try
+            {
+                var job = await LaunchJobRefreshVolume(
+                    volumeId, syncFromSource, recalculateStatistics, regenerateComicInfo, scanKavita, ct);
+                if (job is not null) jobIds.Add(job.JobId);
+            }
+            catch (InvalidOperationException)
+            {
+                // Volume manuel — pas de source à rafraîchir, exclu silencieusement du lot.
+            }
+        }
+        return jobIds;
     }
 
     private async Task RunRematchVolumeJobAsync(JobContext job, RematchVolumeJobParameters parameters)

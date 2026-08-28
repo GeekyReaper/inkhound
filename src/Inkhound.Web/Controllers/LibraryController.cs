@@ -147,4 +147,20 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         _ = manager.LaunchJobRecalculateLibraryStatistics(new RecalculateLibraryStatisticsJobParameters { LibraryId = id });
         return Accepted(new { message = $"Statistics recalculation started for library {id}." });
     }
+
+    public record RefreshLibraryRequest(
+        bool SyncFromSource = true, bool RecalculateStatistics = true,
+        bool RegenerateComicInfo = true, bool ScanKavita = true);
+
+    // POST /api/libraries/{id}/refresh — lance un Job "Refresh" indépendant par volume (pas de job
+    // parent unique — cf. LaunchJobsRefreshLibrary) et retourne la liste de leurs JobId.
+    [HttpPost("{id:guid}/refresh")]
+    public async Task<IActionResult> Refresh(Guid id, [FromBody] RefreshLibraryRequest? req = null)
+    {
+        var options = req ?? new RefreshLibraryRequest();
+        var jobIds = await manager.LaunchJobsRefreshLibrary(
+            id, options.SyncFromSource, options.RecalculateStatistics,
+            options.RegenerateComicInfo, options.ScanKavita);
+        return Accepted(new { jobIds = jobIds.Select(j => j.ToString()) });
+    }
 }

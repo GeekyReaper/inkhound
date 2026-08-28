@@ -26,13 +26,9 @@
             Synchronize
           }
         </button>
-        <button cButton color="secondary" [disabled]="recalculatingStats()" (click)="recalculateStatistics()">
-          @if (recalculatingStats()) {
-            <c-spinner size="sm" class="me-2"></c-spinner>Recalculating…
-          } @else {
-            <svg cIcon name="cilReload" class="me-1"></svg>
-            Statistics
-          }
+        <button cButton color="secondary" [disabled]="activeRefreshJobIds().length > 0" (click)="openRefreshModal()">
+          <svg cIcon name="cilReload" class="me-1"></svg>
+          Refresh
         </button>
       </c-col>
     </c-row>
@@ -42,16 +38,6 @@
         <c-col>
           <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
             {{ syncDone() }}
-          </c-alert>
-        </c-col>
-      </c-row>
-    }
-
-    @if (recalculateStatsDone()) {
-      <c-row class="mb-3">
-        <c-col>
-          <c-alert color="success" [dismissible]="true" (visibleChange)="recalculateStatsDone.set(null)">
-            {{ recalculateStatsDone() }}
           </c-alert>
         </c-col>
       </c-row>
@@ -97,6 +83,34 @@
       <c-row class="mb-3">
         <c-col md="8" lg="6">
           <app-job-panel [jobId]="activeJobId()" />
+        </c-col>
+      </c-row>
+    }
+
+    @if (activeRefreshJobIds().length > 0) {
+      <c-row class="mb-3">
+        <c-col md="8" lg="6">
+          <c-card>
+            <c-card-body>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong>Refreshing {{ activeRefreshJobIds().length }} volume(s)…</strong>
+                <span class="text-body-secondary small">{{ refreshCompletedCount() }} / {{ activeRefreshJobIds().length }} done</span>
+              </div>
+              <c-progress style="height: 10px;" class="mb-2">
+                <c-progress-bar [value]="refreshBatchPercent()" color="success"></c-progress-bar>
+              </c-progress>
+              <button cButton size="sm" color="link" class="p-0" (click)="refreshDetailsVisible.set(!refreshDetailsVisible())">
+                {{ refreshDetailsVisible() ? 'Hide details' : 'Show details' }}
+              </button>
+              @if (refreshDetailsVisible()) {
+                @for (jobId of activeRefreshJobIds(); track jobId) {
+                  <div class="mt-2">
+                    <app-job-panel [jobId]="jobId" />
+                  </div>
+                }
+              }
+            </c-card-body>
+          </c-card>
         </c-col>
       </c-row>
     }
@@ -155,3 +169,75 @@
   }
 
 </c-container>
+
+<c-modal
+  [visible]="refreshModalVisible()"
+  (visibleChange)="refreshModalVisible.set($event)"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Refresh Library</h5>
+    <button cButtonClose (click)="refreshModalVisible.set(false)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p class="text-body-secondary small">
+      This will start one independent job per volume ({{ volumes().length }} total).
+      @if (manualVolumeCount() > 0) {
+        {{ manualVolumeCount() }} manually-added volume(s) will be skipped (no external source).
+      }
+    </p>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="lib-refresh-source"
+               [checked]="refreshOptions().syncFromSource"
+               [disabled]="!hasAnySourcedVolume()"
+               (change)="toggleRefreshOption('syncFromSource')" />
+        <label cFormCheckLabel for="lib-refresh-source" [class.text-body-tertiary]="!hasAnySourcedVolume()">
+          Sync with source (metadata &amp; issues)
+          @if (!hasAnySourcedVolume()) {
+            <span class="text-body-secondary small d-block">All volumes in this library were added manually.</span>
+          }
+        </label>
+      </c-form-check>
+    </div>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="lib-refresh-stats"
+               [checked]="refreshOptions().recalculateStatistics"
+               (change)="toggleRefreshOption('recalculateStatistics')" />
+        <label cFormCheckLabel for="lib-refresh-stats">Recalculate statistics</label>
+      </c-form-check>
+    </div>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="lib-refresh-comicinfo"
+               [checked]="refreshOptions().regenerateComicInfo"
+               [disabled]="!hasAnyDownloadedIssues()"
+               (change)="toggleRefreshOption('regenerateComicInfo')" />
+        <label cFormCheckLabel for="lib-refresh-comicinfo" [class.text-body-tertiary]="!hasAnyDownloadedIssues()">
+          Regenerate ComicInfo.xml (downloaded issues)
+          @if (!hasAnyDownloadedIssues()) {
+            <span class="text-body-secondary small d-block">No downloaded issue to update.</span>
+          }
+        </label>
+      </c-form-check>
+    </div>
+    <div class="mb-0">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="lib-refresh-kavita"
+               [checked]="refreshOptions().scanKavita"
+               [disabled]="!hasKavitaLibrary()"
+               (change)="toggleRefreshOption('scanKavita')" />
+        <label cFormCheckLabel for="lib-refresh-kavita" [class.text-body-tertiary]="!hasKavitaLibrary()">
+          Refresh Kavita
+          @if (!hasKavitaLibrary()) {
+            <span class="text-body-secondary small d-block">This library isn't linked to a Kavita library.</span>
+          }
+        </label>
+      </c-form-check>
+    </div>
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" (click)="refreshModalVisible.set(false)">Cancel</button>
+    <button cButton color="primary" [disabled]="!refreshCanRun()" (click)="confirmRefresh()">Validate</button>
+  </c-modal-footer>
+</c-modal>

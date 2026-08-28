@@ -176,6 +176,18 @@
               }
             </h5>
 
+            <div [cTooltip]="volume()!.countOfDownloadedIssues + ' / ' + volume()!.countOfIssues"
+                 cTooltipPlacement="top"
+                 class="mb-3">
+              <c-progress style="height: 18px;">
+                <c-progress-bar [value]="progressPercent()" color="success">
+                  @if (progressPercent() > 0) {
+                    {{ progressPercent() }}%
+                  }
+                </c-progress-bar>
+              </c-progress>
+            </div>
+
             @if (issuesLoading()) {
               <div class="d-flex justify-content-center py-4">
                 <c-spinner color="primary"></c-spinner>

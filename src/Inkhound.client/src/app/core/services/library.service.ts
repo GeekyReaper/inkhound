@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { tap } from 'rxjs';
+import { RefreshVolumeOptions } from './volume.service';
 
 export interface Library {
   id: string;
@@ -64,5 +65,9 @@ export class LibraryService {
 
   recalculateStatistics(id: string) {
     return this.http.post<{ message: string }>(`/api/libraries/${id}/recalculate-statistics`, null);
+  }
+
+  refresh(libraryId: string, options: RefreshVolumeOptions) {
+    return this.http.post<{ jobIds: string[] }>(`/api/libraries/${libraryId}/refresh`, options);
   }
 }

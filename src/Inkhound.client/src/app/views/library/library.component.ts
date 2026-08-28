@@ -6,11 +6,20 @@ import { filter, switchMap } from 'rxjs';
 import {
   AlertComponent,
   BadgeComponent,
+  ButtonCloseDirective,
   ButtonDirective,
   CardBodyComponent,
   CardComponent,
   ColComponent,
   ContainerComponent,
+  FormCheckComponent,
+  FormCheckInputDirective,
+  FormCheckLabelDirective,
+  ModalBodyComponent,
+  ModalComponent,
+  ModalFooterComponent,
+  ModalHeaderComponent,
+  ModalTitleDirective,
   ProgressBarComponent,
   ProgressComponent,
   RowComponent,
@@ -20,11 +29,11 @@ import {
 import { IconDirective } from '@coreui/icons-angular';
 import { Library, LibraryService, libraryPageKey } from '../../core/services/library.service';
 import { KavitaService } from '../../core/services/kavita.service';
-import { AGE_RATINGS, AgeRating, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
+import { AGE_RATINGS, AgeRating, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
-import { UpdatedData } from '../../core/models/hub.models';
+import { JobContext, UpdatedData } from '../../core/models/hub.models';
 
 @Component({
   selector: 'app-library',
@@ -34,6 +43,9 @@ import { UpdatedData } from '../../core/models/hub.models';
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink,
     BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective,
+    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
+    ModalTitleDirective, ButtonCloseDirective,
+    FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     JobPanelComponent, IconDirective
   ]
 })
@@ -54,8 +66,45 @@ export class LibraryComponent {
   volumes        = signal<Volume[]>([]);
   volumesLoading = signal(false);
 
-  recalculatingStats  = signal(false);
-  recalculateStatsDone = signal<string | null>(null);
+  // Disponibilité des étapes de la popup Refresh — à partir de volumes()/library() déjà chargés,
+  // aucun appel réseau supplémentaire (mêmes règles que sur volume.component.ts).
+  hasAnyDownloadedIssues = computed(() => this.volumes().some(v => v.countOfDownloadedIssues > 0));
+  hasAnySourcedVolume = computed(() => this.volumes().some(v => v.sourceType.toLowerCase() !== 'manual'));
+  manualVolumeCount = computed(() => this.volumes().filter(v => v.sourceType.toLowerCase() === 'manual').length);
+  hasKavitaLibrary = computed(() => {
+    const lib = this.library();
+    return !!lib && (lib.kavitaLibraryId > 0 || !!lib.kavitaPath);
+  });
+
+  refreshModalVisible = signal(false);
+  refreshOptions = signal<RefreshVolumeOptions>({
+    syncFromSource: true, recalculateStatistics: true, regenerateComicInfo: true, scanKavita: true
+  });
+  refreshCanRun = computed(() => {
+    const o = this.refreshOptions();
+    return o.syncFromSource || o.recalculateStatistics || o.regenerateComicInfo || o.scanKavita;
+  });
+
+  // Lot de jobs "Refresh" en cours — un par volume, chacun indépendant (pas de job parent, le
+  // modèle Job actuel ne supporte pas l'imbrication). PAS géré par PageJobService (conçu pour 1
+  // seul jobId par page) : signal local, non persisté entre reloads — les jobs individuels
+  // continuent côté serveur même si la page est rechargée, seul le suivi live est perdu.
+  activeRefreshJobIds = signal<string[]>([]);
+  refreshDetailsVisible = signal(false);
+  private handledRefreshJobIds = new Set<string>();
+
+  private readonly refreshJobs = computed(() =>
+    this.activeRefreshJobIds()
+      .map(id => this.hub.jobs().find(j => j.jobId === id))
+      .filter((j): j is JobContext => !!j)
+  );
+  refreshCompletedCount = computed(() =>
+    this.refreshJobs().filter(j => j.state === 'SUCCESS' || j.state === 'ERROR').length
+  );
+  refreshBatchPercent = computed(() => {
+    const total = this.activeRefreshJobIds().length;
+    return total ? Math.round((this.refreshCompletedCount() / total) * 100) : 0;
+  });
 
   // Clé de page dérivée (pas figée à la construction) : ce composant peut être réutilisé d'une
   // library à l'autre sans être détruit — d'où le switchMap sur route.params ci-dessous.
@@ -92,6 +141,19 @@ export class LibraryComponent {
       if (key) this.pageJobs.clear(key);
       if (job.state === 'ERROR') this.error.set('Failed to add volume — see the console for details.');
       // La liste des volumes est déjà rafraîchie par l'abonnement lastDataUpdated ci-dessous.
+    });
+
+    effect(() => {
+      const jobs = this.refreshJobs();
+      if (jobs.length === 0) return;
+      const allDone = jobs.every(j => j.state === 'SUCCESS' || j.state === 'ERROR');
+      if (!allDone) return;
+      if (jobs.some(j => !this.handledRefreshJobIds.has(j.jobId))) {
+        jobs.forEach(j => this.handledRefreshJobIds.add(j.jobId));
+        if (jobs.some(j => j.state === 'ERROR'))
+          this.error.set('Some volumes failed to refresh — see individual job consoles for details.');
+      }
+      // Les données Volume/Library à jour arrivent via lastDataUpdated, déjà écouté ci-dessous.
     });
 
     this.route.params
@@ -192,25 +254,30 @@ export class LibraryComponent {
       });
   }
 
-  recalculateStatistics(): void {
+  openRefreshModal(): void {
+    if (this.activeRefreshJobIds().length > 0) return;
+    this.refreshOptions.set({
+      syncFromSource: this.hasAnySourcedVolume(),
+      recalculateStatistics: true,
+      regenerateComicInfo: this.hasAnyDownloadedIssues(),
+      scanKavita: this.hasKavitaLibrary()
+    });
+    this.refreshModalVisible.set(true);
+  }
+
+  toggleRefreshOption(key: keyof RefreshVolumeOptions): void {
+    this.refreshOptions.update(o => ({ ...o, [key]: !o[key] }));
+  }
+
+  confirmRefresh(): void {
     const lib = this.library();
-    if (!lib || this.recalculatingStats()) return;
-
-    this.recalculatingStats.set(true);
-    this.recalculateStatsDone.set(null);
-    this.error.set(null);
-
-    this.libraryService.recalculateStatistics(lib.id)
+    if (!lib) return;
+    this.refreshModalVisible.set(false);
+    this.libraryService.refresh(lib.id, this.refreshOptions())
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: res => {
-          this.recalculateStatsDone.set(res.message);
-          this.recalculatingStats.set(false);
-        },
-        error: err => {
-          this.error.set(err?.error?.message ?? 'Failed to start statistics recalculation.');
-          this.recalculatingStats.set(false);
-        }
+        next:  res => { this.activeRefreshJobIds.set(res.jobIds); this.refreshDetailsVisible.set(false); },
+        error: err => this.error.set(err?.error?.message ?? 'Refresh failed.')
       });
   }
 }
