@@ -14,6 +14,15 @@ public class Issue
     public VolumeImage? Image { get; set; }
     public List<VolumeAuthor> Authors { get; set; } = [];
 
+    // Métadonnées Bedetheque supplémentaires — null si la source ne les fournit pas (ComicVine, manuel)
+    public string? Ean { get; set; }
+    public string? Collection { get; set; }
+    public string? Publisher { get; set; }           // Éditeur au niveau album — peut différer de Volume.Publisher
+    public string? LegalDepositDate { get; set; }     // Format brut "MM/yyyy" tel que fourni par la source, jamais parsé en DateTime
+    public int? OfficialPageCount { get; set; }       // Nombre de pages officiel annoncé par la source — DISTINCT de AnalysisPageCount (calculé depuis le CBZ réel)
+    public string? Genre { get; set; }
+    public double? CommunityRating { get; set; }      // Note communautaire /10
+    public int? CommunityRatingCount { get; set; }    // Nombre de votes
 
     public string? CbzFilename { get; set; }
 

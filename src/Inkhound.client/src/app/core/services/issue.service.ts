@@ -34,6 +34,14 @@ export interface Issue {
   image:       VolumeImage | null;
   cbzFilename: string | null;
   publishedAt: string | null;
+  ean:                    string | null;
+  collection:              string | null;
+  publisher:               string | null;
+  legalDepositDate:        string | null;
+  officialPageCount:       number | null;
+  genre:                   string | null;
+  communityRating:         number | null;
+  communityRatingCount:    number | null;
   analysisScore:                     number | null;
   analysisScoreBand:                 string | null;
   analysisDominantImageFormat:       string | null;

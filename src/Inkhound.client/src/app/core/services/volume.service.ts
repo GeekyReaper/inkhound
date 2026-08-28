@@ -62,8 +62,20 @@ export interface Volume {
   image:                    VolumeImage | null;
   countOfIssues:            number;
   countOfDownloadedIssues:  number;
+  language:                 string | null;
+  publicationStatus:        string | null;
+  origin:                   string | null;
+  website:                  string | null;
   createdAt:                string;
   updatedAt:                string;
+}
+
+// Options de la popup "Refresh" (cases à cocher) — mêmes noms que RefreshVolumeRequest côté backend.
+export interface RefreshVolumeOptions {
+  syncFromSource:        boolean;
+  recalculateStatistics: boolean;
+  regenerateComicInfo:   boolean;
+  scanKavita:             boolean;
 }
 
 export type SourceKey = 'comicvine' | 'bedetheque';
@@ -194,7 +206,11 @@ export class VolumeService {
   }
 
   rematchFromSource(volumeId: string, source: SourceKey, sourceId: string) {
-    return this.http.post<void>(`/api/volumes/${volumeId}/rematch`, { source, sourceId });
+    return this.http.post<{ jobId: string }>(`/api/volumes/${volumeId}/rematch`, { source, sourceId });
+  }
+
+  refresh(volumeId: string, options: RefreshVolumeOptions) {
+    return this.http.post<{ jobId: string }>(`/api/volumes/${volumeId}/refresh`, options);
   }
 
   regenerateComicInfo(volumeId: string) {

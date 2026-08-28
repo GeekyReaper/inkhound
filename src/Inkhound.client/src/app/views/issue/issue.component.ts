@@ -5,7 +5,7 @@ import { filter, finalize, switchMap } from 'rxjs';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
-  AlertComponent, ButtonDirective,
+  AlertComponent, BadgeComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
   FormControlDirective, FormLabelDirective, FormSelectDirective,
@@ -27,7 +27,7 @@ import { UpdatedData } from '../../core/models/hub.models';
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
-    SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
+    SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective, IconDirective,
     ModalModule,
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, SlicePipe,

@@ -12,7 +12,8 @@ public record BdSerieSearchResult(
     string? AnneeFin,
     int? NombreTomes,
     string? CoverUrl,
-    string Url);
+    string Url,
+    string? Editeur);
 
 public record BdAlbumSummary(
     int Id,
@@ -37,7 +38,8 @@ public record BdSerie(
     string? CoverUrl,
     string Url,
     List<BdAlbumSummary> Albums,
-    string? Editeur);
+    string? Editeur,
+    string? SiteWeb);
 
 public record BdAlbum(
     int Id,
@@ -53,4 +55,9 @@ public record BdAlbum(
     string? Ean,
     string? Description,
     string? CoverUrl,
+    string? DepotLegal,
+    int? Planches,
+    string? Genre,
+    double? Note,
+    int? NombreVotes,
     string Url);

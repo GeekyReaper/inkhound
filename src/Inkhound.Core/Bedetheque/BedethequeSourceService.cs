@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -187,7 +188,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
                 return new BdSerieSearchResult(
                     s.Id, s.Titre, detail?.Genre, origine, detail?.Langue ?? langue,
                     detail?.AnneeDebut, detail?.AnneeFin, detail?.NombreAlbums ?? detail?.Albums.Count,
-                    coverUrl, $"{Options.BaseUrl}/serie-{s.Id}-BD-x.html");
+                    coverUrl, $"{Options.BaseUrl}/serie-{s.Id}-BD-x.html", detail?.Editeur);
             }
             finally { semaphore.Release(); }
         });
@@ -413,7 +414,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
         // Certaines pages utilisent une mise en page alternative où ces informations sont
         // exposées comme une simple liste plutôt que dans le bloc <h3> — fallback nécessaire.
-        if (genre is null || nombreAlbums is null || origine is null)
+        if (genre is null || nombreAlbums is null || origine is null || parution is null || langue is null)
         {
             var fallbackItems = doc.DocumentNode.SelectNodes("//ul[contains(@class,'serie-info')]/li");
             if (fallbackItems is not null)
@@ -429,8 +430,29 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
                         if (m.Success) nombreAlbums = int.Parse(m.Value);
                     }
                     else if (origine is null && label.Contains("Origine", StringComparison.OrdinalIgnoreCase)) origine = value;
+                    else if (parution is null && label.Contains("Parution", StringComparison.OrdinalIgnoreCase)) parution = value;
+                    else if (langue is null && label.Contains("Langue", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var flagImg = li.SelectSingleNode(".//img");
+                        langue = flagImg is not null
+                            ? ExtractLangueFromFlag(flagImg.GetAttributeValue("src", string.Empty))
+                            : value;
+                    }
                 }
             }
+        }
+
+        // Site officiel de la série — absent sur beaucoup de séries, échec silencieux attendu.
+        string? siteWeb = null;
+        try
+        {
+            siteWeb = doc.DocumentNode
+                .SelectSingleNode("//ul[contains(@class,'serie-info')]//li[label[contains(text(),'Internet')]]/a")
+                ?.GetAttributeValue("href", string.Empty) is { Length: > 0 } sw ? sw : null;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Bedetheque: SiteWeb parsing failed for serie {id}: {ex.Message}", ETraceLevel.DEBUG);
         }
 
         var description = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'single-content')]//p")?.InnerText.Trim()
@@ -466,7 +488,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         }
         editeur = string.IsNullOrEmpty(editeur) ? albums.FirstOrDefault()?.Editeur : editeur;
 
-        return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums, editeur);
+        return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums, editeur, siteWeb);
     }
 
     private static List<BdAlbumSummary> ParseAlbumList(HtmlDocument doc)
@@ -577,8 +599,64 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             description = WebUtility.HtmlDecode(description);
         }
 
+        // Dépôt légal + nombre de pages officiel — bloc "menu-informations", absent sur certaines pages.
+        string? depotLegal = null;
+        int? planches = null;
+        try
+        {
+            var menuInfos = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'menu-informations')]");
+            if (menuInfos is not null)
+            {
+                var calendarSpan = menuInfos.SelectSingleNode(".//span[@title='Dépot légal' or @title='Dépôt légal']");
+                if (calendarSpan is not null)
+                {
+                    var m = Regex.Match(calendarSpan.InnerText, @"\d{2}/\d{4}");
+                    depotLegal = m.Success ? m.Value : calendarSpan.InnerText.Trim();
+                }
+
+                var pagesSpan = menuInfos.SelectSingleNode(".//span[@itemprop='numberOfPages']");
+                if (pagesSpan is not null && int.TryParse(pagesSpan.InnerText.Trim(), out var p))
+                    planches = p;
+            }
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Bedetheque: DepotLegal/Planches parsing failed for album {id}: {ex.Message}", ETraceLevel.DEBUG);
+        }
+
+        // Genre (classification, ex. "Europe - Science-fiction" ou démographie manga Seinen/Shonen/Shojo)
+        string? genreAlbum = null;
+        try
+        {
+            genreAlbum = doc.DocumentNode.SelectSingleNode("//meta[@itemprop='genre']")
+                ?.GetAttributeValue("content", string.Empty) is { Length: > 0 } gv ? gv : null;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Bedetheque: Genre parsing failed for album {id}: {ex.Message}", ETraceLevel.DEBUG);
+        }
+
+        // Note communautaire /10 + nombre de votes
+        double? note = null;
+        int? nombreVotes = null;
+        try
+        {
+            var ratingValue = doc.DocumentNode.SelectSingleNode("//span[@itemprop='ratingValue']");
+            var ratingCount = doc.DocumentNode.SelectSingleNode("//span[@itemprop='ratingCount']");
+            if (ratingValue is not null && double.TryParse(ratingValue.InnerText.Trim(),
+                    NumberStyles.Any, CultureInfo.InvariantCulture, out var n))
+                note = n;
+            if (ratingCount is not null && int.TryParse(ratingCount.InnerText.Trim(), out var v))
+                nombreVotes = v;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"Bedetheque: Note/NombreVotes parsing failed for album {id}: {ex.Message}", ETraceLevel.DEBUG);
+        }
+
         return new BdAlbum(id, titre, numAlbum, serieId, serieTitre, $"{Options.BaseUrl}{serieHref}",
-            auteurs, editeur, string.IsNullOrEmpty(collection) ? null : collection, annee, ean, description, coverUrl, url);
+            auteurs, editeur, string.IsNullOrEmpty(collection) ? null : collection, annee, ean, description, coverUrl,
+            depotLegal, planches, genreAlbum, note, nombreVotes, url);
     }
 
     private static string? ExtractLangueFromFlag(string flagPath)
@@ -670,10 +748,10 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     }
 
     private static SourceVolume ToSourceVolume(BdSerieSearchResult s) =>
-        new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreTomes ?? 0, null, null, s.CoverUrl, s.Url, Language: s.Langue);
+        new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreTomes ?? 0, s.Editeur, null, s.CoverUrl, s.Url, Language: s.Langue);
 
     private static SourceVolume ToSourceVolume(BdSerie s) =>
-        new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreAlbums ?? s.Albums.Count, null, s.Description, s.CoverUrl, s.Url, Language: s.Langue);
+        new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreAlbums ?? s.Albums.Count, s.Editeur, s.Description, s.CoverUrl, s.Url, Language: s.Langue);
 
     private static SourceIssue ToSourceIssue(BdAlbumSummary a) =>
         new(a.Id.ToString(), SourceKeyConst, a.Titre, a.NumeroAlbum ?? string.Empty, ParseYearAsDate(a.Annee), null, a.CoverUrl, a.Url);

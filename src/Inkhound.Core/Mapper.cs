@@ -60,6 +60,10 @@ public static class Mapper
             Image = serie.CoverUrl is { } url ? new VolumeImage(url, url, url, url, url, url, url, url, url, null) : null,
             Genres = serie.Genre is { } g ? [g] : [],
             CountOfIssues = serie.NombreAlbums ?? serie.Albums.Count,
+            Language = serie.Langue,
+            PublicationStatus = serie.Parution,
+            Origin = serie.Origine,
+            Website = serie.SiteWeb,
         };
     }
 
@@ -76,6 +80,14 @@ public static class Mapper
             Description = album.Description,
             Image = album.CoverUrl is { } url ? new VolumeImage(url, url, url, url, url, url, url, url, url, null) : null,
             Authors = album.Auteurs.Select(a => new VolumeAuthor(a.Nom, a.Role ?? string.Empty)).ToList(),
+            Ean = album.Ean,
+            Collection = album.Collection,
+            Publisher = album.Editeur,
+            LegalDepositDate = album.DepotLegal,
+            OfficialPageCount = album.Planches,
+            Genre = album.Genre,
+            CommunityRating = album.Note,
+            CommunityRatingCount = album.NombreVotes,
         };
     }
 }

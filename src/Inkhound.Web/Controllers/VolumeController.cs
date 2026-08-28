@@ -80,6 +80,10 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         VolumeImage? Image,
         int CountOfIssues,
         int CountOfDownloadedIssues,
+        string? Language,
+        string? PublicationStatus,
+        string? Origin,
+        string? Website,
         DateTime CreatedAt,
         DateTime UpdatedAt);
 
@@ -87,6 +91,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         => new(v.Id, v.LibraryId, v.SourceId, v.SourceType, v.Title, v.Year,
                v.Description, v.Publisher, v.Status, v.AgeRating.ToString(), v.Genres, v.Authors,
                v.Image, v.CountOfIssues, v.CountOfDownloadedIssues,
+               v.Language, v.PublicationStatus, v.Origin, v.Website,
                v.CreatedAt, v.UpdatedAt);
 
     // GET /api/volumes/{volumeId}
@@ -170,16 +175,37 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
 
     public record RematchFromSourceRequest(string Source, string SourceId);
 
-    // POST /api/volumes/{volumeId}/rematch
+    // POST /api/volumes/{volumeId}/rematch — lance le rematch en Job et retourne son JobId
+    // immédiatement ; suivi de la progression/traces via SignalR (JobPanel sur la page Volume).
     [HttpPost("/api/volumes/{volumeId:guid}/rematch")]
-    public async Task<IActionResult> RematchFromSource(Guid volumeId, [FromBody] RematchFromSourceRequest req)
+    public IActionResult RematchFromSource(Guid volumeId, [FromBody] RematchFromSourceRequest req)
     {
+        var job = manager.LaunchJobRematchVolume(new RematchVolumeJobParameters
+        { VolumeId = volumeId, Source = req.Source, SourceId = req.SourceId });
+        return Accepted(new { jobId = job.JobId });
+    }
+
+    // Options de la popup "Refresh" — toutes à true par défaut (comportement historique si un
+    // appelant poste un body vide/partiel), une case décochée désactive l'étape correspondante.
+    public record RefreshVolumeRequest(
+        bool SyncFromSource = true,
+        bool RecalculateStatistics = true,
+        bool RegenerateComicInfo = true,
+        bool ScanKavita = true);
+
+    // POST /api/volumes/{volumeId}/refresh — idem que /rematch, mais réutilise la source déjà
+    // associée au volume (pas de recherche à refaire) ; masqué côté UI pour un volume manuel.
+    [HttpPost("/api/volumes/{volumeId:guid}/refresh")]
+    public async Task<IActionResult> Refresh(Guid volumeId, [FromBody] RefreshVolumeRequest? req = null)
+    {
+        var options = req ?? new RefreshVolumeRequest();
         try
         {
-            var updated = await manager.RematchVolumeFromSourceAsync(volumeId, req.Source, req.SourceId);
-            return updated ? NoContent() : NotFound();
+            var job = await manager.LaunchJobRefreshVolume(
+                volumeId, options.SyncFromSource, options.RecalculateStatistics,
+                options.RegenerateComicInfo, options.ScanKavita);
+            return job is not null ? Accepted(new { jobId = job.JobId }) : NotFound();
         }
-        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 

@@ -258,6 +258,23 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "IssueDownloads", "TorrentTitle", "TEXT NOT NULL DEFAULT ''");
         await AddColumnIfMissingAsync(db, "IssueDownloads", "DownloadUrl", "TEXT NOT NULL DEFAULT ''");
         await AddColumnIfMissingAsync(db, "IssueDownloads", "TrackerName", "TEXT NULL");
+
+        // Champs Bedetheque supplémentaires ajoutés en août 2026 — langue, statut de parution, origine,
+        // site web (série) ; EAN, collection, éditeur album, dépôt légal, pages officielles, genre, note
+        // communautaire (issue). Toutes nullables (NULL = source ne fournit pas cette info, ex ComicVine).
+        await AddColumnIfMissingAsync(db, "Volumes", "Language", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Volumes", "PublicationStatus", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Volumes", "Origin", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Volumes", "Website", "TEXT NULL");
+
+        await AddColumnIfMissingAsync(db, "Issues", "Ean", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "Collection", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "Publisher", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "LegalDepositDate", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "OfficialPageCount", "INTEGER NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "Genre", "TEXT NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "CommunityRating", "REAL NULL");
+        await AddColumnIfMissingAsync(db, "Issues", "CommunityRatingCount", "INTEGER NULL");
     }
 
     // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien

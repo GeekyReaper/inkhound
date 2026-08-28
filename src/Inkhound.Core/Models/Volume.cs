@@ -32,6 +32,13 @@ public class Volume
     public string? Publisher { get; set; }
     public List<VolumeAuthor> Authors { get; set; } = [];
     public List<string> Genres { get; set; } = [];
+
+    // Métadonnées Bedetheque supplémentaires — null si la source ne les fournit pas (ComicVine, manuel)
+    public string? Language { get; set; }
+    public string? PublicationStatus { get; set; } // Statut de parution texte libre (ex: "Série en cours") — DISTINCT de Status ci-dessous
+    public string? Origin { get; set; }
+    public string? Website { get; set; }
+
     public VolumeStatus Status { get; set; } = VolumeStatus.MONITORED;
     public AgeRating AgeRating { get; set; } = AgeRating.Unknown;
 

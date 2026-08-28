@@ -64,6 +64,39 @@
             <dt class="col-sm-3 col-lg-2">Published</dt>
             <dd class="col-sm-9 col-lg-10">{{ issue()!.publishedAt | date:'mediumDate' }}</dd>
           }
+          @if (issue()!.ean) {
+            <dt class="col-sm-3 col-lg-2">EAN</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.ean }}</dd>
+          }
+          @if (issue()!.collection) {
+            <dt class="col-sm-3 col-lg-2">Collection</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.collection }}</dd>
+          }
+          @if (issue()!.publisher) {
+            <dt class="col-sm-3 col-lg-2">Publisher</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.publisher }}</dd>
+          }
+          @if (issue()!.legalDepositDate) {
+            <dt class="col-sm-3 col-lg-2">Legal deposit</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.legalDepositDate }}</dd>
+          }
+          @if (issue()!.analysisPageCount ?? issue()!.officialPageCount; as pageCount) {
+            <dt class="col-sm-3 col-lg-2">Pages</dt>
+            <dd class="col-sm-9 col-lg-10">{{ pageCount }}</dd>
+          }
+          @if (issue()!.genre) {
+            <dt class="col-sm-3 col-lg-2">Genre</dt>
+            <dd class="col-sm-9 col-lg-10">{{ issue()!.genre }}</dd>
+          }
+          @if (issue()!.communityRating) {
+            <dt class="col-sm-3 col-lg-2">Rating</dt>
+            <dd class="col-sm-9 col-lg-10">
+              <c-badge color="warning">{{ issue()!.communityRating }}/10</c-badge>
+              @if (issue()!.communityRatingCount) {
+                <span class="text-body-secondary small ms-1">({{ issue()!.communityRatingCount }} votes)</span>
+              }
+            </dd>
+          }
           @if (issue()!.authors.length > 0) {
             <dt class="col-sm-3 col-lg-2">Authors</dt>
             <dd class="col-sm-9 col-lg-10">

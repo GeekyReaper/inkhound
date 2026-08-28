@@ -410,6 +410,25 @@
 
 </c-container>
 
+<!-- Confirmation modal — sélection d'une série d'une source différente de celle déjà associée -->
+<c-modal
+  [visible]="confirmSourceChangeVisible()"
+  (visibleChange)="confirmSourceChangeVisible.set($event)"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Change source series?</h5>
+    <button cButtonClose (click)="confirmSourceChangeVisible.set(false)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p>You selected a series from a <strong>different source</strong> than the one currently linked to this volume. Metadata of already-downloaded issues will be overwritten (titles, covers, filenames) to match the new series.</p>
+    <p class="text-body-secondary small mb-0">Downloaded files are kept, only renamed/relabeled — nothing is deleted.</p>
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" (click)="confirmSourceChangeVisible.set(false)">Cancel</button>
+    <button cButton color="warning" (click)="confirmRematch()">Continue anyway</button>
+  </c-modal-footer>
+</c-modal>
+
 <!-- Issues modal -->
 <c-modal
   [visible]="issuesModalVolume() !== null"

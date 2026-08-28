@@ -61,6 +61,18 @@
             <dt class="col-sm-3 col-lg-2">Publisher</dt>
             <dd class="col-sm-9 col-lg-10">{{ volume()!.publisher }}</dd>
           }
+          @if (volume()!.origin) {
+            <dt class="col-sm-3 col-lg-2">Origin</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.origin }}</dd>
+          }
+          @if (volume()!.language) {
+            <dt class="col-sm-3 col-lg-2">Language</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.language }}</dd>
+          }
+          @if (volume()!.publicationStatus) {
+            <dt class="col-sm-3 col-lg-2">Publication status</dt>
+            <dd class="col-sm-9 col-lg-10">{{ volume()!.publicationStatus }}</dd>
+          }
           @if (volume()!.genres.length > 0) {
             <dt class="col-sm-3 col-lg-2">Genres</dt>
             <dd class="col-sm-9 col-lg-10">{{ volume()!.genres.join(', ') }}</dd>
@@ -84,6 +96,12 @@
               }
             </select>
           </dd>
+          @if (volume()!.website) {
+            <dt class="col-sm-3 col-lg-2">Website</dt>
+            <dd class="col-sm-9 col-lg-10">
+              <a [href]="volume()!.website" target="_blank" rel="noopener noreferrer">{{ volume()!.website }}</a>
+            </dd>
+          }
           @if (volume()!.description) {
             <dt class="col-sm-3 col-lg-2">Description</dt>
             <dd class="col-sm-9 col-lg-10" [innerHTML]="volume()!.description"></dd>
@@ -105,35 +123,21 @@
           }
           Import
         </button>
-        @if (volume()!.sourceType === 'manual') {
+        @if (isManual()) {
           <button cButton color="secondary" size="sm" (click)="goEdit()">
             <svg cIcon name="cilPencil" class="me-1"></svg>
             Edit
           </button>
         }
-        <button cButton color="secondary" size="sm" (click)="goMatch()">
-          <svg cIcon name="cilSync" class="me-1"></svg>
-          Match
-        </button>
-        <button cButton color="secondary" size="sm"
-                [disabled]="regenerating()"
-                (click)="onRegenerateComicInfo()">
-          @if (regenerating()) {
-            <c-spinner size="sm" class="me-1"></c-spinner>
-          } @else {
-            <svg cIcon name="cilCloudUpload" class="me-1"></svg>
-          }
-          Refresh Kavita
-        </button>
-        <button cButton color="secondary" size="sm"
-                [disabled]="recalculatingStats()"
-                (click)="onRecalculateStatistics()">
-          @if (recalculatingStats()) {
-            <c-spinner size="sm" class="me-1"></c-spinner>
-          } @else {
+        @if (isRefreshable()) {
+          <button cButton color="secondary" size="sm" [disabled]="!!activeJobId()" (click)="openRefreshModal()">
             <svg cIcon name="cilReload" class="me-1"></svg>
-          }
-          Statistics
+            Refresh
+          </button>
+        }
+        <button cButton color="secondary" size="sm" [disabled]="!!activeJobId()" (click)="goMatch()">
+          <svg cIcon name="cilSync" class="me-1"></svg>
+          Rematch
         </button>
         <button cButton color="danger" size="sm" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
@@ -144,18 +148,16 @@
             Import started — processing in background.
           </c-alert>
         }
-        @if (regenerateSuccess()) {
-          <c-alert color="success" class="mb-0 py-1 small">
-            Job started — follow progress in Jobs view.
-          </c-alert>
-        }
-        @if (recalculateStatsSuccess()) {
-          <c-alert color="success" class="mb-0 py-1 small">
-            Statistics recalculated.
-          </c-alert>
-        }
       </c-col>
     </c-row>
+
+    @if (activeJobId(); as jobId) {
+      <c-row class="mb-3">
+        <c-col>
+          <app-job-panel [jobId]="jobId" />
+        </c-col>
+      </c-row>
+    }
 
     <!-- Manual Search -->
     <div class="mb-3">
@@ -233,6 +235,66 @@
   mode="directory"
   [(visible)]="importVisible"
   (pathSelected)="onImportSelected($event)" />
+
+<c-modal
+  [visible]="refreshModalVisible()"
+  (visibleChange)="refreshModalVisible.set($event)"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Refresh Volume</h5>
+    <button cButtonClose (click)="refreshModalVisible.set(false)"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="refresh-source"
+               [checked]="refreshOptions().syncFromSource"
+               (change)="toggleRefreshOption('syncFromSource')" />
+        <label cFormCheckLabel for="refresh-source">Sync with source (metadata &amp; issues)</label>
+      </c-form-check>
+    </div>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="refresh-stats"
+               [checked]="refreshOptions().recalculateStatistics"
+               (change)="toggleRefreshOption('recalculateStatistics')" />
+        <label cFormCheckLabel for="refresh-stats">Recalculate statistics</label>
+      </c-form-check>
+    </div>
+    <div class="mb-3">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="refresh-comicinfo"
+               [checked]="refreshOptions().regenerateComicInfo"
+               [disabled]="!hasDownloadedIssues()"
+               (change)="toggleRefreshOption('regenerateComicInfo')" />
+        <label cFormCheckLabel for="refresh-comicinfo" [class.text-body-tertiary]="!hasDownloadedIssues()">
+          Regenerate ComicInfo.xml (downloaded issues)
+          @if (!hasDownloadedIssues()) {
+            <span class="text-body-secondary small d-block">No downloaded issue to update.</span>
+          }
+        </label>
+      </c-form-check>
+    </div>
+    <div class="mb-0">
+      <c-form-check>
+        <input cFormCheckInput type="checkbox" id="refresh-kavita"
+               [checked]="refreshOptions().scanKavita"
+               [disabled]="!hasKavitaLibrary()"
+               (change)="toggleRefreshOption('scanKavita')" />
+        <label cFormCheckLabel for="refresh-kavita" [class.text-body-tertiary]="!hasKavitaLibrary()">
+          Refresh Kavita
+          @if (!hasKavitaLibrary()) {
+            <span class="text-body-secondary small d-block">This library isn't linked to a Kavita library.</span>
+          }
+        </label>
+      </c-form-check>
+    </div>
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" (click)="refreshModalVisible.set(false)">Cancel</button>
+    <button cButton color="primary" [disabled]="!refreshCanRun()" (click)="confirmRefresh()">Validate</button>
+  </c-modal-footer>
+</c-modal>
 
 <c-modal
   [visible]="confirmDeleteVisible()"

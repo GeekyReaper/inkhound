@@ -1207,12 +1207,16 @@ public class InkhoundManager : BaseServiceManager
         }
     }
 
-    public async Task<bool> RematchVolumeFromComicVineAsync(
+    // Résumé retourné par un rematch — diffusé via JobSendTrace par l'appelant (RunRematchVolumeJobAsync),
+    // pas exposé en HTTP synchrone (le rematch s'exécute désormais en Job, cf. LaunchJobRematchVolume).
+    public record RematchResult(int IssuesAdded, int IssuesUpdated, int IssuesRemoved);
+
+    public async Task<RematchResult?> RematchVolumeFromComicVineAsync(
         Guid volumeId, int comicVineVolumeId, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
-        if (volume is null) return false;
+        if (volume is null) return null;
 
         var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
         if (comicVine.CurrentState.State != EState.OK)
@@ -1232,11 +1236,13 @@ public class InkhoundManager : BaseServiceManager
         volume.Authors      = mapped.Authors;
         volume.Genres       = mapped.Genres;
         volume.UpdatedAt    = DateTime.UtcNow;
+        JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
 
         var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
 
         var matchedExistingIds = new HashSet<Guid>();
+        int issuesAdded = 0, issuesUpdated = 0, issuesRemoved = 0;
 
         foreach (var cvIssue in cvIssues)
         {
@@ -1261,6 +1267,8 @@ public class InkhoundManager : BaseServiceManager
                 existing.Authors      = mappedIssue.Authors;
                 if (existing.Status == IssueStatus.MISSING)
                     existing.IssueNumber = issueNum;
+                issuesUpdated++;
+                JobSendTrace($"[Rematch] Issue #{existing.IssueNumber} metadata updated (status unchanged: {existing.Status})");
             }
             else
             {
@@ -1269,6 +1277,8 @@ public class InkhoundManager : BaseServiceManager
                 newIssue.VolumeId = volumeId;
                 newIssue.Status  = IssueStatus.MISSING;
                 ctx.Issues.Add(newIssue);
+                issuesAdded++;
+                JobSendTrace($"[Rematch] New issue #{issueNum} — '{newIssue.Title}' detected (added as MISSING)");
             }
         }
 
@@ -1276,13 +1286,17 @@ public class InkhoundManager : BaseServiceManager
         foreach (var orphan in existingIssues.Where(i => !matchedExistingIds.Contains(i.Id)))
         {
             if (orphan.Status == IssueStatus.MISSING)
+            {
                 ctx.Issues.Remove(orphan);
+                issuesRemoved++;
+                JobSendTrace($"[Rematch] Orphaned issue #{orphan.IssueNumber} removed (was MISSING, no longer on source)");
+            }
             // DOWNLOADED / DOWNLOADING → conservé
         }
 
         await ctx.SaveChangesAsync(ct);
         await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
-        return true;
+        return new RematchResult(issuesAdded, issuesUpdated, issuesRemoved);
     }
 
     // Miroir de AddVolumeFromComicVineAsync pour la source Bedetheque : utilise les modèles natifs
@@ -1384,12 +1398,12 @@ public class InkhoundManager : BaseServiceManager
     }
 
     // Miroir de RematchVolumeFromComicVineAsync pour la source Bedetheque.
-    public async Task<bool> RematchVolumeFromBedethequeAsync(
+    public async Task<RematchResult?> RematchVolumeFromBedethequeAsync(
         Guid volumeId, int bdSerieId, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
-        if (volume is null) return false;
+        if (volume is null) return null;
 
         var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
         if (bedetheque.CurrentState.State != EState.OK)
@@ -1408,12 +1422,18 @@ public class InkhoundManager : BaseServiceManager
         volume.Publisher    = mapped.Publisher;
         volume.Authors      = mapped.Authors;
         volume.Genres       = mapped.Genres;
+        volume.Language           = mapped.Language;
+        volume.PublicationStatus  = mapped.PublicationStatus;
+        volume.Origin             = mapped.Origin;
+        volume.Website            = mapped.Website;
         volume.UpdatedAt    = DateTime.UtcNow;
+        JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
 
         var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
 
         var matchedExistingIds = new HashSet<Guid>();
+        int issuesAdded = 0, issuesUpdated = 0, issuesRemoved = 0;
 
         foreach (var bdAlbum in bdAlbums)
         {
@@ -1436,8 +1456,18 @@ public class InkhoundManager : BaseServiceManager
                 existing.Description  = mappedIssue.Description;
                 existing.Image        = mappedIssue.Image;
                 existing.Authors      = mappedIssue.Authors;
+                existing.Ean                   = mappedIssue.Ean;
+                existing.Collection             = mappedIssue.Collection;
+                existing.Publisher              = mappedIssue.Publisher;
+                existing.LegalDepositDate       = mappedIssue.LegalDepositDate;
+                existing.OfficialPageCount      = mappedIssue.OfficialPageCount;
+                existing.Genre                  = mappedIssue.Genre;
+                existing.CommunityRating        = mappedIssue.CommunityRating;
+                existing.CommunityRatingCount   = mappedIssue.CommunityRatingCount;
                 if (existing.Status == IssueStatus.MISSING)
                     existing.IssueNumber = issueNum;
+                issuesUpdated++;
+                JobSendTrace($"[Rematch] Issue #{existing.IssueNumber} metadata updated (status unchanged: {existing.Status})");
             }
             else
             {
@@ -1446,6 +1476,8 @@ public class InkhoundManager : BaseServiceManager
                 newIssue.VolumeId = volumeId;
                 newIssue.Status  = IssueStatus.MISSING;
                 ctx.Issues.Add(newIssue);
+                issuesAdded++;
+                JobSendTrace($"[Rematch] New issue #{issueNum} — '{newIssue.Title}' detected (added as MISSING)");
             }
         }
 
@@ -1453,13 +1485,17 @@ public class InkhoundManager : BaseServiceManager
         foreach (var orphan in existingIssues.Where(i => !matchedExistingIds.Contains(i.Id)))
         {
             if (orphan.Status == IssueStatus.MISSING)
+            {
                 ctx.Issues.Remove(orphan);
+                issuesRemoved++;
+                JobSendTrace($"[Rematch] Orphaned issue #{orphan.IssueNumber} removed (was MISSING, no longer on source)");
+            }
             // DOWNLOADED / DOWNLOADING → conservé
         }
 
         await ctx.SaveChangesAsync(ct);
         await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
-        return true;
+        return new RematchResult(issuesAdded, issuesUpdated, issuesRemoved);
     }
 
     // Dispatchers génériques utilisés par les contrôleurs Web — routent vers l'implémentation
@@ -1472,13 +1508,118 @@ public class InkhoundManager : BaseServiceManager
             _ => throw new InvalidOperationException($"Unknown source '{source}'"),
         };
 
-    public Task<bool> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId, CancellationToken ct = default) =>
-        source switch
+    public Task<RematchResult?> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId, CancellationToken ct = default) =>
+        source.ToLowerInvariant() switch
         {
             "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct),
             "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct),
             _ => throw new InvalidOperationException($"Unknown source '{source}'"),
         };
+
+    // Lance un rematch (changement de série) ou un refresh (même série) en tâche de fond, suivi
+    // en direct sur la page Volume via SignalR — mêmes traces que la recherche/l'analyse CBZ.
+    public JobContext LaunchJobRematchVolume(RematchVolumeJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var volume = ctx.Volumes.Find(parameters.VolumeId);
+        var jobTitle = volume is not null ? $"Rematch — {volume.Title}" : $"Rematch — {parameters.VolumeId}";
+
+        var job = StartJob(jobTitle, parameters);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunRematchVolumeJobAsync(job, parameters);
+        }
+        return job;
+    }
+
+    // Pré-check synchrone : Source/SourceId doivent être connus AVANT de construire les paramètres
+    // du job (contrairement à Rematch, où ils viennent de la requête). Volume introuvable ou manuel
+    // → pas de job créé (le bouton "Refresh" est de toute façon masqué côté UI pour un volume manuel).
+    // Les 4 booléens pilotent la popup à cases à cocher côté front (sync source / stats / ComicInfo /
+    // Kavita) — tous par défaut à true (comportement identique à avant si l'appelant ne les précise pas).
+    public async Task<JobContext?> LaunchJobRefreshVolume(
+        Guid volumeId,
+        bool syncFromSource = true,
+        bool recalculateStatistics = true,
+        bool regenerateComicInfo = true,
+        bool scanKavita = true,
+        CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return null;
+        if (string.Equals(volume.SourceType, "manual", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("This volume was added manually — there is no external source to refresh from.");
+
+        return LaunchJobRematchVolume(new RematchVolumeJobParameters
+        {
+            VolumeId = volumeId, Source = volume.SourceType, SourceId = volume.SourceId,
+            SyncFromSource = syncFromSource, RecalculateStatistics = recalculateStatistics,
+            RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita
+        });
+    }
+
+    private async Task RunRematchVolumeJobAsync(JobContext job, RematchVolumeJobParameters parameters)
+    {
+        try
+        {
+            var ctx = GetDb();
+            var volumeBefore = await ctx.Volumes.FindAsync(parameters.VolumeId);
+            if (volumeBefore is null)
+            {
+                JobSendTrace("[Rematch] Volume not found", ETraceLevel.ERROR);
+                EndJob(false);
+                return;
+            }
+
+            // Chemin de dossier ATTENDU avant mutation — Volume n'a pas de Path propre, son dossier
+            // est toujours recalculé depuis Title/Year ; il faut donc capturer l'ANCIEN chemin avant
+            // que le rematch n'écrase ces champs, pour pouvoir renommer le dossier physique ensuite.
+            // Sans étape "sync source", Title/Year ne changent jamais — inutile de le capturer.
+            string? oldFolderPath = null;
+            if (parameters.SyncFromSource)
+            {
+                var library = await ctx.Libraries.FindAsync(volumeBefore.LibraryId);
+                if (library is not null)
+                    oldFolderPath = ArchiveService.GetPath(volumeBefore, library);
+            }
+
+            if (parameters.SyncFromSource)
+            {
+                JobSendTrace($"[Rematch] Fetching {parameters.Source} #{parameters.SourceId}...");
+                var result = await RematchVolumeFromSourceAsync(parameters.VolumeId, parameters.Source, parameters.SourceId);
+                if (result is null)
+                {
+                    JobSendTrace("[Rematch] Volume not found", ETraceLevel.ERROR);
+                    EndJob(false);
+                    return;
+                }
+                JobSendTrace($"[Rematch] Metadata synced — {result.IssuesAdded} issue(s) added, {result.IssuesUpdated} updated, {result.IssuesRemoved} removed");
+                // RematchVolumeFromComicVineAsync/BedethequeAsync recalculent déjà les statistiques
+                // en interne — pas besoin de le refaire même si RecalculateStatistics est aussi coché.
+            }
+            else if (parameters.RecalculateStatistics)
+            {
+                await RecalculateVolumeStatisticsAsync(ctx, parameters.VolumeId);
+                JobSendTrace("[Rematch] Statistics recalculated");
+            }
+
+            var syncOk = true;
+            if (parameters.RegenerateComicInfo)
+                syncOk = await RegenerateComicInfoForDownloadedIssuesAsync(job, parameters.VolumeId, oldFolderPath);
+
+            if (parameters.ScanKavita)
+                await TriggerKavitaScanAsync(parameters.VolumeId);
+
+            EndJob(syncOk);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Rematch] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+    }
 
     public async Task<string> UploadImageAsync(Stream content, string extension, CancellationToken ct = default)
     {
@@ -1659,49 +1800,126 @@ public class InkhoundManager : BaseServiceManager
         job.SetState(JobState.RUNNING);
         try
         {
-            if (volume is null) { EndJob(false); return; }
-
-            var library = await ctx.Libraries.FindAsync(volume.LibraryId);
-            if (library is null) { EndJob(false); return; }
-
-            var archiveService = GetService<ArchiveService, ArchiveOption>();
-
-            var downloadedIssues = await ctx.Issues
-                .Where(i => i.VolumeId == parameters.VolumeId && i.Status == IssueStatus.DOWNLOADED)
-                .ToListAsync();
-
-            JobSendTrace($"[Regen] {downloadedIssues.Count} downloaded issues found for {volume.Title}");
-            job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
-
-            foreach (var issue in downloadedIssues)
-            {
-                var cbzPath = ArchiveService.GetPath(issue, volume, library);
-                JobSendTrace($"[Regen] Injecting ComicInfo into {issue.CbzFilename}");
-                await archiveService.InjectComicInfoIntoCbzAsync(volume, issue, cbzPath);
-                job.Progress.Increment(true);
-                job.CallbackHandler.Callback(job.Progress);
-            }
-
-            if (!string.IsNullOrEmpty(library.KavitaPath))
-            {
-                var kavita = GetService<KavitaService, KavitaOptions>();
-                var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
-                JobSendTrace($"[Regen] Triggering Kavita folder scan: {kavitaFolderPath}");
-                await kavita.ScanFolderAsync(kavitaFolderPath);
-            }
-            else
-            {
-                JobSendTrace("[Regen] No KavitaPath configured — falling back to full library scan");
-                await ScanKavitaLibraryAsync(library.KavitaLibraryId);
-            }
-
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(parameters.VolumeId));
-            EndJob(true);
+            var success = await RegenerateComicInfoForDownloadedIssuesAsync(job, parameters.VolumeId);
+            if (success) await TriggerKavitaScanAsync(parameters.VolumeId);
+            EndJob(success);
         }
         catch (Exception ex)
         {
             JobSendTrace($"[Regen] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
+        }
+    }
+
+    // Renomme les fichiers CBZ déjà téléchargés dont le nom ne correspond plus aux métadonnées
+    // actuelles (et le dossier de la série si Title/Year ont changé — oldFolderPath fourni
+    // uniquement par RunRematchVolumeJobAsync, jamais par le bouton manuel "Refresh Kavita"), puis
+    // réinjecte ComicInfo.xml. Ne déclenche PAS le scan Kavita — cf. TriggerKavitaScanAsync,
+    // appelée séparément (les deux étapes sont désormais des cases à cocher indépendantes côté UI).
+    private async Task<bool> RegenerateComicInfoForDownloadedIssuesAsync(JobContext job, Guid volumeId, string? oldFolderPath = null)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(volumeId);
+        if (volume is null) { JobSendTrace("[Sync] Volume not found", ETraceLevel.ERROR); return false; }
+
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+        if (library is null) { JobSendTrace("[Sync] Library not found", ETraceLevel.ERROR); return false; }
+
+        // Renommage du dossier de la série si Title/Year ont changé (Rematch vers une série différente).
+        if (oldFolderPath is not null)
+        {
+            var newFolderPath = ArchiveService.GetPath(volume, library);
+            if (!string.Equals(oldFolderPath, newFolderPath, StringComparison.OrdinalIgnoreCase) && Directory.Exists(oldFolderPath))
+            {
+                if (!Directory.Exists(newFolderPath))
+                {
+                    try
+                    {
+                        Directory.Move(oldFolderPath, newFolderPath);
+                        JobSendTrace($"[Sync] Renamed series folder to '{Path.GetFileName(newFolderPath)}'");
+                    }
+                    catch (IOException ex)
+                    {
+                        JobSendTrace($"[Sync] Could not rename volume folder: {ex.Message}", ETraceLevel.WARNING);
+                    }
+                }
+                else
+                {
+                    JobSendTrace("[Sync] Target folder already exists — skipping folder rename", ETraceLevel.WARNING);
+                }
+            }
+        }
+
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var downloadedIssues = await ctx.Issues
+            .Where(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED)
+            .ToListAsync();
+
+        JobSendTrace($"[Sync] {downloadedIssues.Count} downloaded issue(s) to process for {volume.Title}");
+        job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
+
+        bool anyRenamed = false;
+        foreach (var issue in downloadedIssues)
+        {
+            var expectedPath     = ArchiveService.GetPath(issue, volume, library);
+            var expectedFileName = Path.GetFileName(expectedPath);
+
+            if (!string.IsNullOrEmpty(issue.CbzFilename) && issue.CbzFilename != expectedFileName)
+            {
+                var currentPath = Path.Combine(ArchiveService.GetPath(volume, library), issue.CbzFilename);
+                if (!File.Exists(currentPath))
+                    JobSendTrace($"[Sync] Expected file '{issue.CbzFilename}' not found — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
+                else if (File.Exists(expectedPath) && !string.Equals(currentPath, expectedPath, StringComparison.OrdinalIgnoreCase))
+                    JobSendTrace($"[Sync] Target filename already exists — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
+                else
+                {
+                    JobSendTrace($"[Sync] Renaming '{issue.CbzFilename}' -> '{expectedFileName}'");
+                    File.Move(currentPath, expectedPath);
+                    archiveService.EnsurePermissiveFileMode(expectedPath);
+                    issue.CbzFilename = expectedFileName;
+                    anyRenamed = true;
+                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+                }
+            }
+
+            JobSendTrace($"[Sync] Injecting ComicInfo.xml into {issue.CbzFilename}");
+            await archiveService.InjectComicInfoIntoCbzAsync(volume, issue, expectedPath);
+            job.Progress.Increment(true);
+            job.CallbackHandler.Callback(job.Progress);
+        }
+        if (anyRenamed) await ctx.SaveChangesAsync();
+
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
+        return true;
+    }
+
+    // Déclenche un scan Kavita du dossier de la série (si KavitaPath configuré sur la library) ou
+    // de la library Kavita entière en repli — no-op silencieux (juste une trace) si la library
+    // Inkhound n'est rattachée à aucune library Kavita (KavitaLibraryId == 0 et KavitaPath vide).
+    private async Task TriggerKavitaScanAsync(Guid volumeId)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(volumeId);
+        if (volume is null) { JobSendTrace("[Kavita] Volume not found", ETraceLevel.ERROR); return; }
+
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+        if (library is null) { JobSendTrace("[Kavita] Library not found", ETraceLevel.ERROR); return; }
+
+        if (!string.IsNullOrEmpty(library.KavitaPath))
+        {
+            var kavita = GetService<KavitaService, KavitaOptions>();
+            var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
+            JobSendTrace($"[Kavita] Triggering folder scan: {kavitaFolderPath}");
+            await kavita.ScanFolderAsync(kavitaFolderPath);
+        }
+        else if (library.KavitaLibraryId > 0)
+        {
+            JobSendTrace("[Kavita] No KavitaPath configured — falling back to full library scan");
+            await ScanKavitaLibraryAsync(library.KavitaLibraryId);
+        }
+        else
+        {
+            JobSendTrace("[Kavita] No Kavita library linked to this library — skipping scan", ETraceLevel.WARNING);
         }
     }
 

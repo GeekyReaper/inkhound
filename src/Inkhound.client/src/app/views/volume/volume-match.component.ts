@@ -18,6 +18,7 @@ import {
   FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
+  ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
   NavComponent,
@@ -54,7 +55,7 @@ import { JobPanelComponent } from '../job-panel/job-panel.component';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardHeaderComponent, CardBodyComponent, CardFooterComponent,
     BadgeComponent,
-    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective,
+    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     SpinnerComponent, AlertComponent, ButtonDirective,
     PaginationComponent, PageItemComponent, PageLinkDirective,
     NavComponent, NavItemComponent, NavLinkDirective,
@@ -81,6 +82,11 @@ export class VolumeMatchComponent {
   // durée de vie de ce composant.
   private readonly pageKey = this.router.url;
 
+  // Clé de la page Volume PARENTE (ex: "…/volume/x" pour "…/volume/x/match") — un job de rematch
+  // y est enregistré (pas sous pageKey ci-dessus, réservé au job de recherche) afin que le
+  // JobPanel de VolumeComponent le retrouve immédiatement après la navigation de retour.
+  private readonly volumePageKey = this.router.url.replace(/\/match$/, '');
+
   readonly AUTHOR_ROLES = [
     'Writer', 'Penciler', 'Inker', 'Colorist',
     'Letterer', 'Editor', 'Artist', 'Translator'
@@ -96,6 +102,8 @@ export class VolumeMatchComponent {
   cvError           = signal<string | null>(null);
   selected          = signal<VolumeSearchResult | null>(null);
   rematching        = signal(false);
+  currentVolume     = signal<Volume | null>(null);
+  confirmSourceChangeVisible = signal(false);
   issuesModalVolume = signal<VolumeSearchResult | null>(null);
   issuesPage        = signal<PageResult<SourceIssue> | null>(null);
   issuesLoading     = signal(false);
@@ -141,6 +149,7 @@ export class VolumeMatchComponent {
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next: vol => {
+          this.currentVolume.set(vol);
           this.populate(vol);
           this.loadVolumeIssues();
         },
@@ -250,13 +259,40 @@ export class VolumeMatchComponent {
     const sel = this.selected();
     if (!sel) return;
 
+    const current = this.currentVolume();
+    const isDifferentSource = !current
+      || current.sourceType.toLowerCase() !== sel.source.toLowerCase()
+      || current.sourceId !== sel.sourceId;
+
+    if (isDifferentSource) {
+      this.confirmSourceChangeVisible.set(true);
+      return;
+    }
+    this.doRematch();
+  }
+
+  confirmRematch(): void {
+    this.confirmSourceChangeVisible.set(false);
+    this.doRematch();
+  }
+
+  // Le rematch s'exécute en Job (backend) : on récupère juste son JobId, on l'enregistre sous la
+  // clé de la page Volume (pas la nôtre), puis on y retourne — le JobPanel y prend le relai
+  // immédiatement, avec toutes les traces détaillées (métadonnées, issues, renommage, ComicInfo).
+  private doRematch(): void {
+    const sel = this.selected();
+    if (!sel) return;
+
     this.rematching.set(true);
     this.cvError.set(null);
 
     this.volumeService.rematchFromSource(this.volumeId, sel.source, sel.sourceId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  () => this.router.navigate(['../'], { relativeTo: this.route }),
+        next:  res => {
+          this.pageJobs.register(this.volumePageKey, res.jobId);
+          this.router.navigate(['../'], { relativeTo: this.route });
+        },
         error: err => {
           this.cvError.set(err?.error?.message ?? 'Rematch failed.');
           this.rematching.set(false);
