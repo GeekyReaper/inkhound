@@ -1249,10 +1249,14 @@ public class InkhoundManager : BaseServiceManager
             var cvId = cvIssue.Id.ToString();
             int.TryParse(cvIssue.IssueNumber, out var issueNum);
 
-            // Correspondance par SourceId en priorité, puis par numéro d'issue
+            // Correspondance par SourceId en priorité, puis par numéro d'issue — le repli par
+            // numéro ne se restreint PAS aux issues sans SourceId : un Rematch vers une source
+            // différente laisse justement un ancien SourceId (d'une autre source) qui ne peut
+            // jamais matcher cvId ci-dessus, donc jamais tomber dans ce repli si on l'exigeait vide
+            // — l'issue restait orpheline et une nouvelle était créée au même numéro (bug constaté).
             var existing =
                 existingIssues.FirstOrDefault(i => i.SourceId == cvId) ??
-                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.SourceId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
+                existingIssues.FirstOrDefault(i => i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
 
             var mappedIssue = Mapper.Map(cvIssue);
 
@@ -1440,10 +1444,14 @@ public class InkhoundManager : BaseServiceManager
             var bdId = bdAlbum.Id.ToString();
             int.TryParse(bdAlbum.NumeroAlbum, out var issueNum);
 
-            // Correspondance par SourceId en priorité, puis par numéro d'issue
+            // Correspondance par SourceId en priorité, puis par numéro d'issue — le repli par
+            // numéro ne se restreint PAS aux issues sans SourceId : un Rematch vers une source
+            // différente laisse justement un ancien SourceId (d'une autre source) qui ne peut
+            // jamais matcher bdId ci-dessus, donc jamais tomber dans ce repli si on l'exigeait vide
+            // — l'issue restait orpheline et une nouvelle était créée au même numéro (bug constaté).
             var existing =
                 existingIssues.FirstOrDefault(i => i.SourceId == bdId) ??
-                existingIssues.FirstOrDefault(i => string.IsNullOrEmpty(i.SourceId) && i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
+                existingIssues.FirstOrDefault(i => i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
 
             var mappedIssue = Mapper.Map(bdAlbum);
 

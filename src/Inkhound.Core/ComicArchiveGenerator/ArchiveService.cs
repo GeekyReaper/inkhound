@@ -432,6 +432,20 @@ public class ArchiveService : BaseService<ArchiveOption>
         _ => null
     };
 
+    // Bedetheque expose les noms au format catalographique "Nom, Prénom" (ex. "Pona, Nicolas").
+    // Mais ComicInfo.xml sépare plusieurs personnes d'un même tag par une virgule
+    // (<Writer>A, B</Writer> = deux auteurs "A" et "B") — un nom contenant sa propre virgule est
+    // donc mal interprété par les lecteurs (Kavita...) comme deux auteurs distincts. Reformaté en
+    // "Prénom Nom" UNIQUEMENT pour cette sortie XML — l'affichage front garde le format d'origine.
+    // Un nom sans virgule (ComicVine, déjà "Prénom Nom") ressort inchangé.
+    private static string NormalizeAuthorNameForComicInfo(string name)
+    {
+        var parts = name.Split(',', 2, StringSplitOptions.TrimEntries);
+        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0
+            ? $"{parts[1]} {parts[0]}"
+            : name;
+    }
+
     private static XDocument BuildComicInfoDocument(Volume volume, Issue issue)
     {
         var authors = issue.Authors.Count > 0 ? issue.Authors : volume.Authors;
@@ -440,7 +454,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         // reconnaît à la fois le vocabulaire anglais de ComicVine et le français scrapé sur
         // Bedetheque ("Scénario", "Dessin", ...), qui ne matchait jamais auparavant.
         var authorsByRole = authors
-            .Select(a => (a.Name, Role: AuthorRoleExtensions.ParseAuthorRole(a.Role)))
+            .Select(a => (Name: NormalizeAuthorNameForComicInfo(a.Name), Role: AuthorRoleExtensions.ParseAuthorRole(a.Role)))
             .Where(a => a.Role is not null)
             .GroupBy(a => a.Role!.Value)
             .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(a => a.Name)));
