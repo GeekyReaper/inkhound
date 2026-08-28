@@ -163,21 +163,38 @@ Batman - 003 (2012).cbz
 
 ## Mapping ComicInfo.xml
 
-| Champ modèle | Balise XML |
-|---|---|
-| `Volume.Title` | `<Series>` |
-| `Issue.IssueNumber` | `<Number>` |
-| `Issue.Title` | `<Title>` |
-| `Issue.PublishedAt.Year` | `<Year>` |
-| `Issue.PublishedAt.Month` | `<Month>` |
-| `Volume.Publisher` | `<Publisher>` |
-| `Volume.Authors` (role=writer) | `<Writer>` |
-| `Volume.Authors` (role=penciller) | `<Penciller>` |
-| `Volume.Genres` | `<Genre>` |
-| `Issue.Description` | `<Summary>` |
-| count(issues du volume) | `<Count>` |
-| `Issue.SourceId` | `<Web>` |
-| `Volume.AgeRating` (via `ToKavitaString()`) | `<AgeRating>` |
+Généré par `ArchiveService.BuildComicInfoDocument(Volume, Issue)`. Les auteurs sont regroupés par
+`AuthorRole` (`src/Inkhound.Core/Models/AuthorRole.cs`), qui reconnaît à la fois le vocabulaire
+anglais de ComicVine et le français scrapé sur Bedetheque ("Scénario", "Dessin", "Encrage",
+"Couleurs", "Lettrage", "Couverture", "Traduction") — un rôle non reconnu est simplement ignoré.
+
+| Champ modèle | Balise XML | Conversion |
+|---|---|---|
+| `Issue.Title ?? Volume.Title` | `<Title>` | — |
+| `Volume.Title` | `<Series>` | — |
+| `Issue.IssueNumber` | `<Number>` | — |
+| `Issue.Year ?? Volume.Year` | `<Year>` | — |
+| `Issue.PublishedAt.Month` | `<Month>` | — |
+| `Issue.Publisher ?? Volume.Publisher` | `<Publisher>` | éditeur album prioritaire |
+| `Issue.Description ?? Volume.Description` | `<Summary>` | — |
+| `Volume.Genres` + `Issue.Genre` | `<Genre>` | fusionnés, dédupliqués |
+| `Volume.AgeRating` (via `ToKavitaString()`) | `<AgeRating>` | — |
+| `Issue.Ean` | `<GTIN>` | — |
+| `Volume.Language` | `<LanguageISO>` | nom complet FR → code ISO 639-1 (`LanguageToIso`) |
+| `Issue.Collection` | `<Imprint>` | — |
+| `Volume.Website` | `<Web>` | — |
+| `Issue.AnalysisPageCount ?? Issue.OfficialPageCount` | `<PageCount>` | mesuré sur le CBZ prioritaire sur l'annoncé |
+| `Issue.CommunityRating` | `<CommunityRating>` | échelle /10 → /5 (`valeur / 2`) |
+| `Volume.Origin`, `Volume.PublicationStatus`, `Issue.LegalDepositDate`, `Issue.CommunityRatingCount` | `<Notes>` | concaténés en texte libre (aucun tag standard équivalent) |
+| Auteurs (role=Writer) | `<Writer>` | — |
+| Auteurs (role=Penciller) | `<Penciller>` | — |
+| Auteurs (role=Artist) | `<Artist>` | — |
+| Auteurs (role=Inker) | `<Inker>` | — |
+| Auteurs (role=Colorist) | `<Colorist>` | — |
+| Auteurs (role=Letterer) | `<Letterer>` | — |
+| Auteurs (role=CoverArtist) | `<CoverArtist>` | — |
+| Auteurs (role=Editor) | `<Editor>` | — |
+| Auteurs (role=Translator) | `<Translator>` | — |
 
 ## Base de données SQLite
 

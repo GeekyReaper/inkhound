@@ -422,17 +422,48 @@ public class ArchiveService : BaseService<ArchiveOption>
             _ => null
         };
     }
+    // Volume.Language contient un nom complet en français (ExtractLangueFromFlag), pas un code
+    // ISO — <LanguageISO> attend un code ISO 639-1 à 2 lettres. Valeur non reconnue → tag omis
+    // plutôt qu'un code erroné.
+    private static string? LanguageToIso(string? language) => language?.Trim() switch
+    {
+        "Français" => "fr", "Anglais" => "en", "Japonais" => "ja", "Italien" => "it",
+        "Allemand" => "de", "Espagnol" => "es", "Néerlandais" => "nl", "Portugais" => "pt",
+        _ => null
+    };
+
     private static XDocument BuildComicInfoDocument(Volume volume, Issue issue)
     {
         var authors = issue.Authors.Count > 0 ? issue.Authors : volume.Authors;
 
-        var writers    = authors.Where(a => a.Role.Equals("Writer",     StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
-        var pencillers = authors.Where(a => a.Role.Equals("Penciler",   StringComparison.OrdinalIgnoreCase)
-                                         || a.Role.Equals("Penciller",  StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
-        var artists    = authors.Where(a => a.Role.Equals("Artist",     StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
-        var colorists  = authors.Where(a => a.Role.Equals("Colorist",   StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
-        var letterers  = authors.Where(a => a.Role.Equals("Letterer",   StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
-        var translators= authors.Where(a => a.Role.Equals("Translator", StringComparison.OrdinalIgnoreCase)).Select(a => a.Name).ToList();
+        // Regroupe par rôle canonique (AuthorRole) plutôt que par comparaison de chaînes brutes —
+        // reconnaît à la fois le vocabulaire anglais de ComicVine et le français scrapé sur
+        // Bedetheque ("Scénario", "Dessin", ...), qui ne matchait jamais auparavant.
+        var authorsByRole = authors
+            .Select(a => (a.Name, Role: AuthorRoleExtensions.ParseAuthorRole(a.Role)))
+            .Where(a => a.Role is not null)
+            .GroupBy(a => a.Role!.Value)
+            .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(a => a.Name)));
+
+        string? AuthorTag(AuthorRole role) => authorsByRole.GetValueOrDefault(role);
+
+        // Éditeur album (plus précis, ex. réédition/imprint différent) prioritaire sur celui de la série.
+        var publisher = !string.IsNullOrEmpty(issue.Publisher) ? issue.Publisher : volume.Publisher;
+
+        // Genre album fusionné avec les genres de la série (un seul tag <Genre> possible).
+        var genres = volume.Genres.ToList();
+        if (!string.IsNullOrEmpty(issue.Genre) && !genres.Contains(issue.Genre, StringComparer.OrdinalIgnoreCase))
+            genres.Add(issue.Genre);
+
+        // Nombre de pages mesuré sur le CBZ réel (plus fiable) en priorité sur celui annoncé par la source.
+        var pageCount = issue.AnalysisPageCount ?? issue.OfficialPageCount;
+
+        // Champs sans tag ComicInfo.xml standard équivalent — regroupés en texte libre dans <Notes>.
+        var notesParts = new List<string>();
+        if (!string.IsNullOrEmpty(volume.Origin)) notesParts.Add($"Origin: {volume.Origin}");
+        if (!string.IsNullOrEmpty(volume.PublicationStatus)) notesParts.Add($"Status: {volume.PublicationStatus}");
+        if (!string.IsNullOrEmpty(issue.LegalDepositDate)) notesParts.Add($"Legal deposit: {issue.LegalDepositDate}");
+        if (issue.CommunityRatingCount.HasValue) notesParts.Add($"Rating votes: {issue.CommunityRatingCount}");
 
         var elements = new List<object?>
         {
@@ -443,26 +474,46 @@ public class ArchiveService : BaseService<ArchiveOption>
                 ? new XElement("Year", issue.Year ?? volume.Year) : null,
             issue.PublishedAt.HasValue
                 ? new XElement("Month", issue.PublishedAt.Value.Month) : null,
-            !string.IsNullOrEmpty(volume.Publisher)
-                ? new XElement("Publisher", volume.Publisher) : null,
+            !string.IsNullOrEmpty(publisher)
+                ? new XElement("Publisher", publisher) : null,
             !string.IsNullOrEmpty(issue.Description ?? volume.Description)
                 ? new XElement("Summary", issue.Description ?? volume.Description) : null,
-            volume.Genres.Count > 0
-                ? new XElement("Genre", string.Join(", ", volume.Genres)) : null,
+            genres.Count > 0
+                ? new XElement("Genre", string.Join(", ", genres)) : null,
             volume.AgeRating != AgeRating.Unknown
                 ? new XElement("AgeRating", volume.AgeRating.ToKavitaString()) : null,
-            writers.Count > 0
-                ? new XElement("Writer", string.Join(", ", writers)) : null,
-            pencillers.Count > 0
-                ? new XElement("Penciller", string.Join(", ", pencillers)) : null,
-            artists.Count > 0
-                ? new XElement("Artist", string.Join(", ", artists)) : null,
-            colorists.Count > 0
-                ? new XElement("Colorist", string.Join(", ", colorists)) : null,
-            letterers.Count > 0
-                ? new XElement("Letterer", string.Join(", ", letterers)) : null,
-            translators.Count > 0
-                ? new XElement("Translator", string.Join(", ", translators)) : null,
+            !string.IsNullOrEmpty(issue.Ean)
+                ? new XElement("GTIN", issue.Ean) : null,
+            LanguageToIso(volume.Language) is { } iso
+                ? new XElement("LanguageISO", iso) : null,
+            !string.IsNullOrEmpty(issue.Collection)
+                ? new XElement("Imprint", issue.Collection) : null,
+            !string.IsNullOrEmpty(volume.Website)
+                ? new XElement("Web", volume.Website) : null,
+            pageCount.HasValue
+                ? new XElement("PageCount", pageCount.Value) : null,
+            issue.CommunityRating.HasValue
+                ? new XElement("CommunityRating", Math.Round(issue.CommunityRating.Value / 2, 2)) : null,
+            notesParts.Count > 0
+                ? new XElement("Notes", string.Join(" · ", notesParts)) : null,
+            AuthorTag(AuthorRole.Writer) is { } w
+                ? new XElement("Writer", w) : null,
+            AuthorTag(AuthorRole.Penciller) is { } p
+                ? new XElement("Penciller", p) : null,
+            AuthorTag(AuthorRole.Artist) is { } ar
+                ? new XElement("Artist", ar) : null,
+            AuthorTag(AuthorRole.Inker) is { } ink
+                ? new XElement("Inker", ink) : null,
+            AuthorTag(AuthorRole.Colorist) is { } col
+                ? new XElement("Colorist", col) : null,
+            AuthorTag(AuthorRole.Letterer) is { } let
+                ? new XElement("Letterer", let) : null,
+            AuthorTag(AuthorRole.CoverArtist) is { } cov
+                ? new XElement("CoverArtist", cov) : null,
+            AuthorTag(AuthorRole.Editor) is { } ed
+                ? new XElement("Editor", ed) : null,
+            AuthorTag(AuthorRole.Translator) is { } tr
+                ? new XElement("Translator", tr) : null,
         };
 
         return new XDocument(

@@ -568,7 +568,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             {
                 var nom = WebUtility.HtmlDecode(auteurLinks[i].InnerText.Trim());
                 if (string.IsNullOrEmpty(nom)) continue;
-                var role = metierSpans is not null && i < metierSpans.Count ? metierSpans[i].InnerText.Trim() : null;
+                // Le site encadre le rôle de parenthèses ("(Scénario)") — retirées ici pour que
+                // Role soit directement comparable (front, ComicInfo.xml via AuthorRole.ParseAuthorRole).
+                var role = metierSpans is not null && i < metierSpans.Count
+                    ? metierSpans[i].InnerText.Trim().Trim('(', ')').Trim()
+                    : null;
                 var auteurUrl = auteurLinks[i].GetAttributeValue("href", string.Empty);
                 auteurs.Add(new BdAuteur(nom, role, string.IsNullOrEmpty(auteurUrl) ? null : auteurUrl));
             }
