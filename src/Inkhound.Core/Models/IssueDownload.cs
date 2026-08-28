@@ -1,6 +1,6 @@
 namespace Inkhound.Core.Models;
 
-public enum DownloadStatus { Downloading, Paused, Finished, Syncing, Done, Error, Unknown, NotFound }
+public enum DownloadStatus { Downloading, Paused, Finished, Syncing, Done, Error, Unknown, NotFound, Stalled }
 
 public class IssueDownload
 {

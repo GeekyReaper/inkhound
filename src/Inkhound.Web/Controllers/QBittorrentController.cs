@@ -228,11 +228,11 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         return success ? Ok(ToDto(item!)) : BadRequest(new { message = error });
     }
 
-    // DELETE /api/qbittorrent/downloads/{id}
+    // DELETE /api/qbittorrent/downloads/{id}?removeTorrent=true
     [HttpDelete("downloads/{id:guid}")]
-    public async Task<IActionResult> DeleteDownload(Guid id)
+    public async Task<IActionResult> DeleteDownload(Guid id, [FromQuery] bool removeTorrent = false)
     {
-        var (success, error) = await manager.DeleteDownloadAsync(id);
-        return success ? NoContent() : NotFound(new { message = error });
+        var (success, error, torrentRemoved) = await manager.DeleteDownloadAsync(id, removeTorrent);
+        return success ? Ok(new { torrentRemoved }) : NotFound(new { message = error });
     }
 }

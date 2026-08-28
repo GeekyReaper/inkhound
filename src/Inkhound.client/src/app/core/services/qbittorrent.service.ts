@@ -6,7 +6,8 @@ export interface QBittorrentCategory {
   savePath: string;
 }
 
-export type DownloadStatus = 'Downloading' | 'Paused' | 'Finished' | 'Syncing' | 'Done' | 'Error' | 'Unknown' | 'NotFound';
+export type DownloadStatus =
+  'Downloading' | 'Stalled' | 'Paused' | 'Finished' | 'Syncing' | 'Done' | 'Error' | 'Unknown' | 'NotFound';
 
 export interface DownloadItem {
   id: string;
@@ -141,7 +142,11 @@ export class QBittorrentService {
     return this.http.put<DownloadItem>(`/api/qbittorrent/downloads/${id}/hash`, { hash });
   }
 
-  deleteDownload(id: string) {
-    return this.http.delete<void>(`/api/qbittorrent/downloads/${id}`);
+  // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent (ignoré côté serveur si
+  // un autre download partage le même torrent). torrentRemoved = ce qui a réellement été fait.
+  deleteDownload(id: string, removeTorrent: boolean) {
+    return this.http.delete<{ torrentRemoved: boolean }>(`/api/qbittorrent/downloads/${id}`, {
+      params: new HttpParams().set('removeTorrent', removeTorrent)
+    });
   }
 }

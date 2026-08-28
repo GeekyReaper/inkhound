@@ -2943,9 +2943,12 @@ public class InkhoundManager : BaseServiceManager
 
     private static DownloadStatus MapQBittorrentState(string state) => state.ToLowerInvariant() switch
     {
-        "downloading" or "stalleddl" or "checkingdl" or "metadl" => DownloadStatus.Downloading,
+        "downloading" or "checkingdl" or "metadl" => DownloadStatus.Downloading,
+        // Téléchargement en cours mais aucune connexion/seed — ne progresse pas faute de sources.
+        "stalleddl" => DownloadStatus.Stalled,
         // "pauseddl" (QBittorrent < 5) / "stoppeddl" (QBittorrent 5.x — renommage)
         "pauseddl" or "stoppeddl" => DownloadStatus.Paused,
+        // "stalledup" = téléchargement terminé, en seed sans peer → pour Inkhound c'est "prêt".
         "uploading" or "stalledup" or "pausedup" or "stoppedup" or "checkingup" or "queuedup" => DownloadStatus.Finished,
         "error" or "missingfiles" => DownloadStatus.Error,
         _ => DownloadStatus.Unknown
@@ -3013,24 +3016,45 @@ public class InkhoundManager : BaseServiceManager
         return (true, null, enriched.FirstOrDefault());
     }
 
-    // Supprime le suivi d'un download (ex. hash orphelin irrécupérable) — l'Issue associée redevient
-    // MISSING si plus rien ne la télécharge, pour rester cherchable/téléchargeable à nouveau.
-    public async Task<(bool Success, string? Error)> DeleteDownloadAsync(Guid downloadId, CancellationToken ct = default)
+    // Supprime le suivi d'un download, quel que soit son état.
+    // removeTorrent : supprime aussi le torrent (et ses fichiers déjà téléchargés) de QBittorrent —
+    // ignoré si un autre IssueDownload partage le même hash (PACK multi-issues).
+    // L'Issue associée redevient MISSING si elle était DOWNLOADING et que plus aucune autre ligne ne
+    // la télécharge, pour rester cherchable/téléchargeable à nouveau.
+    public async Task<(bool Success, string? Error, bool TorrentRemoved)> DeleteDownloadAsync(
+        Guid downloadId, bool removeTorrent, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var download = await ctx.IssueDownloads.FindAsync([downloadId], ct);
-        if (download is null) return (false, "Download not found.");
+        if (download is null) return (false, "Download not found.", false);
+
+        var hash = download.TorrentHash;
+        var hasSiblingSameHash = !string.IsNullOrEmpty(hash)
+            && await ctx.IssueDownloads.AnyAsync(d => d.Id != downloadId && d.TorrentHash == hash, ct);
+
+        var torrentRemoved = false;
+        if (removeTorrent && !hasSiblingSameHash && !string.IsNullOrEmpty(hash))
+        {
+            var qb = GetService<QBittorrentService, QBittorrentOptions>();
+            if (qb.CurrentState.State == EState.OK)
+                torrentRemoved = await qb.DeleteTorrentAsync(hash, deleteFiles: true, ct);
+        }
 
         var issue = await ctx.Issues.FindAsync([download.IssueId], ct);
         if (issue is not null && issue.Status == IssueStatus.DOWNLOADING)
         {
-            issue.Status = IssueStatus.MISSING;
-            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+            var stillDownloadedElsewhere = await ctx.IssueDownloads
+                .AnyAsync(d => d.Id != downloadId && d.IssueId == issue.Id, ct);
+            if (!stillDownloadedElsewhere)
+            {
+                issue.Status = IssueStatus.MISSING;
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+            }
         }
 
         ctx.IssueDownloads.Remove(download);
         await ctx.SaveChangesAsync(ct);
-        return (true, null);
+        return (true, null, torrentRemoved);
     }
 
     public async Task LaunchJobProcessDownloads(ProcessDownloadsJobParameters parameters)

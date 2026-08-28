@@ -43,7 +43,7 @@ export class DashboardComponent {
   readonly #destroyRef      = inject(DestroyRef);
 
   private readonly ACTIVE_DOWNLOAD_STATUSES: DownloadStatus[] =
-    ['Downloading', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
+    ['Downloading', 'Stalled', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
 
   loading = signal(true);
   error   = signal<string | null>(null);
@@ -105,6 +105,7 @@ export class DashboardComponent {
   downloadStatusBadgeColor(status: DownloadStatus): string {
     switch (status) {
       case 'Downloading': return 'info';
+      case 'Stalled':     return 'warning';
       case 'Paused':      return 'warning';
       case 'Finished':    return 'success';
       case 'Syncing':     return 'info';

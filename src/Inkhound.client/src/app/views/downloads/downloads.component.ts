@@ -41,7 +41,7 @@ export class DownloadsComponent {
 
   // "Active" regroupe tout ce qui n'est pas encore terminé/rangé ; "Done" est à part.
   readonly ACTIVE_STATUSES: DownloadStatus[] =
-    ['Downloading', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
+    ['Downloading', 'Stalled', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown', 'NotFound'];
   readonly DONE_STATUSES: DownloadStatus[] = ['Done'];
 
   loading = signal(true);
@@ -54,14 +54,20 @@ export class DownloadsComponent {
   selectedJob    = signal<JobContext | null>(null);
   consoleVisible = signal(false);
 
-  // --- État de la modale d'édition (correction de hash / suppression) ---
+  // --- Modale « Fix download » (correction d'un hash orphelin) ---
   editModalVisible = signal(false);
   editingItem       = signal<DownloadItem | null>(null);
   editHashInput     = signal('');
   editSaving        = signal(false);
   editError         = signal<string | null>(null);
-  confirmingDelete  = signal(false);
-  deleting          = signal(false);
+
+  // --- Modale de confirmation de suppression (toute ligne, tout état) ---
+  deleteModalVisible  = signal(false);
+  deleteTarget        = signal<DownloadItem | null>(null);
+  deleteRemoveTorrent = signal(true);
+  deleting            = signal(false);
+  deleteError         = signal<string | null>(null);
+  deleteNotice        = signal<string | null>(null);
 
   // Choix exclusif — Active par défaut (Done, déjà traités, n'a que peu d'intérêt à être vu en
   // premier).
@@ -71,6 +77,8 @@ export class DownloadsComponent {
   currentPage         = signal(1);
   pageResult          = signal<DownloadsPageResult | null>(null);
   readonly items      = computed(() => this.pageResult()?.items ?? []);
+  // Bumper ce signal force un refetch immédiat (après une suppression, sans attendre le poll 10 s).
+  private reloadTick  = signal(0);
 
   readonly visiblePages = computed(() => {
     const total   = this.pageResult()?.totalPages ?? 0;
@@ -83,7 +91,8 @@ export class DownloadsComponent {
 
   private readonly fetchParams = computed(() => ({
     statuses: this.filterMode() === 'active' ? this.ACTIVE_STATUSES : this.DONE_STATUSES,
-    page: this.currentPage()
+    page: this.currentPage(),
+    tick: this.reloadTick()
   }));
 
   readonly activeJobs = computed(() =>
@@ -133,6 +142,7 @@ export class DownloadsComponent {
   statusBadgeColor(status: DownloadStatus): string {
     switch (status) {
       case 'Downloading': return 'info';
+      case 'Stalled':     return 'warning';
       case 'Paused':      return 'warning';
       case 'Finished':    return 'success';
       case 'Syncing':     return 'info';
@@ -183,13 +193,12 @@ export class DownloadsComponent {
       .subscribe({ next: () => {}, error: () => {} });
   }
 
-  // --- Modale d'édition (ligne NotFound : corriger le hash ou supprimer le suivi) ---
+  // --- Modale « Fix download » (ligne NotFound : corriger le hash orphelin) ---
 
   openEditModal(item: DownloadItem): void {
     this.editingItem.set(item);
     this.editHashInput.set('');
     this.editError.set(null);
-    this.confirmingDelete.set(false);
     this.editModalVisible.set(true);
   }
 
@@ -202,7 +211,6 @@ export class DownloadsComponent {
     this.editingItem.set(null);
     this.editHashInput.set('');
     this.editError.set(null);
-    this.confirmingDelete.set(false);
   }
 
   saveHash(): void {
@@ -220,22 +228,44 @@ export class DownloadsComponent {
       });
   }
 
-  requestDelete(): void {
-    this.editError.set(null);
-    this.confirmingDelete.set(true);
+  // --- Modale de confirmation de suppression ---
+
+  requestDelete(item: DownloadItem): void {
+    this.deleteTarget.set(item);
+    this.deleteRemoveTorrent.set(true);
+    this.deleteError.set(null);
+    this.deleteNotice.set(null);
+    this.deleteModalVisible.set(true);
+  }
+
+  onDeleteModalVisibleChange(visible: boolean): void {
+    if (!visible) this.closeDeleteModal();
+  }
+
+  closeDeleteModal(): void {
+    this.deleteModalVisible.set(false);
+    this.deleteTarget.set(null);
+    this.deleteError.set(null);
   }
 
   confirmDelete(): void {
-    const item = this.editingItem();
+    const item = this.deleteTarget();
     if (!item || this.deleting()) return;
 
+    const removeTorrent = this.deleteRemoveTorrent();
     this.deleting.set(true);
-    this.editError.set(null);
-    this.qbService.deleteDownload(item.id)
+    this.deleteError.set(null);
+    this.qbService.deleteDownload(item.id, removeTorrent)
       .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.deleting.set(false)))
       .subscribe({
-        next:  () => this.closeEditModal(),
-        error: err => this.editError.set(err?.error?.message ?? 'Failed to delete download.')
+        next: res => {
+          if (removeTorrent && !res.torrentRemoved) {
+            this.deleteNotice.set('Tracking removed. The torrent was kept in qBittorrent — it is shared with another download, or qBittorrent was unavailable.');
+          }
+          this.closeDeleteModal();
+          this.reloadTick.update(t => t + 1);
+        },
+        error: err => this.deleteError.set(err?.error?.message ?? 'Failed to delete download.')
       });
   }
 
