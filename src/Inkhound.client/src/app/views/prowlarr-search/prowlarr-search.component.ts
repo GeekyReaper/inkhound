@@ -1,7 +1,7 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize, map } from 'rxjs';
+import { catchError, finalize, interval, map, of, startWith, switchMap } from 'rxjs';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import {
   AlertComponent, ButtonDirective,
@@ -14,7 +14,7 @@ import {
   ProwlarrCategory, ProwlarrService,
   ProwlarrSearchResult, ScoredSearchResult, ScoredSearchResultVolumePack
 } from '../../core/services/prowlarr.service';
-import { QBittorrentService, TorrentFile } from '../../core/services/qbittorrent.service';
+import { PackFetchStatus, QBittorrentService, TorrentFile } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
@@ -68,10 +68,13 @@ export class ProwlarrSearchComponent {
   currentPage   = signal(1);
 
   // Volume résolu (= targetId en mode 'volume', ou volume parent de l'issue en mode 'issue') et
-  // ses issues manquantes — nécessaires pour l'assignation (auto ou manuelle) des fichiers d'un PACK.
+  // toutes ses issues — nécessaires pour l'assignation (auto ou manuelle) des fichiers d'un PACK.
   private resolvedVolumeId  = signal<string | null>(null);
-  missingIssues        = signal<Issue[]>([]);
-  missingIssuesLoaded   = signal(false);
+  volumeIssues         = signal<Issue[]>([]);
+  volumeIssuesLoaded   = signal(false);
+  // Issues encore manquantes — seule cible de l'auto-appariement par numéro de tome, et base du
+  // message "tout est déjà téléchargé".
+  readonly missingIssues = computed(() => this.volumeIssues().filter(i => i.status === 'MISSING'));
 
   // --- État de la modale PACK ---
   packModalVisible    = signal(false);
@@ -79,9 +82,53 @@ export class ProwlarrSearchComponent {
   pendingResult        = signal<SearchResultRow | null>(null);
   torrentFiles         = signal<TorrentFile[]>([]);
   pendingTorrentHash   = signal<string | null>(null);
-  selectedFileIndices  = signal<Set<number>>(new Set());
   fileAssignments      = signal<Map<number, string>>(new Map()); // fileIndex -> issueId
+  // Un fichier est "coché" (= inclus au téléchargement) exactement quand une issue lui est assignée :
+  // cocher = assigner une issue, décocher = libérer l'issue. Les deux notions ne font qu'une.
+  readonly selectedFileIndices = computed(() => new Set(this.fileAssignments().keys()));
   applyingSelection    = signal(false);
+  // Torrent ajouté puis mis en pause pendant la revue : statut live (polling), horodatage de départ
+  // (délai de grâce avant l'alerte "stalled"), drapeau de validation (neutralise le nettoyage) et
+  // drapeau d'annulation en cours.
+  fetchStatus          = signal<PackFetchStatus | null>(null);
+  fetchStartedAt       = signal(0);
+  private pollTick      = signal(0); // incrémenté à chaque réponse de polling — force le recalcul des computed temporels
+  selectionApplied     = signal(false);
+  aborting             = signal(false);
+
+  private readonly stalledStates = new Set(['stalleddl', 'metadl', 'error', 'missingfiles']);
+  private static readonly METADATA_GRACE_MS = 15_000;
+
+  // Temps écoulé depuis le début de la récupération (recalculé à chaque tour de polling via pollTick).
+  private readonly fetchElapsedMs = computed(() => {
+    this.pollTick();
+    const started = this.fetchStartedAt();
+    return started > 0 ? Date.now() - started : 0;
+  });
+
+  // Aucune source connue : QBittorrent l'annonce explicitement, ou (torrent en pause jamais annoncé)
+  // l'indexeur rapporte 0 seeder.
+  readonly noKnownSources = computed(() => {
+    const s = this.fetchStatus();
+    const indexerSeeders = this.pendingResult()?.result.seeders ?? null;
+    if (s && s.numComplete === 0 && s.numSeeds <= 0) return true;
+    if ((!s || s.numComplete < 0) && indexerSeeders === 0) return true;
+    return false;
+  });
+
+  // Le torrent n'est pas exploitable pour l'instant — on prévient l'utilisateur (Continuer / Annuler).
+  readonly isStalled = computed(() => {
+    const s = this.fetchStatus();
+    if (s && this.stalledStates.has(s.state.toLowerCase())) return true;
+    if (this.torrentFiles().length === 0 && this.fetchElapsedMs() > ProwlarrSearchComponent.METADATA_GRACE_MS) return true;
+    return this.noKnownSources();
+  });
+
+  // Suffixe optionnel du message "stalled" : " (status: stalledDL)".
+  readonly stalledDetail = computed(() => {
+    const state = this.fetchStatus()?.state;
+    return state && state !== 'unknown' ? ` (status: ${state})` : '';
+  });
 
   readonly pageSize     = 50;
   readonly totalPages   = computed(() => Math.ceil(this.searchResults().length / this.pageSize));
@@ -91,14 +138,7 @@ export class ProwlarrSearchComponent {
     return this.searchResults().slice(start, start + this.pageSize);
   });
 
-  // Fichiers assignés (auto ou manuellement) à une issue manquante — seuls ceux-là peuvent être
-  // sélectionnés pour téléchargement.
-  readonly assignableFiles = computed(() =>
-    this.torrentFiles().filter(f => this.fileAssignments().has(f.index)));
-
-  readonly allFilesSelected = computed(() =>
-    this.assignableFiles().length > 0 &&
-    this.assignableFiles().every(f => this.selectedFileIndices().has(f.index)));
+  readonly allFilesSelected = computed(() => this.fileAssignments().size > 0);
 
   readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
   private handledJobIds = new Set<string>();
@@ -122,17 +162,42 @@ export class ProwlarrSearchComponent {
       }
     });
 
-    // Issues manquantes du volume résolu — utilisées pour l'auto-appariement et l'assignation
-    // manuelle des fichiers d'un PACK, dans les deux modes.
+    // Toutes les issues du volume résolu — utilisées pour l'auto-appariement (filtrées MISSING) et
+    // l'assignation manuelle des fichiers d'un PACK, dans les deux modes.
     effect(() => {
       const volumeId = this.resolvedVolumeId();
       if (!volumeId) return;
       this.issueService.getByVolume(volumeId)
         .pipe(takeUntilDestroyed(this.#destroyRef))
         .subscribe(issues => {
-          this.missingIssues.set(issues.filter(i => i.status === 'MISSING'));
-          this.missingIssuesLoaded.set(true);
+          this.volumeIssues.set(issues);
+          this.volumeIssuesLoaded.set(true);
         });
+    });
+
+    // Polling de l'état du torrent pendant la revue des fichiers d'un PACK (étape 2, avant
+    // validation) : détecte une source indisponible et récupère la liste de fichiers si les
+    // métadonnées n'étaient pas prêtes au moment du grab.
+    effect((onCleanup) => {
+      const hash = this.pendingTorrentHash();
+      if (!hash || this.packModalStep() !== 2 || this.selectionApplied()) return;
+
+      const sub = interval(2500)
+        .pipe(
+          startWith(0),
+          switchMap(() => this.qbittorrentService.getPackFetchStatus(hash).pipe(catchError(() => of(null))))
+        )
+        .subscribe(status => {
+          this.pollTick.update(t => t + 1);
+          if (!status) return;
+          this.fetchStatus.set(status);
+          const noFilesYet = untracked(() => this.torrentFiles().length === 0);
+          if (status.metadataReady && noFilesYet && status.files.length > 0) {
+            this.torrentFiles.set(status.files);
+            this.applyAutoAssignments(status.files);
+          }
+        });
+      onCleanup(() => sub.unsubscribe());
     });
 
     effect(() => {
@@ -257,17 +322,36 @@ export class ProwlarrSearchComponent {
   // --- Actions de la modale PACK ---
 
   onPackModalVisibleChange(visible: boolean): void {
-    if (!visible) this.closePackModal();
+    if (!visible) this.onCancelPack();
   }
 
   closePackModal(): void {
     this.packModalVisible.set(false);
     this.pendingResult.set(null);
     this.torrentFiles.set([]);
-    this.selectedFileIndices.set(new Set());
     this.fileAssignments.set(new Map());
     this.pendingTorrentHash.set(null);
     this.packModalStep.set(1);
+    this.fetchStatus.set(null);
+    this.fetchStartedAt.set(0);
+    this.selectionApplied.set(false);
+    this.aborting.set(false);
+  }
+
+  // Annulation de la revue d'un PACK : tant que la sélection n'a pas été validée, on supprime le
+  // torrent (et ses fichiers déjà téléchargés) de QBittorrent avant de fermer la modale.
+  onCancelPack(): void {
+    const hash = this.pendingTorrentHash();
+    if (!hash || this.selectionApplied() || this.aborting()) {
+      this.closePackModal();
+      return;
+    }
+    this.aborting.set(true);
+    this.qbittorrentService.abortSelectivePack(hash)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.closePackModal()))
+      .subscribe({
+        error: err => this.searchError.set(err?.error?.message ?? 'Failed to remove the torrent from QBittorrent.')
+      });
   }
 
   // Mode issue uniquement (étape 1) : télécharge tout le torrent sans revue de fichiers.
@@ -278,9 +362,10 @@ export class ProwlarrSearchComponent {
     this.executeGrab(row);
   }
 
-  // Ajoute le torrent en pause, liste ses fichiers, et les auto-associe aux issues manquantes du
-  // volume par numéro de tome détecté. Déclenché soit automatiquement (mode volume), soit par le
-  // bouton "Select files individually" de l'étape 1 (mode issue).
+  // Ajoute le torrent en pause et liste ses fichiers. Déclenché soit automatiquement (mode volume),
+  // soit par le bouton "Select files individually" de l'étape 1 (mode issue). Si les métadonnées ne
+  // sont pas encore prêtes (source lente/indisponible), on reste à l'étape 2 : le polling récupère
+  // la liste plus tard et affiche l'avertissement "stalled" le cas échéant.
   startPackSelective(row: SearchResultRow): void {
     if (!row.result.downloadUrl) {
       this.searchError.set('No download URL available for this torrent.');
@@ -297,28 +382,19 @@ export class ProwlarrSearchComponent {
       .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.grabbingGuid.set(null)))
       .subscribe({
         next: resp => {
-          if (!resp.torrentHash || !resp.files?.length) {
-            this.searchError.set('Could not retrieve file list from this torrent.');
+          if (!resp.torrentHash) {
+            this.searchError.set('Could not add this torrent to QBittorrent.');
             this.closePackModal();
             return;
           }
           this.pendingTorrentHash.set(resp.torrentHash);
-          this.torrentFiles.set(resp.files);
-
-          const assignments = new Map<number, string>();
-          const takenIssueIds = new Set<string>();
-          for (const file of resp.files) {
-            if (file.detectedIssueNumber === null) continue;
-            const issue = this.missingIssues().find(
-              i => i.issueNumber === file.detectedIssueNumber && !takenIssueIds.has(i.id));
-            if (issue) {
-              assignments.set(file.index, issue.id);
-              takenIssueIds.add(issue.id);
-            }
-          }
-          this.fileAssignments.set(assignments);
-          this.selectedFileIndices.set(new Set(assignments.keys()));
+          this.fetchStartedAt.set(Date.now());
           this.packModalStep.set(2);
+
+          if (resp.files?.length) {
+            this.torrentFiles.set(resp.files);
+            this.applyAutoAssignments(resp.files);
+          }
         },
         error: err => {
           this.searchError.set(err?.error?.message ?? 'Grab failed.');
@@ -327,21 +403,39 @@ export class ProwlarrSearchComponent {
       });
   }
 
-  onToggleFile(index: number): void {
-    if (!this.fileAssignments().has(index)) return;
-    this.selectedFileIndices.update(set => {
-      const next = new Set(set);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
+  // Auto-appariement des fichiers du PACK aux issues encore manquantes, par numéro de tome détecté.
+  // N'écrase jamais une assignation existante ni une issue déjà prise (additif — utilisable aussi
+  // pour un "tout cocher").
+  private applyAutoAssignments(files: TorrentFile[]): void {
+    this.fileAssignments.update(current => {
+      const next = new Map(current);
+      const takenIssueIds = new Set(next.values());
+      for (const file of files) {
+        if (next.has(file.index) || file.detectedIssueNumber === null) continue;
+        const issue = this.missingIssues().find(
+          i => i.issueNumber === file.detectedIssueNumber && !takenIssueIds.has(i.id));
+        if (issue) {
+          next.set(file.index, issue.id);
+          takenIssueIds.add(issue.id);
+        }
+      }
       return next;
     });
   }
 
+  // Décocher une ligne libère l'issue qui lui était assignée : le sélecteur revient à
+  // « — assign issue — » et l'issue redevient disponible pour un autre fichier.
+  onToggleFile(index: number): void {
+    if (this.fileAssignments().has(index)) this.onManualAssign(index, '');
+  }
+
   onToggleAllFiles(): void {
     if (this.allFilesSelected()) {
-      this.selectedFileIndices.set(new Set());
+      // Au moins une issue assignée → tout décocher : libère toutes les issues.
+      this.fileAssignments.set(new Map());
     } else {
-      this.selectedFileIndices.set(new Set(this.assignableFiles().map(f => f.index)));
+      // Rien d'assigné → auto-appariement par numéro de tome.
+      this.applyAutoAssignments(this.torrentFiles());
     }
   }
 
@@ -353,28 +447,34 @@ export class ProwlarrSearchComponent {
     return this.fileAssignments().has(index);
   }
 
-  assignedIssueNumber(index: number): number | null {
-    const issueId = this.fileAssignments().get(index);
-    if (!issueId) return null;
-    return this.missingIssues().find(i => i.id === issueId)?.issueNumber ?? null;
-  }
-
-  // Issues manquantes disponibles pour assignation manuelle d'un fichier — exclut celles déjà
-  // assignées à un AUTRE fichier de la sélection courante.
+  // Issues disponibles pour assignation manuelle d'un fichier — toutes les issues du volume, sauf
+  // celles déjà assignées à un AUTRE fichier de la sélection courante. Les issues DOWNLOADING sont
+  // conservées dans la liste mais rendues non sélectionnables (voir isIssueSelectable).
   availableIssuesFor(index: number): Issue[] {
     const takenElsewhere = new Set(
       [...this.fileAssignments().entries()].filter(([i]) => i !== index).map(([, id]) => id));
-    return this.missingIssues().filter(i => !takenElsewhere.has(i.id));
+    return this.volumeIssues().filter(i => !takenElsewhere.has(i.id));
+  }
+
+  // Libellé d'option : "#12 — Titre · Downloaded".
+  issueOptionLabel(issue: Issue): string {
+    const title = issue.title ? ` — ${issue.title}` : '';
+    const state = { MISSING: 'Missing', DOWNLOADING: 'Downloading', DOWNLOADED: 'Downloaded' }[issue.status];
+    return `#${issue.issueNumber}${title} · ${state}`;
+  }
+
+  // Une issue déjà en cours d'acquisition ne peut pas être (re)ciblée depuis cette modale.
+  isIssueSelectable(issue: Issue): boolean {
+    return issue.status !== 'DOWNLOADING';
   }
 
   onManualAssign(index: number, issueId: string): void {
-    if (!issueId) {
-      this.fileAssignments.update(m => { const next = new Map(m); next.delete(index); return next; });
-      this.selectedFileIndices.update(set => { const next = new Set(set); next.delete(index); return next; });
-      return;
-    }
-    this.fileAssignments.update(m => { const next = new Map(m); next.set(index, issueId); return next; });
-    this.selectedFileIndices.update(set => new Set(set).add(index));
+    this.fileAssignments.update(m => {
+      const next = new Map(m);
+      if (issueId) next.set(index, issueId);
+      else next.delete(index);
+      return next;
+    });
   }
 
   onApplySelection(): void {
@@ -389,6 +489,7 @@ export class ProwlarrSearchComponent {
     }
 
     this.applyingSelection.set(true);
+    this.selectionApplied.set(true); // neutralise le nettoyage/polling pendant la validation
     const ids = this.grabIds();
 
     this.qbittorrentService.applySelection(

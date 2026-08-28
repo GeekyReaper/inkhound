@@ -259,6 +259,12 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "IssueDownloads", "DownloadUrl", "TEXT NOT NULL DEFAULT ''");
         await AddColumnIfMissingAsync(db, "IssueDownloads", "TrackerName", "TEXT NULL");
 
+        // IssueDownloads.FileName ajouté en août 2026 — fichier d'archive du torrent explicitement
+        // retenu pour l'issue lors de la revue d'un PACK. Le traitement l'utilise directement au lieu
+        // de re-déduire l'appariement depuis le nom de fichier (échouait sur les numéros atypiques :
+        // #0, hors-série…). Vide pour les lignes existantes → repli sur l'appariement par numéro.
+        await AddColumnIfMissingAsync(db, "IssueDownloads", "FileName", "TEXT NOT NULL DEFAULT ''");
+
         // Champs Bedetheque supplémentaires ajoutés en août 2026 — langue, statut de parution, origine,
         // site web (série) ; EAN, collection, éditeur album, dépôt légal, pages officielles, genre, note
         // communautaire (issue). Toutes nullables (NULL = source ne fournit pas cette info, ex ComicVine).

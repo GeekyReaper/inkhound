@@ -34,6 +34,11 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     private static TorrentFileDto ToFileDto(QBittorrentTorrentFile f)
         => new(f.Index, f.Name, f.Size, TorrentTypeAnalyzer.ExtractIssueNumber(f.Name));
 
+    // État live du torrent d'un PACK pendant la revue des fichiers (avant validation de la sélection).
+    private record PackFetchStatusDto(
+        bool Found, string State, double Progress, int NumComplete, int NumSeeds,
+        long Dlspeed, long Eta, bool MetadataReady, IEnumerable<TorrentFileDto> Files);
+
     private record DownloadItemDto(
         Guid Id,
         Guid IssueId,
@@ -116,6 +121,33 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
 
             return Ok(new { torrentHash, files = (IEnumerable<TorrentFileDto>?)null });
         }
+    }
+
+    // GET /api/qbittorrent/torrent/{hash}/fetch-status — état live du torrent d'un PACK pendant la
+    // revue des fichiers (détection « stalled », récupération tardive de la liste de fichiers).
+    [HttpGet("torrent/{hash}/fetch-status")]
+    public async Task<IActionResult> GetPackFetchStatus(string hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+            return BadRequest(new { message = "Torrent hash is required." });
+
+        var status = await manager.GetPackFetchStatusAsync(hash);
+        if (status is null)
+            return StatusCode(503, new { message = "QBittorrent service unavailable." });
+
+        return Ok(new PackFetchStatusDto(
+            status.Found, status.State, status.Progress, status.NumComplete, status.NumSeeds,
+            status.Dlspeed, status.Eta, status.MetadataReady, status.Files.Select(ToFileDto)));
+    }
+
+    // POST /api/qbittorrent/torrent/{hash}/abort — annule la revue d'un PACK : supprime le torrent
+    // et ses fichiers déjà téléchargés de QBittorrent (uniquement tant que la sélection n'est pas
+    // validée, c.-à-d. qu'aucun IssueDownload ne référence ce hash).
+    [HttpPost("torrent/{hash}/abort")]
+    public async Task<IActionResult> AbortPackSelection(string hash)
+    {
+        var (success, error) = await manager.AbortPackSelectionAsync(hash);
+        return success ? Ok(new { message = "Torrent removed." }) : BadRequest(new { message = error });
     }
 
     // POST /api/qbittorrent/apply-selection

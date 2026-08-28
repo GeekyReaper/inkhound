@@ -2652,18 +2652,69 @@ public class InkhoundManager : BaseServiceManager
         var hash = await qb.AddTorrentAsync(downloadUrl, grabParams.Category, grabParams.SavePath, paused: false, ct);
         if (hash is null) return (false, null, null);
 
-        await qb.PauseTorrentAsync(hash, ct);
+        var paused = await qb.PauseTorrentAsync(hash, ct);
+        if (!paused)
+            JobSendTrace($"GrabPackSelectiveAsync: could not pause torrent {hash} — it may keep downloading during review", ETraceLevel.WARNING);
         await Task.Delay(500, ct); // Laisse QBittorrent traiter la mise en pause
 
-        // Attente que QBittorrent charge les métadonnées du torrent (jusqu'à 10 s)
+        // Attente que QBittorrent charge les métadonnées du torrent (jusqu'à 10 s). À chaque tour, on
+        // vérifie que le torrent est bien à l'arrêt : si QBittorrent l'a (re)mis en téléchargement
+        // (pause ratée / ignorée en course), on ré-émet l'ordre — la revue des fichiers doit se faire
+        // torrent arrêté, aucune donnée ne doit être téléchargée avant validation de la sélection.
         List<QBittorrentTorrentFile> files = [];
         for (var attempt = 0; attempt < 10 && files.Count == 0; attempt++)
         {
             await Task.Delay(1000, ct);
             files = await qb.GetTorrentFilesAsync(hash, ct);
+
+            var torrent = (await qb.GetTorrentsAsync([hash], ct)).FirstOrDefault();
+            if (torrent is not null && IsActivelyDownloading(torrent.State))
+                await qb.PauseTorrentAsync(hash, ct);
         }
 
         return (true, hash, files.Count > 0 ? files : null);
+    }
+
+    // État live du torrent d'un PACK pendant la revue des fichiers (polling frontend) : sert à
+    // détecter une source indisponible (« stalled ») et à récupérer la liste de fichiers si les
+    // métadonnées n'étaient pas encore prêtes au moment du grab.
+    public async Task<PackFetchStatus?> GetPackFetchStatusAsync(string hash, CancellationToken ct = default)
+    {
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return null;
+
+        var torrent = (await qb.GetTorrentsAsync([hash], ct)).FirstOrDefault();
+        var files = await qb.GetTorrentFilesAsync(hash, ct);
+
+        return new PackFetchStatus(
+            Found: torrent is not null,
+            State: torrent?.State ?? "unknown",
+            Progress: torrent?.Progress ?? 0,
+            NumComplete: torrent?.NumComplete ?? -1,
+            NumSeeds: torrent?.NumSeeds ?? -1,
+            Dlspeed: torrent?.Dlspeed ?? 0,
+            Eta: torrent?.Eta ?? 0,
+            MetadataReady: files.Count > 0,
+            Files: files);
+    }
+
+    // Annulation de la revue des fichiers d'un PACK : supprime le torrent (et ses fichiers déjà
+    // téléchargés) de QBittorrent. Refusé si un IssueDownload référence déjà ce hash — dans ce cas
+    // la sélection a été validée et la suppression passe par la page Downloads.
+    public async Task<(bool Success, string? Error)> AbortPackSelectionAsync(string hash, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(hash)) return (false, "Torrent hash is required.");
+
+        var ctx = GetDb();
+        var alreadyTracked = await ctx.IssueDownloads.AnyAsync(d => d.TorrentHash == hash, ct);
+        if (alreadyTracked)
+            return (false, "This torrent is already tracked as a download — remove it from the Downloads page.");
+
+        var qb = GetService<QBittorrentService, QBittorrentOptions>();
+        if (qb.CurrentState.State != EState.OK) return (false, "QBittorrent service unavailable.");
+
+        var deleted = await qb.DeleteTorrentAsync(hash, deleteFiles: true, ct);
+        return deleted ? (true, null) : (false, "Failed to remove the torrent from QBittorrent.");
     }
 
     // issueId (flux page Issue) ou volumeId (flux page Volume) — au moins l'un des deux doit être
@@ -2700,33 +2751,47 @@ public class InkhoundManager : BaseServiceManager
         var triggerIssue = issueId is { } id ? await ctx.Issues.FindAsync([id], ct) : null;
         var resolvedVolumeId = volumeId ?? triggerIssue?.VolumeId;
 
-        // Tenter de matcher les fichiers sélectionnés aux issues MISSING du volume
+        // Tenter de matcher les fichiers sélectionnés aux issues du volume (override manuel ou
+        // numéro de tome détecté).
         var selectedFiles = allFiles.Where(f => selectedFileIndices.Contains(f.Index)).ToList();
         var matchedIds    = new HashSet<Guid>();
 
         if (resolvedVolumeId is { } targetVolumeId)
         {
+            // Toutes les issues du volume : un override manuel peut cibler une issue déjà DOWNLOADED
+            // (re-acquisition demandée). L'auto-appariement par numéro de tome, lui, reste réservé
+            // aux issues MISSING.
             var volumeIssues = await ctx.Issues
-                .Where(i => i.VolumeId == targetVolumeId && i.Status == IssueStatus.MISSING)
+                .Where(i => i.VolumeId == targetVolumeId)
                 .ToListAsync(ct);
 
             foreach (var file in selectedFiles)
             {
-                Issue? matched = fileIssueOverrides is not null && fileIssueOverrides.TryGetValue(file.Index, out var overrideId)
-                    ? volumeIssues.FirstOrDefault(i => i.Id == overrideId && !matchedIds.Contains(i.Id))
-                    : null;
+                Issue? matched;
 
-                matched ??= TorrentTypeAnalyzer.ExtractIssueNumber(file.Name) is { } number
-                    ? volumeIssues.FirstOrDefault(i => i.IssueNumber == number && !matchedIds.Contains(i.Id))
-                    : null;
+                if (fileIssueOverrides is not null && fileIssueOverrides.TryGetValue(file.Index, out var overrideId))
+                {
+                    // Override explicite : accepté sur MISSING et DOWNLOADED, refusé sur DOWNLOADING
+                    // (déjà en cours d'acquisition) — garde défensif, le frontend l'empêche déjà.
+                    matched = volumeIssues.FirstOrDefault(i =>
+                        i.Id == overrideId && i.Status != IssueStatus.DOWNLOADING && !matchedIds.Contains(i.Id));
+                }
+                else
+                {
+                    matched = TorrentTypeAnalyzer.ExtractIssueNumber(file.Name) is { } number
+                        ? volumeIssues.FirstOrDefault(i =>
+                            i.IssueNumber == number && i.Status == IssueStatus.MISSING && !matchedIds.Contains(i.Id))
+                        : null;
+                }
 
-                if (matched is null) continue; // ni override ni numéro reconnu — fichier ignoré
+                if (matched is null) continue; // ni override valide ni numéro reconnu — fichier ignoré
 
                 matched.Status = IssueStatus.DOWNLOADING;
                 ctx.IssueDownloads.Add(new IssueDownload
                 {
                     Id = Guid.NewGuid(), IssueId = matched.Id,
                     TorrentHash = torrentHash, TorrentTitle = title, DownloadUrl = downloadUrl, TrackerName = trackerName,
+                    FileName = file.Name,
                     Status = DownloadStatus.Unknown, AddedAt = DateTime.UtcNow
                 });
                 matchedIds.Add(matched.Id);
@@ -2879,10 +2944,18 @@ public class InkhoundManager : BaseServiceManager
     private static DownloadStatus MapQBittorrentState(string state) => state.ToLowerInvariant() switch
     {
         "downloading" or "stalleddl" or "checkingdl" or "metadl" => DownloadStatus.Downloading,
-        "pauseddl" => DownloadStatus.Paused,
-        "uploading" or "stalledup" or "pausedup" or "checkingup" or "queuedup" => DownloadStatus.Finished,
+        // "pauseddl" (QBittorrent < 5) / "stoppeddl" (QBittorrent 5.x — renommage)
+        "pauseddl" or "stoppeddl" => DownloadStatus.Paused,
+        "uploading" or "stalledup" or "pausedup" or "stoppedup" or "checkingup" or "queuedup" => DownloadStatus.Finished,
         "error" or "missingfiles" => DownloadStatus.Error,
         _ => DownloadStatus.Unknown
+    };
+
+    // Le torrent télécharge activement (ou tente de) — par opposition à un état arrêté/en pause/terminé.
+    private static bool IsActivelyDownloading(string state) => state.ToLowerInvariant() switch
+    {
+        "downloading" or "stalleddl" or "metadl" or "checkingdl" or "queueddl" or "forceddl" => true,
+        _ => false
     };
 
     // Relit et revérifie TOUTE la table IssueDownloads contre l'état réel de QBittorrent (via
@@ -3019,9 +3092,17 @@ public class InkhoundManager : BaseServiceManager
                         continue;
                     }
 
-                    var matchedFile = archiveFiles.Count == 1
-                        ? archiveFiles[0]
-                        : archiveFiles.FirstOrDefault(f => TorrentTypeAnalyzer.ExtractIssueNumber(f.Name) == issue.IssueNumber);
+                    // 1. Fichier explicitement retenu lors de la revue du PACK (fiable, y compris pour
+                    //    les numéros atypiques : #0, hors-série…).
+                    // 2. À défaut : torrent mono-fichier → ce fichier.
+                    // 3. À défaut : appariement par numéro extrait du nom (lignes créées avant FileName,
+                    //    grab direct sur un PACK…).
+                    var matchedFile =
+                        (!string.IsNullOrEmpty(download.FileName)
+                            ? archiveFiles.FirstOrDefault(f => f.Name == download.FileName)
+                            : null)
+                        ?? (archiveFiles.Count == 1 ? archiveFiles[0] : null)
+                        ?? archiveFiles.FirstOrDefault(f => TorrentTypeAnalyzer.ExtractIssueNumber(f.Name) == issue.IssueNumber);
 
                     if (matchedFile is null)
                     {

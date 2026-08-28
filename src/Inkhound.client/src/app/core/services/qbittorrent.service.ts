@@ -38,6 +38,21 @@ export interface GrabResponse {
   files: TorrentFile[] | null;
 }
 
+// État live du torrent d'un PACK pendant la revue des fichiers (avant validation de la sélection).
+// metadataReady : QBittorrent a chargé la liste des fichiers. numComplete/numSeeds valent -1 quand
+// l'info n'est pas connue (torrent en pause jamais annoncé).
+export interface PackFetchStatus {
+  found: boolean;
+  state: string;
+  progress: number;
+  numComplete: number;
+  numSeeds: number;
+  dlspeed: number;
+  eta: number;
+  metadataReady: boolean;
+  files: TorrentFile[];
+}
+
 export interface DownloadsPageResult {
   items: DownloadItem[];
   pageNumber: number;
@@ -88,6 +103,18 @@ export class QBittorrentService {
     return this.http.post<void>('/api/qbittorrent/apply-selection', {
       torrentHash, downloadUrl, title, trackerName, issueId, volumeId, selectedFileIndices, fileIssueOverrides
     });
+  }
+
+  // État live du torrent d'un PACK pendant la revue des fichiers (polling) — détection « stalled »
+  // et récupération tardive de la liste de fichiers si les métadonnées n'étaient pas prêtes au grab.
+  getPackFetchStatus(hash: string) {
+    return this.http.get<PackFetchStatus>(`/api/qbittorrent/torrent/${hash}/fetch-status`);
+  }
+
+  // Annule la revue d'un PACK : supprime le torrent + ses fichiers déjà téléchargés de QBittorrent
+  // (uniquement tant que la sélection n'a pas été validée).
+  abortSelectivePack(hash: string) {
+    return this.http.post<{ message: string }>(`/api/qbittorrent/torrent/${hash}/abort`, {});
   }
 
   // statuses vide/omis = pas de filtre côté backend (tous les statuts).

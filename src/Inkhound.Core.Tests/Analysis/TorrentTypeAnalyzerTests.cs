@@ -68,4 +68,29 @@ public class TorrentTypeAnalyzerTests
         Assert.Equal("PACK", result.Type);
         Assert.Equal("1...24", result.Label);
     }
+
+    [Theory]
+    [InlineData("Trolls de Troy - T01 - Histoires trolles.cbz", 1)]
+    [InlineData("Lanfeust #12.cbr", 12)]
+    [InlineData("Blacksad - 003 - Ame rouge.cbz", 3)]
+    [InlineData("Sillage 02.cbz", 2)]
+    // Numéro hors-série / prologue : "0", "00" ou "#0" doivent tous donner 0 (cas rapporté).
+    [InlineData("Le Scorpion - 0 - Prologue.cbz", 0)]
+    [InlineData("Thorgal - 00 - La jeunesse.cbz", 0)]
+    [InlineData("Gunnm #0.cbz", 0)]
+    // Un petit nombre non zéro-paddé ne doit PAS être capturé à la place du vrai numéro paddé.
+    [InlineData("Batman (Vol. 3) 027.cbz", 27)]
+    public void ExtractIssueNumber_NomDeFichier_RetourneLeNumeroAttendu(string fileName, int expected)
+    {
+        Assert.Equal(expected, TorrentTypeAnalyzer.ExtractIssueNumber(fileName));
+    }
+
+    [Theory]
+    [InlineData("Corto Maltese - La ballade de la mer salee.cbz")]
+    // Une année contenant des zéros internes ne doit pas être prise pour un numéro (pas de \b interne).
+    [InlineData("Asterix chez les Bretons (2005).cbz")]
+    public void ExtractIssueNumber_NomSansNumero_RetourneNull(string fileName)
+    {
+        Assert.Null(TorrentTypeAnalyzer.ExtractIssueNumber(fileName));
+    }
 }

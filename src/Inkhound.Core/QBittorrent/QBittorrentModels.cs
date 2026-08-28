@@ -13,7 +13,24 @@ public record QBittorrentTorrent(
     long Size,
     long Dlspeed,
     long Eta,
-    [property: JsonPropertyName("added_on")] long AddedOn);
+    [property: JsonPropertyName("added_on")] long AddedOn,
+    [property: JsonPropertyName("num_complete")] int NumComplete = -1,
+    [property: JsonPropertyName("num_seeds")] int NumSeeds = -1);
+
+// État live du torrent d'un PACK pendant la revue des fichiers (avant validation de la sélection).
+// MetadataReady : QBittorrent a chargé la liste des fichiers (métadonnées disponibles).
+// NumComplete / NumSeeds : indicateurs de disponibilité des sources ; QBittorrent renvoie -1 quand
+// l'info n'est pas connue (torrent en pause jamais annoncé).
+public record PackFetchStatus(
+    bool Found,
+    string State,
+    double Progress,
+    int NumComplete,
+    int NumSeeds,
+    long Dlspeed,
+    long Eta,
+    bool MetadataReady,
+    IReadOnlyList<QBittorrentTorrentFile> Files);
 
 public record QBittorrentGrabParameters(string? Category, string? SavePath, bool AddPaused);
 

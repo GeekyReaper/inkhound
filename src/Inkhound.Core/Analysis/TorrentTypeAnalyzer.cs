@@ -15,7 +15,10 @@ public static class TorrentTypeAnalyzer
 
     // Extraction du numéro d'issue depuis un nom de fichier individuel (ex : "Batman - T01 - Titre.cbz")
     private static readonly Regex FilePrefixNumberRegex     = new(@"(?:T|Tome|Vol|Volume|#)[\s.]?0*(\d{1,3})\b",    RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex FileZeroPaddedNumberRegex = new(@"\b0+(\d{1,3})\b",                               RegexOptions.Compiled);
+    // 0+ suivi d'un nombre optionnel : "001" → 1, "02" → 2, et "0"/"00"/"000" → 0 (groupe vide).
+    // Le préfixe 0+ obligatoire évite de capturer un petit nombre incident non zéro-paddé
+    // (ex : "Vol. 3" dans "Batman (Vol. 3) 027" — on veut 27, pas 3).
+    private static readonly Regex FileZeroPaddedNumberRegex = new(@"\b0+(\d{0,3})\b",                               RegexOptions.Compiled);
 
     // \b final sur chaque groupe capturant : empêche une troncature d'un nombre à 4 chiffres
     // (ex : une année "2020") en une capture à 3 chiffres qui serait prise pour une fin de plage.
@@ -38,9 +41,14 @@ public static class TorrentTypeAnalyzer
         var m = FilePrefixNumberRegex.Match(stem);
         if (m.Success && int.TryParse(m.Groups[1].Value, out var n1)) return n1;
 
-        // Priorité 2 : nombre zéro-paddé sans préfixe (001, 02, ...)
+        // Priorité 2 : nombre zéro-paddé sans préfixe (001, 02, ...) ou zéro seul (0, 00, 000 → 0)
         m = FileZeroPaddedNumberRegex.Match(stem);
-        if (m.Success && int.TryParse(m.Groups[1].Value, out var n2)) return n2;
+        if (m.Success)
+        {
+            var digits = m.Groups[1].Value;
+            if (digits.Length == 0) return 0;
+            if (int.TryParse(digits, out var n2)) return n2;
+        }
 
         return null;
     }

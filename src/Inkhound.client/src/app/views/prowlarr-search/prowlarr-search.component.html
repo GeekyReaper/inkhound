@@ -14,7 +14,7 @@
           </button>
         </div>
 
-        @if (mode() === 'volume' && missingIssuesLoaded() && missingIssues().length === 0) {
+        @if (mode() === 'volume' && volumeIssuesLoaded() && missingIssues().length === 0) {
           <p class="text-body-secondary mb-0 small">
             All issues of this volume are already downloaded — nothing to search for.
           </p>
@@ -196,7 +196,7 @@
         Select files to download
       }
     </h5>
-    <button cButtonClose (click)="closePackModal()"></button>
+    <button cButtonClose [disabled]="aborting()" (click)="onCancelPack()"></button>
   </c-modal-header>
 
   <c-modal-body>
@@ -234,7 +234,16 @@
           <c-spinner size="sm"></c-spinner>
           Fetching file list...
         </div>
-      } @else {
+      }
+
+      @if (isStalled()) {
+        <c-alert color="warning" class="mb-3">
+          This torrent has no available sources right now{{ stalledDetail() }}.
+          The download may not start — keep waiting, or cancel to remove it from QBittorrent.
+        </c-alert>
+      }
+
+      @if (torrentFiles().length > 0) {
         <p class="text-body-secondary small mb-3">
           {{ torrentFiles().length }} file(s) found in this pack.
           Files matched to a missing issue are pre-selected — assign the others manually or leave them unselected.
@@ -269,19 +278,17 @@
                 </td>
                 <td class="text-break">{{ file.name }}</td>
                 <td (click)="$event.stopPropagation()">
-                  @if (assignedIssueNumber(file.index); as num) {
-                    <span class="badge bg-info">#{{ num }}</span>
-                  } @else {
-                    <select class="form-select form-select-sm" style="width: auto;"
-                            (change)="onManualAssign(file.index, $any($event.target).value)">
-                      <option value="">— assign issue —</option>
-                      @for (issue of availableIssuesFor(file.index); track issue.id) {
-                        <option [value]="issue.id">
-                          #{{ issue.issueNumber }}{{ issue.title ? ' — ' + issue.title : '' }}
-                        </option>
-                      }
-                    </select>
-                  }
+                  <select class="form-select form-select-sm" style="width: auto;"
+                          (change)="onManualAssign(file.index, $any($event.target).value)">
+                    <option value="" [selected]="!fileAssignments().has(file.index)">— assign issue —</option>
+                    @for (issue of availableIssuesFor(file.index); track issue.id) {
+                      <option [value]="issue.id"
+                              [selected]="fileAssignments().get(file.index) === issue.id"
+                              [disabled]="!isIssueSelectable(issue)">
+                        {{ issueOptionLabel(issue) }}
+                      </option>
+                    }
+                  </select>
                 </td>
                 <td class="text-end text-nowrap">{{ formatSize(file.size) }}</td>
               </tr>
@@ -298,11 +305,18 @@
       <span class="text-body-secondary small me-auto">
         {{ selectedFileIndices().size }} / {{ torrentFiles().length }} selected
       </span>
-      <button cButton color="secondary" variant="outline" (click)="closePackModal()">
-        Cancel
+      <button cButton color="secondary" variant="outline"
+              [disabled]="aborting()"
+              (click)="onCancelPack()">
+        @if (aborting()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+          Cancelling...
+        } @else {
+          Cancel
+        }
       </button>
       <button cButton color="primary"
-              [disabled]="selectedFileIndices().size === 0 || applyingSelection()"
+              [disabled]="selectedFileIndices().size === 0 || applyingSelection() || aborting()"
               (click)="onApplySelection()">
         @if (applyingSelection()) {
           <c-spinner size="sm" class="me-1"></c-spinner>

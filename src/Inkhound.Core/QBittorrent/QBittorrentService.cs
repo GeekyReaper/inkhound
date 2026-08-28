@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Foundation.Core;
@@ -188,32 +189,55 @@ public class QBittorrentService : BaseService<QBittorrentOptions>
         }
     }
 
-    public async Task<bool> PauseTorrentAsync(string hash, CancellationToken ct = default)
+    // QBittorrent 5.x a renommé torrents/pause → torrents/stop et torrents/resume → torrents/start
+    // (les anciens noms subsistent comme alias dépréciés, potentiellement supprimés à terme). On
+    // tente le nouveau nom d'abord, repli sur l'ancien si l'endpoint est absent (404).
+    public Task<bool> PauseTorrentAsync(string hash, CancellationToken ct = default)
+        => PostTorrentActionAsync(["api/v2/torrents/stop", "api/v2/torrents/pause"], hash, ct);
+
+    public Task<bool> ResumeTorrentAsync(string hash, CancellationToken ct = default)
+        => PostTorrentActionAsync(["api/v2/torrents/start", "api/v2/torrents/resume"], hash, ct);
+
+    private async Task<bool> PostTorrentActionAsync(string[] endpoints, string hash, CancellationToken ct)
     {
-        try
+        foreach (var endpoint in endpoints)
         {
-            var form = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", hash)]);
-            var response = await _http.PostAsync("api/v2/torrents/pause", form, ct);
-            return response.IsSuccessStatusCode;
+            try
+            {
+                var form = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", hash)]);
+                var response = await _http.PostAsync(endpoint, form, ct);
+                if (response.IsSuccessStatusCode) return true;
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                {
+                    SendTrace($"{endpoint} failed with HTTP {(int)response.StatusCode}", ETraceLevel.WARNING);
+                    return false;
+                }
+                // 404 → endpoint inexistant sur cette version, on essaie le suivant
+            }
+            catch (Exception ex)
+            {
+                SendTrace($"{endpoint} error", ex);
+            }
         }
-        catch (Exception ex)
-        {
-            SendTrace("PauseTorrentAsync error", ex);
-            return false;
-        }
+        return false;
     }
 
-    public async Task<bool> ResumeTorrentAsync(string hash, CancellationToken ct = default)
+    // Supprime le torrent de QBittorrent. deleteFiles=true efface aussi les fichiers déjà téléchargés
+    // du disque — utilisé quand l'utilisateur annule la revue des fichiers d'un PACK.
+    public async Task<bool> DeleteTorrentAsync(string hash, bool deleteFiles, CancellationToken ct = default)
     {
         try
         {
-            var form = new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", hash)]);
-            var response = await _http.PostAsync("api/v2/torrents/resume", form, ct);
+            var form = new FormUrlEncodedContent([
+                new KeyValuePair<string, string>("hashes", hash),
+                new KeyValuePair<string, string>("deleteFiles", deleteFiles ? "true" : "false")
+            ]);
+            var response = await _http.PostAsync("api/v2/torrents/delete", form, ct);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
-            SendTrace("ResumeTorrentAsync error", ex);
+            SendTrace("DeleteTorrentAsync error", ex);
             return false;
         }
     }
