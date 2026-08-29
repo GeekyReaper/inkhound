@@ -25,6 +25,8 @@ export interface DownloadItem {
   dlspeed: number | null;
   eta: number | null;
   size: number | null;
+  // Nombre d'AUTRES downloads rattachés au même torrent (PACK) — supprimer le torrent les emporte.
+  sharedWith: number;
 }
 
 export interface TorrentFile {
@@ -142,10 +144,11 @@ export class QBittorrentService {
     return this.http.put<DownloadItem>(`/api/qbittorrent/downloads/${id}/hash`, { hash });
   }
 
-  // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent (ignoré côté serveur si
-  // un autre download partage le même torrent). torrentRemoved = ce qui a réellement été fait.
+  // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent. Si le torrent est
+  // partagé (PACK), tous les downloads jumeaux sont supprimés aussi (deletedCount les compte).
+  // torrentRemoved = le torrent a effectivement été retiré de QBittorrent.
   deleteDownload(id: string, removeTorrent: boolean) {
-    return this.http.delete<{ torrentRemoved: boolean }>(`/api/qbittorrent/downloads/${id}`, {
+    return this.http.delete<{ torrentRemoved: boolean; deletedCount: number }>(`/api/qbittorrent/downloads/${id}`, {
       params: new HttpParams().set('removeTorrent', removeTorrent)
     });
   }

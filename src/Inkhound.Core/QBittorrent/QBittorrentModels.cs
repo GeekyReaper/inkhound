@@ -34,10 +34,13 @@ public record PackFetchStatus(
 
 public record QBittorrentGrabParameters(string? Category, string? SavePath, bool AddPaused);
 
+// SharedWith : nombre d'AUTRES IssueDownload rattachés au même torrent (PACK multi-issues) —
+// supprimer le torrent de QBittorrent supprime aussi ces downloads-là.
 public record DownloadItemData(
     IssueDownload Download,
     Issue? Issue,
     Volume? Volume,
-    QBittorrentTorrent? Torrent);
+    QBittorrentTorrent? Torrent,
+    int SharedWith = 0);
 
 public record QBittorrentTorrentFile(int Index, string Name, long Size, double Progress, int Priority);

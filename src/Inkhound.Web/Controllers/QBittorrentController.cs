@@ -54,7 +54,8 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         double? Progress,
         long? Dlspeed,
         long? Eta,
-        long? Size);
+        long? Size,
+        int SharedWith);
 
     // TorrentTitle vient de l'item stocké (d.Download.TorrentTitle), pas d'une lecture live QBittorrent
     // (d.Torrent?.Name) : l'identité du download reste affichable même si QBittorrent ne retrouve plus
@@ -75,7 +76,8 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         d.Torrent?.Progress,
         d.Torrent?.Dlspeed,
         d.Torrent?.Eta,
-        d.Torrent?.Size);
+        d.Torrent?.Size,
+        d.SharedWith);
 
     // GET /api/qbittorrent/categories
     [HttpGet("categories")]
@@ -232,7 +234,7 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     [HttpDelete("downloads/{id:guid}")]
     public async Task<IActionResult> DeleteDownload(Guid id, [FromQuery] bool removeTorrent = false)
     {
-        var (success, error, torrentRemoved) = await manager.DeleteDownloadAsync(id, removeTorrent);
-        return success ? Ok(new { torrentRemoved }) : NotFound(new { message = error });
+        var (success, error, torrentRemoved, deletedCount) = await manager.DeleteDownloadAsync(id, removeTorrent);
+        return success ? Ok(new { torrentRemoved, deletedCount }) : NotFound(new { message = error });
     }
 }

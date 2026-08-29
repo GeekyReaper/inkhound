@@ -2893,6 +2893,16 @@ public class InkhoundManager : BaseServiceManager
             ? await qb.GetTorrentsAsync(hashes, ct)
             : [];
 
+        // Nombre total de downloads par hash (toute la table, pas seulement la page) — pour prévenir
+        // qu'une suppression de torrent embarque les downloads jumeaux d'un PACK.
+        var hashCounts = hashes.Count > 0
+            ? await ctx.IssueDownloads
+                .Where(d => hashes.Contains(d.TorrentHash))
+                .GroupBy(d => d.TorrentHash)
+                .Select(g => new { Hash = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Hash, x => x.Count, ct)
+            : [];
+
         var torrentByHash = torrents.ToDictionary(t => t.Hash, StringComparer.OrdinalIgnoreCase);
         var issueById = issues.ToDictionary(i => i.Id);
         var volumeById = volumes.ToDictionary(v => v.Id);
@@ -2934,7 +2944,11 @@ public class InkhoundManager : BaseServiceManager
                 dl.UpdatedAt = DateTime.UtcNow;
             }
 
-            result.Add(new DownloadItemData(dl, issue, volume, torrent));
+            var sharedWith = !string.IsNullOrEmpty(dl.TorrentHash) && hashCounts.TryGetValue(dl.TorrentHash, out var hc)
+                ? Math.Max(0, hc - 1)
+                : 0;
+
+            result.Add(new DownloadItemData(dl, issue, volume, torrent, sharedWith));
         }
 
         await ctx.SaveChangesAsync(ct);
@@ -3017,34 +3031,47 @@ public class InkhoundManager : BaseServiceManager
     }
 
     // Supprime le suivi d'un download, quel que soit son état.
-    // removeTorrent : supprime aussi le torrent (et ses fichiers déjà téléchargés) de QBittorrent —
-    // ignoré si un autre IssueDownload partage le même hash (PACK multi-issues).
-    // L'Issue associée redevient MISSING si elle était DOWNLOADING et que plus aucune autre ligne ne
-    // la télécharge, pour rester cherchable/téléchargeable à nouveau.
-    public async Task<(bool Success, string? Error, bool TorrentRemoved)> DeleteDownloadAsync(
+    // removeTorrent : supprime aussi le torrent (et ses fichiers déjà téléchargés) de QBittorrent ;
+    // dans ce cas, tous les downloads jumeaux (même hash, PACK multi-issues) sont supprimés eux aussi
+    // — le frontend prévient l'utilisateur au moment de la confirmation.
+    // Chaque Issue impactée redevient MISSING si elle était DOWNLOADING et que plus aucune ligne
+    // restante ne la télécharge.
+    // DeletedCount : nombre de lignes IssueDownload effectivement supprimées.
+    public async Task<(bool Success, string? Error, bool TorrentRemoved, int DeletedCount)> DeleteDownloadAsync(
         Guid downloadId, bool removeTorrent, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var download = await ctx.IssueDownloads.FindAsync([downloadId], ct);
-        if (download is null) return (false, "Download not found.", false);
+        if (download is null) return (false, "Download not found.", false, 0);
 
         var hash = download.TorrentHash;
-        var hasSiblingSameHash = !string.IsNullOrEmpty(hash)
-            && await ctx.IssueDownloads.AnyAsync(d => d.Id != downloadId && d.TorrentHash == hash, ct);
 
+        // Par défaut on ne supprime que la ligne demandée. Si le retrait du torrent est demandé ET
+        // qu'il réussit, on supprime aussi les lignes jumelles (elles pointeraient un torrent absent).
+        var toRemove = new List<IssueDownload> { download };
         var torrentRemoved = false;
-        if (removeTorrent && !hasSiblingSameHash && !string.IsNullOrEmpty(hash))
+
+        if (removeTorrent && !string.IsNullOrEmpty(hash))
         {
             var qb = GetService<QBittorrentService, QBittorrentOptions>();
             if (qb.CurrentState.State == EState.OK)
+            {
                 torrentRemoved = await qb.DeleteTorrentAsync(hash, deleteFiles: true, ct);
+                if (torrentRemoved)
+                    toRemove = await ctx.IssueDownloads.Where(d => d.TorrentHash == hash).ToListAsync(ct);
+            }
         }
 
-        var issue = await ctx.Issues.FindAsync([download.IssueId], ct);
-        if (issue is not null && issue.Status == IssueStatus.DOWNLOADING)
+        var removedIds = toRemove.Select(d => d.Id).ToList();
+        var affectedIssueIds = toRemove.Select(d => d.IssueId).Distinct().ToList();
+
+        var issues = await ctx.Issues.Where(i => affectedIssueIds.Contains(i.Id)).ToListAsync(ct);
+        foreach (var issue in issues.Where(i => i.Status == IssueStatus.DOWNLOADING))
         {
+            // Les lignes de toRemove sont encore en base à cet instant (SaveChanges plus bas) — on
+            // les exclut explicitement.
             var stillDownloadedElsewhere = await ctx.IssueDownloads
-                .AnyAsync(d => d.Id != downloadId && d.IssueId == issue.Id, ct);
+                .AnyAsync(d => !removedIds.Contains(d.Id) && d.IssueId == issue.Id, ct);
             if (!stillDownloadedElsewhere)
             {
                 issue.Status = IssueStatus.MISSING;
@@ -3052,9 +3079,9 @@ public class InkhoundManager : BaseServiceManager
             }
         }
 
-        ctx.IssueDownloads.Remove(download);
+        ctx.IssueDownloads.RemoveRange(toRemove);
         await ctx.SaveChangesAsync(ct);
-        return (true, null, torrentRemoved);
+        return (true, null, torrentRemoved, toRemove.Count);
     }
 
     public async Task LaunchJobProcessDownloads(ProcessDownloadsJobParameters parameters)

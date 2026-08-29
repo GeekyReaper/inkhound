@@ -260,7 +260,9 @@ export class DownloadsComponent {
       .subscribe({
         next: res => {
           if (removeTorrent && !res.torrentRemoved) {
-            this.deleteNotice.set('Tracking removed. The torrent was kept in qBittorrent — it is shared with another download, or qBittorrent was unavailable.');
+            this.deleteNotice.set('Tracking removed. The torrent could not be removed from qBittorrent (service unavailable) — only this download was deleted.');
+          } else if (res.torrentRemoved && res.deletedCount > 1) {
+            this.deleteNotice.set(`Torrent removed from qBittorrent — ${res.deletedCount} downloads that shared it were deleted.`);
           }
           this.closeDeleteModal();
           this.reloadTick.update(t => t + 1);
