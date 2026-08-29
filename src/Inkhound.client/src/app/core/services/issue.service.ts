@@ -83,4 +83,9 @@ export class IssueService {
   analyze(issueId: string) {
     return this.http.post<{ jobId: string }>(`/api/issues/${issueId}/analyze`, null);
   }
+
+  // Importe un fichier d'archive local comme CBZ de l'issue (Job) — même suivi que analyze().
+  importFile(issueId: string, filePath: string) {
+    return this.http.post<{ jobId: string }>(`/api/issues/${issueId}/import`, { filePath });
+  }
 }

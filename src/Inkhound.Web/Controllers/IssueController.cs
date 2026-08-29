@@ -113,6 +113,18 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         return Accepted(new { jobId = job.JobId });
     }
 
+    public record ImportIssueFileRequest(string FilePath);
+
+    // POST /api/issues/{issueId}/import — importe un fichier d'archive local comme CBZ de l'issue
+    // (Job) ; même suivi que /analyze (jobId + ManagerDataUpdated).
+    [HttpPost("/api/issues/{issueId:guid}/import")]
+    public async Task<IActionResult> Import(Guid issueId, [FromBody] ImportIssueFileRequest req)
+    {
+        var job = await manager.LaunchJobImportIssueFile(new ImportIssueFileJobParameters
+        { IssueId = issueId, FilePath = req.FilePath });
+        return Accepted(new { jobId = job.JobId });
+    }
+
     // GET /api/volumes/{volumeId}/issues
     [HttpGet]
     public async Task<IActionResult> GetByVolume(Guid volumeId)

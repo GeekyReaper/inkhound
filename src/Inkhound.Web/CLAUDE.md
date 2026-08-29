@@ -110,8 +110,9 @@ public IActionResult StartXxx(Guid id)
 
 Quand le front doit suivre la progression sur la page (JobPanel), le `LaunchJobXxx` retourne le
 `JobContext` et le controller renvoie `Accepted(new { jobId = job.JobId })` — cf. rematch / refresh /
-regenerate-comic-info / **import dossier** (`POST /api/volumes/{id}/import`, précédé de
-`GET /api/volumes/{id}/import/scan` pour la popup de revue fichiers ↔ issues).
+regenerate-comic-info / analyze / **import dossier** (`POST /api/volumes/{id}/import`, précédé de
+`GET /api/volumes/{id}/import/scan` pour la popup de revue fichiers ↔ issues) / **import fichier
+issue** (`POST /api/issues/{id}/import { filePath }`, bouton « Import » de la page Issue).
 
 La progression est relayée en temps réel vers les clients via SignalR par `InkhoundManagerInitializer` (qui souscrit aux événements `OnJobUpdated` et `OnTrace` du manager et les diffuse via `AppHub`).
 

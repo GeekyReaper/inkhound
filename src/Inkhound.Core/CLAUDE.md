@@ -253,6 +253,12 @@ Exemples existants :
 - `LaunchJobImportDirectory(ImportDirectoryJobParameters parameters)` — import des archives d'un
   dossier vers un volume ; `FileIssueMap` (nom de fichier → IssueId, issu de la popup de revue) ou
   appariement auto par numéro. Retourne le `JobContext` (le controller renvoie le `jobId`).
+- `LaunchJobImportIssueFile(ImportIssueFileJobParameters parameters)` — import d'un fichier local
+  unique comme CBZ d'une issue précise (bouton « Import » de la page Issue). Retourne le `JobContext`.
+
+Le cœur « fichier → CBZ normalisé → dossier du volume → issue DOWNLOADED + stats » est factorisé
+dans `ImportArchiveFileForIssueAsync(...)` (privé), partagé par `RunImportDirectoryJobAsync` et
+`RunImportIssueFileJobAsync` ; il s'appuie sur `ImportArchiveAsync` (pipeline pur, sans job).
 
 Les paramètres sont des classes dédiées dans `Models/`, implémentant `IJobParameters` (Foundation.Core) avec une méthode `IsValid()`.
 

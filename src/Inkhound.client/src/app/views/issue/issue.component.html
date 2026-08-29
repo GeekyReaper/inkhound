@@ -26,6 +26,16 @@
         </div>
       </c-col>
       <c-col [xs]="'auto'" class="d-flex gap-2">
+        <button cButton color="primary" variant="outline" size="sm"
+                [disabled]="!!activeJobId() || importing()"
+                (click)="importVisible.set(true)">
+          @if (importing()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          } @else {
+            <svg cIcon name="cilCloudDownload" size="sm"></svg>
+          }
+          Import
+        </button>
         <button cButton color="primary" variant="outline" size="sm" (click)="openEditModal()">
           <svg cIcon name="cilPencil" size="sm"></svg>
           Edit
@@ -134,14 +144,14 @@
               </button>
             </div>
 
-            @if (analyzing() && activeJobId()) {
+            @if ((analyzing() || importing()) && activeJobId()) {
               <div class="mb-3">
                 <app-job-panel [jobId]="activeJobId()" />
               </div>
             }
 
-            @if (analyzeError()) {
-              <c-alert color="danger" class="mb-3">{{ analyzeError() }}</c-alert>
+            @if (jobError()) {
+              <c-alert color="danger" class="mb-3">{{ jobError() }}</c-alert>
             }
 
             @if (issue()!.analyzedAt) {
@@ -253,3 +263,9 @@
   </c-modal-footer>
 
 </c-modal>
+
+<!-- Import : choix d'un fichier d'archive local à normaliser en CBZ de cette issue -->
+<app-select-path
+  mode="file"
+  [(visible)]="importVisible"
+  (pathSelected)="onImportFileSelected($event)" />

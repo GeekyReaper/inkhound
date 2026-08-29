@@ -428,6 +428,9 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
   (pathSelected)="onImportSelected($event)" />
 ```
 
+`mode="file"` (émet le chemin complet du fichier sur *confirm*, `''` sur *cancel*) — utilisé par la
+page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`).
+
 ## Composant réutilisable : FileIssueMatcherComponent
 
 `app-file-issue-matcher` (`views/file-issue-matcher/`) — tableau générique d'appariement

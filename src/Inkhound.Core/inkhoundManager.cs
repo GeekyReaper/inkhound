@@ -2093,40 +2093,10 @@ public class InkhoundManager : BaseServiceManager
                     }
                 }
 
-                JobSendTrace($"[Import] {file.Name} → issue #{issue.IssueNumber}");
-                var archive = await ImportArchiveAsync(new ArchiveConverterPdfJobParameters
-                {
-                    SourceFile = file.FullName,
-                    WorkingPath = Path.Combine(tempDir.FullName, issue.Id.ToString("N")),
-                    Library = library,
-                    Volume = volume,
-                    Issue = issue
-                }, job.CallbackHandler);
-
-                if (archive is null)
-                {
-                    JobSendTrace($"[Import] Import failed for {file.Name}", ETraceLevel.ERROR);
-                    job.Progress.Increment(false);
-                    job.CallbackHandler.Callback(job.Progress);
-                    continue;
-                }
-
-                var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
-                var dest = Path.Combine(volumeDir.FullName, archive.Name);
-                File.Copy(archive.FullName, dest, overwrite: true);
-                archiveService.EnsurePermissiveFileMode(dest);
-
-                issue.CbzFilename = archive.Name;
-                issue.FileSizeBytes = (int)archive.Length;
-                issue.Status = IssueStatus.DOWNLOADED;
-                issue.DownloadedAt = DateTime.UtcNow;
-                // Persiste d'abord le statut de l'issue : le recalcul du compteur ci-dessous requête
-                // la base et ne verrait pas cette issue si elle n'était pas encore sauvegardée.
-                await ctx.SaveChangesAsync();
-                await RecalculateVolumeStatisticsAsync(ctx, volume.Id);
-                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                anyImported = true;
-                job.Progress.Increment(true);
+                var ok = await ImportArchiveFileForIssueAsync(
+                    ctx, archiveService, file, issue, volume, library, tempDir.FullName, job.CallbackHandler);
+                if (ok) anyImported = true;
+                job.Progress.Increment(ok);
                 job.CallbackHandler.Callback(job.Progress);
             }
 
@@ -2222,6 +2192,129 @@ public class InkhoundManager : BaseServiceManager
         pageFiles.ForEach(c => c.Delete());
 
         return archive;
+    }
+
+    // Convertit sourceFile en CBZ normalisé pour l'issue, le copie dans le dossier du volume et met
+    // l'issue à jour (DOWNLOADED / CbzFilename / FileSizeBytes / DownloadedAt) + recalcul des stats.
+    // workingRoot = dossier temporaire du job appelant ; false si la conversion échoue.
+    // L'appelant garde sa propre progression et le scan Kavita de fin de job.
+    private async Task<bool> ImportArchiveFileForIssueAsync(
+        DbStorageContext ctx, ArchiveService archiveService,
+        FileInfo sourceFile, Issue issue, Volume volume, Library library,
+        string workingRoot, ProgressionCallback? progression)
+    {
+        JobSendTrace($"[Import] {sourceFile.Name} → issue #{issue.IssueNumber}");
+
+        var archive = await ImportArchiveAsync(new ArchiveConverterPdfJobParameters
+        {
+            SourceFile = sourceFile.FullName,
+            WorkingPath = Path.Combine(workingRoot, issue.Id.ToString("N")),
+            Library = library,
+            Volume = volume,
+            Issue = issue
+        }, progression);
+
+        if (archive is null)
+        {
+            JobSendTrace($"[Import] Conversion failed for {sourceFile.Name}", ETraceLevel.ERROR);
+            return false;
+        }
+
+        var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
+        var dest = Path.Combine(volumeDir.FullName, archive.Name);
+        File.Copy(archive.FullName, dest, overwrite: true);
+        archiveService.EnsurePermissiveFileMode(dest);
+
+        issue.CbzFilename = archive.Name;
+        issue.FileSizeBytes = (int)archive.Length;
+        issue.Status = IssueStatus.DOWNLOADED;
+        issue.DownloadedAt = DateTime.UtcNow;
+        // Persiste d'abord le statut de l'issue : le recalcul du compteur ci-dessous requête la base
+        // et ne verrait pas cette issue si elle n'était pas encore sauvegardée.
+        await ctx.SaveChangesAsync();
+        await RecalculateVolumeStatisticsAsync(ctx, volume.Id);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+        return true;
+    }
+
+    // Import d'un fichier local unique comme CBZ d'une issue précise (bouton "Import" de la page
+    // Issue). Retourne le JobContext pour que le controller renvoie le jobId.
+    public async Task<JobContext> LaunchJobImportIssueFile(ImportIssueFileJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync(parameters.IssueId);
+        var jobTitle = issue is not null
+            ? $"Import — Issue #{issue.IssueNumber}"
+            : $"Import — {parameters.IssueId}";
+
+        var job = StartJob(jobTitle, parameters);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunImportIssueFileJobAsync(job, parameters);
+        }
+        return job;
+    }
+
+    private async Task RunImportIssueFileJobAsync(JobContext job, ImportIssueFileJobParameters parameters)
+    {
+        DirectoryInfo? tempDir = null;
+        try
+        {
+            var ctx = GetDb();
+            var issue = await ctx.Issues.FindAsync(parameters.IssueId);
+            if (issue is null) { JobSendTrace($"[Import] Issue {parameters.IssueId} not found", ETraceLevel.ERROR); EndJob(false); return; }
+            var volume = await ctx.Volumes.FindAsync(issue.VolumeId);
+            if (volume is null) { JobSendTrace($"[Import] Volume {issue.VolumeId} not found", ETraceLevel.ERROR); EndJob(false); return; }
+            var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+            if (library is null) { JobSendTrace($"[Import] Library {volume.LibraryId} not found", ETraceLevel.ERROR); EndJob(false); return; }
+
+            if (!File.Exists(parameters.FilePath))
+            {
+                JobSendTrace($"[Import] File not found: {parameters.FilePath}", ETraceLevel.ERROR);
+                EndJob(false);
+                return;
+            }
+            if (!IsArchiveFile(parameters.FilePath))
+            {
+                JobSendTrace($"[Import] Unsupported format (.cbz/.cbr/.pdf only): {parameters.FilePath}", ETraceLevel.ERROR);
+                EndJob(false);
+                return;
+            }
+
+            var archiveService = GetService<ArchiveService, ArchiveOption>();
+            if (archiveService.CurrentState.State != EState.OK)
+                throw new InvalidOperationException("ArchiveService is not available");
+
+            tempDir = archiveService.GenerateTempDirectory();
+            job.AddTotal(1);
+
+            var ok = await ImportArchiveFileForIssueAsync(
+                ctx, archiveService, new FileInfo(parameters.FilePath), issue, volume, library, tempDir.FullName, job.CallbackHandler);
+            job.Progress.Increment(ok);
+            job.CallbackHandler.Callback(job.Progress);
+
+            if (ok && !string.IsNullOrEmpty(library.KavitaPath))
+            {
+                var kavita = GetService<KavitaService, KavitaOptions>();
+                var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
+                await JobRunTimedAsync(
+                    $"[Import] Triggering Kavita folder scan: {kavitaFolderPath}",
+                    () => kavita.ScanFolderAsync(kavitaFolderPath));
+            }
+
+            EndJob(ok);
+        }
+        catch (Exception ex)
+        {
+            JobSendTrace($"[Import] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
+            EndJob(false);
+        }
+        finally
+        {
+            if (tempDir?.Exists == true)
+                tempDir.Delete(recursive: true);
+        }
     }
 
     private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];

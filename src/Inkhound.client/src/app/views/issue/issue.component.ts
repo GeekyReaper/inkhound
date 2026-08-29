@@ -18,6 +18,7 @@ import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
+import { SelectPathComponent } from '../select-path/select-path.component';
 import { UpdatedData } from '../../core/models/hub.models';
 
 @Component({
@@ -32,7 +33,8 @@ import { UpdatedData } from '../../core/models/hub.models';
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, SlicePipe,
     JobPanelComponent,
-    ProwlarrSearchComponent
+    ProwlarrSearchComponent,
+    SelectPathComponent
   ]
 })
 export class IssueComponent {
@@ -56,7 +58,13 @@ export class IssueComponent {
   loading       = signal(true);
   loadError     = signal<string | null>(null);
   analyzing     = signal(false);
-  analyzeError  = signal<string | null>(null);
+  // Message d'erreur générique pour le job de la page (Analyze ou Import) — l'effect de complétion
+  // ne sait pas lequel a fini.
+  jobError      = signal<string | null>(null);
+
+  // --- Import d'un fichier local comme CBZ de l'issue ---
+  importVisible = signal(false);   // pioche du fichier (app-select-path mode="file")
+  importing     = signal(false);
 
   // --- État de la modale d'édition ---
   editModalVisible = signal(false);
@@ -103,8 +111,9 @@ export class IssueComponent {
       this.pageJobs.clear(this.pageKey);
 
       this.analyzing.set(false);
+      this.importing.set(false);
       if (job.state === 'ERROR') {
-        this.analyzeError.set('Analysis failed — see the console for details.');
+        this.jobError.set('Job failed — see the console for details.');
       }
       // Sinon, l'Issue mise à jour arrive via l'abonnement lastDataUpdated ci-dessus.
     });
@@ -171,13 +180,29 @@ export class IssueComponent {
     if (this.activeJobId()) return;
 
     this.analyzing.set(true);
-    this.analyzeError.set(null);
+    this.jobError.set(null);
 
     this.issueService.analyze(this.issueId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  res => this.pageJobs.register(this.pageKey, res.jobId),
-        error: err => { this.analyzeError.set(err?.error?.message ?? 'Analysis failed.'); this.analyzing.set(false); }
+        error: err => { this.jobError.set(err?.error?.message ?? 'Analysis failed.'); this.analyzing.set(false); }
+      });
+  }
+
+  // Fichier choisi dans le sélecteur → lance l'import (Job). L'issue passe DOWNLOADED en fin de job
+  // et se rafraîchit via l'abonnement lastDataUpdated.
+  onImportFileSelected(path: string): void {
+    if (!path || this.activeJobId()) return;
+
+    this.importing.set(true);
+    this.jobError.set(null);
+
+    this.issueService.importFile(this.issueId, path)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  res => this.pageJobs.register(this.pageKey, res.jobId),
+        error: err => { this.jobError.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
       });
   }
 
