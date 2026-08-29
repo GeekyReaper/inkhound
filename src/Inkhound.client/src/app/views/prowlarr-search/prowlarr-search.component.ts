@@ -1,4 +1,4 @@
-import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, finalize, interval, map, of, startWith, switchMap } from 'rxjs';
@@ -18,6 +18,8 @@ import { PackFetchStatus, QBittorrentService, TorrentFile } from '../../core/ser
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { FileIssueMatcherComponent } from '../file-issue-matcher/file-issue-matcher.component';
+import { formatSize } from '../../core/util/format-size';
 
 // Vue commune aux deux sources de résultats (recherche Issue ou recherche Volume) — coverage est
 // uniquement renseigné en mode 'volume' (nombre d'issues manquantes couvertes par ce résultat).
@@ -36,7 +38,7 @@ export interface SearchResultRow {
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
     TableDirective, ModalModule,
     DatePipe, DecimalPipe,
-    JobPanelComponent
+    JobPanelComponent, FileIssueMatcherComponent
   ]
 })
 export class ProwlarrSearchComponent {
@@ -82,11 +84,11 @@ export class ProwlarrSearchComponent {
   pendingResult        = signal<SearchResultRow | null>(null);
   torrentFiles         = signal<TorrentFile[]>([]);
   pendingTorrentHash   = signal<string | null>(null);
-  fileAssignments      = signal<Map<number, string>>(new Map()); // fileIndex -> issueId
-  // Un fichier est "coché" (= inclus au téléchargement) exactement quand une issue lui est assignée :
-  // cocher = assigner une issue, décocher = libérer l'issue. Les deux notions ne font qu'une.
-  readonly selectedFileIndices = computed(() => new Set(this.fileAssignments().keys()));
   applyingSelection    = signal(false);
+
+  // L'appariement fichiers ↔ issues est délégué au composant partagé ; on lit sa sélection courante.
+  private readonly matcher = viewChild(FileIssueMatcherComponent);
+  readonly selectedCount = computed(() => this.matcher()?.selection().length ?? 0);
   // Torrent ajouté puis mis en pause pendant la revue : statut live (polling), horodatage de départ
   // (délai de grâce avant l'alerte "stalled"), drapeau de validation (neutralise le nettoyage) et
   // drapeau d'annulation en cours.
@@ -137,8 +139,6 @@ export class ProwlarrSearchComponent {
     const start = (this.currentPage() - 1) * this.pageSize;
     return this.searchResults().slice(start, start + this.pageSize);
   });
-
-  readonly allFilesSelected = computed(() => this.fileAssignments().size > 0);
 
   readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
   private handledJobIds = new Set<string>();
@@ -193,8 +193,7 @@ export class ProwlarrSearchComponent {
           this.fetchStatus.set(status);
           const noFilesYet = untracked(() => this.torrentFiles().length === 0);
           if (status.metadataReady && noFilesYet && status.files.length > 0) {
-            this.torrentFiles.set(status.files);
-            this.applyAutoAssignments(status.files);
+            this.torrentFiles.set(status.files); // le matcher (re)fait l'auto-appariement sur ce nouvel input
           }
         });
       onCleanup(() => sub.unsubscribe());
@@ -328,8 +327,7 @@ export class ProwlarrSearchComponent {
   closePackModal(): void {
     this.packModalVisible.set(false);
     this.pendingResult.set(null);
-    this.torrentFiles.set([]);
-    this.fileAssignments.set(new Map());
+    this.torrentFiles.set([]); // démonte le matcher, qui se réinitialise au prochain jeu de fichiers
     this.pendingTorrentHash.set(null);
     this.packModalStep.set(1);
     this.fetchStatus.set(null);
@@ -392,8 +390,7 @@ export class ProwlarrSearchComponent {
           this.packModalStep.set(2);
 
           if (resp.files?.length) {
-            this.torrentFiles.set(resp.files);
-            this.applyAutoAssignments(resp.files);
+            this.torrentFiles.set(resp.files); // le matcher fait l'auto-appariement
           }
         },
         error: err => {
@@ -403,90 +400,18 @@ export class ProwlarrSearchComponent {
       });
   }
 
-  // Auto-appariement des fichiers du PACK aux issues encore manquantes, par numéro de tome détecté.
-  // N'écrase jamais une assignation existante ni une issue déjà prise (additif — utilisable aussi
-  // pour un "tout cocher").
-  private applyAutoAssignments(files: TorrentFile[]): void {
-    this.fileAssignments.update(current => {
-      const next = new Map(current);
-      const takenIssueIds = new Set(next.values());
-      for (const file of files) {
-        if (next.has(file.index) || file.detectedIssueNumber === null) continue;
-        const issue = this.missingIssues().find(
-          i => i.issueNumber === file.detectedIssueNumber && !takenIssueIds.has(i.id));
-        if (issue) {
-          next.set(file.index, issue.id);
-          takenIssueIds.add(issue.id);
-        }
-      }
-      return next;
-    });
-  }
-
-  // Décocher une ligne libère l'issue qui lui était assignée : le sélecteur revient à
-  // « — assign issue — » et l'issue redevient disponible pour un autre fichier.
-  onToggleFile(index: number): void {
-    if (this.fileAssignments().has(index)) this.onManualAssign(index, '');
-  }
-
-  onToggleAllFiles(): void {
-    if (this.allFilesSelected()) {
-      // Au moins une issue assignée → tout décocher : libère toutes les issues.
-      this.fileAssignments.set(new Map());
-    } else {
-      // Rien d'assigné → auto-appariement par numéro de tome.
-      this.applyAutoAssignments(this.torrentFiles());
-    }
-  }
-
-  isFileSelected(index: number): boolean {
-    return this.selectedFileIndices().has(index);
-  }
-
-  isFileAssignable(index: number): boolean {
-    return this.fileAssignments().has(index);
-  }
-
-  // Issues disponibles pour assignation manuelle d'un fichier — toutes les issues du volume, sauf
-  // celles déjà assignées à un AUTRE fichier de la sélection courante. Les issues DOWNLOADING sont
-  // conservées dans la liste mais rendues non sélectionnables (voir isIssueSelectable).
-  availableIssuesFor(index: number): Issue[] {
-    const takenElsewhere = new Set(
-      [...this.fileAssignments().entries()].filter(([i]) => i !== index).map(([, id]) => id));
-    return this.volumeIssues().filter(i => !takenElsewhere.has(i.id));
-  }
-
-  // Libellé d'option : "#12 — Titre · Downloaded".
-  issueOptionLabel(issue: Issue): string {
-    const title = issue.title ? ` — ${issue.title}` : '';
-    const state = { MISSING: 'Missing', DOWNLOADING: 'Downloading', DOWNLOADED: 'Downloaded' }[issue.status];
-    return `#${issue.issueNumber}${title} · ${state}`;
-  }
-
-  // Une issue déjà en cours d'acquisition ne peut pas être (re)ciblée depuis cette modale.
-  isIssueSelectable(issue: Issue): boolean {
-    return issue.status !== 'DOWNLOADING';
-  }
-
-  onManualAssign(index: number, issueId: string): void {
-    this.fileAssignments.update(m => {
-      const next = new Map(m);
-      if (issueId) next.set(index, issueId);
-      else next.delete(index);
-      return next;
-    });
-  }
-
   onApplySelection(): void {
     const hash = this.pendingTorrentHash();
     const row = this.pendingResult();
-    if (!hash || !row) return;
-    const selected = [...this.selectedFileIndices()];
+    const matcher = this.matcher();
+    if (!hash || !row || !matcher) return;
+
+    // La sélection du matcher est indexée sur la position dans torrentFiles() ; on retraduit vers
+    // l'index de fichier QBittorrent attendu par apply-selection.
+    const files = this.torrentFiles();
+    const selectedFileIndices = matcher.selection().map(s => files[s.fileIndex].index);
     const overrides: Record<number, string> = {};
-    for (const index of selected) {
-      const issueId = this.fileAssignments().get(index);
-      if (issueId) overrides[index] = issueId;
-    }
+    for (const s of matcher.selection()) overrides[files[s.fileIndex].index] = s.issueId;
 
     this.applyingSelection.set(true);
     this.selectionApplied.set(true); // neutralise le nettoyage/polling pendant la validation
@@ -494,25 +419,21 @@ export class ProwlarrSearchComponent {
 
     this.qbittorrentService.applySelection(
       hash, row.result.downloadUrl ?? '', row.result.title, row.result.indexer,
-      ids.issueId, ids.volumeId, selected, overrides
+      ids.issueId, ids.volumeId, selectedFileIndices, overrides
     )
       .pipe(
         takeUntilDestroyed(this.#destroyRef),
         finalize(() => { this.applyingSelection.set(false); this.closePackModal(); })
       )
       .subscribe({
-        next:  () => this.grabSuccess.set(`Pack download started — ${selected.length} file(s) selected.`),
+        next:  () => this.grabSuccess.set(`Pack download started — ${selectedFileIndices.length} file(s) selected.`),
         error: err => this.searchError.set(err?.error?.message ?? 'Failed to apply selection.')
       });
   }
 
   // --- Utilitaires ---
 
-  formatSize(bytes: number): string {
-    if (bytes <= 0) return '—';
-    const mb = bytes / 1_048_576;
-    return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
-  }
+  protected readonly formatSize = formatSize;
 
   detectFormat(title: string): string {
     const t = title.toLowerCase();

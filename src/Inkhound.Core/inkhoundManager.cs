@@ -1997,102 +1997,160 @@ public class InkhoundManager : BaseServiceManager
         return true;
     }
 
-    public async Task ImportArchiveFromDirectoryAsync(Guid volumeId, string importDirectory, bool overrideExisting = false, CancellationToken ct = default)
+    // Liste les fichiers d'archive d'un dossier avec le numéro d'issue déduit de leur nom — alimente
+    // la popup de revue fichiers ↔ issues avant l'import. Lecture rapide, pas un job.
+    public async Task<List<ImportScanFile>> ScanImportDirectoryAsync(Guid volumeId, string directory, CancellationToken ct = default)
     {
         var ctx = GetDb();
-
-        var volume = await ctx.Volumes.FindAsync([volumeId], ct)
+        _ = await ctx.Volumes.FindAsync([volumeId], ct)
             ?? throw new KeyNotFoundException($"Volume {volumeId} not found.");
-        var library = await ctx.Libraries.FindAsync([volume.LibraryId], ct)
-            ?? throw new KeyNotFoundException($"Library {volume.LibraryId} not found.");
-        var issues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
 
-        var archiveService = GetService<ArchiveService, ArchiveOption>();
-        if (archiveService.CurrentState.State != EState.OK)
-            throw new InvalidOperationException("ArchiveService is not available");
+        if (!Directory.Exists(directory))
+            throw new DirectoryNotFoundException($"Directory not found: {directory}");
 
-        var job = StartJob($"Import {importDirectory} to {volume.Title}");
-        job.SetState(JobState.RUNNING);
+        return _archiveExtensions
+            .SelectMany(ext => Directory.GetFiles(directory, ext))
+            .Select(f => new FileInfo(f))
+            .OrderBy(f => f.Name)
+            .Select(f => new ImportScanFile(f.Name, f.Length, SourceAnalyzer.ParseIssueNumber(f.Name)))
+            .ToList();
+    }
 
-        var tempDir = archiveService.GenerateTempDirectory();
-        JobSendTrace($"Created temporary directory {tempDir.FullName} for import processing", ETraceLevel.INFO);
+    // Import des archives d'un dossier vers un volume. parameters.FileIssueMap (nom de fichier →
+    // IssueId) = appariement explicite issu de la popup de revue ; quand null, appariement
+    // automatique par numéro de tome. Retourne le JobContext pour que le controller renvoie le jobId.
+    public JobContext LaunchJobImportDirectory(ImportDirectoryJobParameters parameters)
+    {
+        var ctx = GetDb();
+        var volume = ctx.Volumes.Find(parameters.VolumeId);
+        var jobTitle = volume is not null ? $"Import — {volume.Title}" : $"Import — {parameters.Directory}";
+
+        var job = StartJob(jobTitle, parameters);
+        if (job.State != JobState.ERROR)
+        {
+            job.SetState(JobState.RUNNING);
+            _ = RunImportDirectoryJobAsync(job, parameters);
+        }
+        return job;
+    }
+
+    private async Task RunImportDirectoryJobAsync(JobContext job, ImportDirectoryJobParameters parameters)
+    {
+        DirectoryInfo? tempDir = null;
         try
         {
+            var ctx = GetDb();
+            var volume = await ctx.Volumes.FindAsync(parameters.VolumeId)
+                ?? throw new KeyNotFoundException($"Volume {parameters.VolumeId} not found.");
+            var library = await ctx.Libraries.FindAsync(volume.LibraryId)
+                ?? throw new KeyNotFoundException($"Library {volume.LibraryId} not found.");
+            var issues = await ctx.Issues.Where(i => i.VolumeId == parameters.VolumeId).ToListAsync();
+
+            var archiveService = GetService<ArchiveService, ArchiveOption>();
+            if (archiveService.CurrentState.State != EState.OK)
+                throw new InvalidOperationException("ArchiveService is not available");
+
+            tempDir = archiveService.GenerateTempDirectory();
+
             var files = _archiveExtensions
-                .SelectMany(ext => Directory.GetFiles(importDirectory, ext))
+                .SelectMany(ext => Directory.GetFiles(parameters.Directory, ext))
                 .Select(f => new FileInfo(f))
                 .OrderBy(f => f.Name)
                 .ToList();
 
             job.AddTotal(files.Count);
-            JobSendTrace($"Found {files.Count} archive files in import directory {importDirectory}", ETraceLevel.INFO);
+            JobSendTrace($"[Import] {files.Count} archive file(s) in {parameters.Directory}");
 
+            var anyImported = false;
             foreach (var file in files)
             {
-                JobSendTrace($"Processing file {file.Name}", ETraceLevel.INFO);
-                var issueNumber = SourceAnalyzer.ParseIssueNumber(file.Name);
-                if (issueNumber is null) continue;
-
-                var issue = issues.FirstOrDefault(i => i.IssueNumber == issueNumber);
-                if (issue is null) continue;
-
-                if (issue.Status == IssueStatus.DOWNLOADED && !overrideExisting)
+                Issue? issue;
+                if (parameters.FileIssueMap is { } map)
                 {
-                    JobSendTrace($"Skipping {file.Name} (already downloaded)", ETraceLevel.INFO);
-                    job.Progress.Increment(true);
-                    job.CallbackHandler.Callback(job.Progress);
-                    continue; // Skip already downloaded issues if not overriding
+                    if (!map.TryGetValue(file.Name, out var issueId)) continue; // non retenu dans la revue
+                    issue = issues.FirstOrDefault(i => i.Id == issueId);
+                    if (issue is null)
+                    {
+                        JobSendTrace($"[Import] {file.Name}: issue {issueId} not found — skipped", ETraceLevel.WARNING);
+                        job.Progress.Increment(false);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+                    // Fichier explicitement mappé → importé même si l'issue est déjà DOWNLOADED (ré-import).
                 }
-                var subPath = Path.Combine(tempDir.FullName, issueNumber.Value.ToString("D3"));
-                var parameters = new ArchiveConverterPdfJobParameters
+                else
+                {
+                    var number = SourceAnalyzer.ParseIssueNumber(file.Name);
+                    if (number is null) continue;
+                    issue = issues.FirstOrDefault(i => i.IssueNumber == number);
+                    if (issue is null) continue;
+                    if (issue.Status == IssueStatus.DOWNLOADED && !parameters.OverrideExisting)
+                    {
+                        JobSendTrace($"[Import] Skipping {file.Name} (issue #{issue.IssueNumber} already downloaded)");
+                        job.Progress.Increment(true);
+                        job.CallbackHandler.Callback(job.Progress);
+                        continue;
+                    }
+                }
+
+                JobSendTrace($"[Import] {file.Name} → issue #{issue.IssueNumber}");
+                var archive = await ImportArchiveAsync(new ArchiveConverterPdfJobParameters
                 {
                     SourceFile = file.FullName,
-                    WorkingPath = subPath,
+                    WorkingPath = Path.Combine(tempDir.FullName, issue.Id.ToString("N")),
                     Library = library,
                     Volume = volume,
                     Issue = issue
-                };
-                JobSendTrace($"Launching import job for file {file.Name} to issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
-                var archive = await ImportArchiveAsync(parameters, job.CallbackHandler);
-                JobSendTrace($"Import job completed for file {file.Name} with result: {(archive != null ? "Success" : "Failure")}", ETraceLevel.INFO);
-                if (archive is null) continue;
+                }, job.CallbackHandler);
+
+                if (archive is null)
+                {
+                    JobSendTrace($"[Import] Import failed for {file.Name}", ETraceLevel.ERROR);
+                    job.Progress.Increment(false);
+                    job.CallbackHandler.Callback(job.Progress);
+                    continue;
+                }
 
                 var volumeDir = archiveService.CreateVolumeDirectory(volume, library);
-
                 var dest = Path.Combine(volumeDir.FullName, archive.Name);
-                JobSendTrace($"Moving archive file {archive.FullName} to final destination {dest}", ETraceLevel.INFO);
                 File.Copy(archive.FullName, dest, overwrite: true);
                 archiveService.EnsurePermissiveFileMode(dest);
-                JobSendTrace($"Moving Done", ETraceLevel.INFO);
 
                 issue.CbzFilename = archive.Name;
                 issue.FileSizeBytes = (int)archive.Length;
                 issue.Status = IssueStatus.DOWNLOADED;
-                // Persiste d'abord le changement de statut de l'issue : le recalcul du compteur ci-
-                // dessous interroge la base via CountAsync, qui ne verrait pas cette issue si elle
-                // n'était pas encore sauvegardée (bug historique : le dernier item traité n'était
-                // jamais comptabilisé).
-                await ctx.SaveChangesAsync(ct);
-                await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
+                issue.DownloadedAt = DateTime.UtcNow;
+                // Persiste d'abord le statut de l'issue : le recalcul du compteur ci-dessous requête
+                // la base et ne verrait pas cette issue si elle n'était pas encore sauvegardée.
+                await ctx.SaveChangesAsync();
+                await RecalculateVolumeStatisticsAsync(ctx, volume.Id);
                 OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                JobSendTrace($"Successfully imported file {file.Name} as issue {issue.Title} (issue number {issue.IssueNumber})", ETraceLevel.INFO);
+                anyImported = true;
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
             }
+
+            if (anyImported && !string.IsNullOrEmpty(library.KavitaPath))
+            {
+                var kavita = GetService<KavitaService, KavitaOptions>();
+                var kavitaFolderPath = library.KavitaPath.TrimEnd('/', '\\') + "/" + ArchiveService.GetPath(volume);
+                await JobRunTimedAsync(
+                    $"[Import] Triggering Kavita folder scan: {kavitaFolderPath}",
+                    () => kavita.ScanFolderAsync(kavitaFolderPath));
+            }
+
+            EndJob(job.Progress.Error == 0);
         }
         catch (Exception ex)
         {
-            JobSendTrace($"Unhandled error during import: {ex.Message}", ETraceLevel.ERROR);
+            JobSendTrace($"[Import] Unhandled error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
-            return;
         }
-
-        if (tempDir.Exists)
-            tempDir.Delete(recursive: true);
-        JobSendTrace($"Import process completed for directory {importDirectory}", ETraceLevel.INFO);
-        EndJob(true);
-
-
+        finally
+        {
+            if (tempDir?.Exists == true)
+                tempDir.Delete(recursive: true);
+        }
     }
 
     #endregion

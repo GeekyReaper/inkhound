@@ -1,7 +1,7 @@
-import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { filter, switchMap } from 'rxjs';
+import { filter, finalize, switchMap } from 'rxjs';
 import {
   AlertComponent,
   ButtonCloseDirective,
@@ -27,10 +27,11 @@ import {
   TooltipDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { AGE_RATINGS, AgeRating, AgeRatingOption, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
+import { AGE_RATINGS, AgeRating, AgeRatingOption, ImportScanFile, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
+import { FileIssueMatcherComponent } from '../file-issue-matcher/file-issue-matcher.component';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 import { PageJobService } from '../../core/services/page-job.service';
@@ -45,7 +46,7 @@ import { Library, LibraryService } from '../../core/services/library.service';
     CardComponent, CardBodyComponent, CardFooterComponent,
     BadgeComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
-    SelectPathComponent, ProwlarrSearchComponent,
+    SelectPathComponent, ProwlarrSearchComponent, FileIssueMatcherComponent,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent,
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
@@ -123,9 +124,17 @@ export class VolumeComponent {
   error         = signal<string | null>(null);
   issues        = signal<Issue[]>([]);
   issuesLoading = signal(false);
-  importVisible = signal(false);
-  importing     = signal(false);
-  importSuccess = signal(false);
+
+  // --- Import d'un dossier avec revue fichiers ↔ issues ---
+  importVisible       = signal(false);          // pioche du dossier (app-select-path)
+  importDirectory     = signal<string | null>(null);
+  importReviewVisible = signal(false);          // modale de revue
+  importScanFiles     = signal<ImportScanFile[]>([]);
+  importScanLoading   = signal(false);
+  importScanError     = signal<string | null>(null);
+  importApplying      = signal(false);
+  private readonly importMatcher = viewChild(FileIssueMatcherComponent);
+  readonly importSelectedCount = computed(() => this.importMatcher()?.selection().length ?? 0);
 
   confirmDeleteVisible = signal(false);
   deleting             = signal(false);
@@ -181,7 +190,7 @@ export class VolumeComponent {
       if (job.state !== 'SUCCESS' && job.state !== 'ERROR') return;
       this.handledJobIds.add(job.jobId);
       this.pageJobs.clear(this.pageKey);
-      if (job.state === 'ERROR') this.error.set('Rematch/Refresh failed — see the job console for details.');
+      if (job.state === 'ERROR') this.error.set('Job failed — see the job console for details.');
       // Les données à jour (Volume + Issues) arrivent via lastDataUpdated, déjà écouté ci-dessus.
     });
   }
@@ -242,23 +251,58 @@ export class VolumeComponent {
     this.router.navigate(['issue', issue.id], { relativeTo: this.route.parent });
   }
 
+  // Dossier choisi → ouvre la modale de revue et lance le scan.
   onImportSelected(path: string): void {
-    console.log('Selected path for import:', path);
-    if (!path) return;
-    const volumeId = this.volume()?.id;
-    if (!volumeId) return;
-
-    console.log('Starting import for volume ID:', volumeId);
-
-    this.importing.set(true);
-    this.importSuccess.set(false);
+    if (!path || !this.volume()) return;
+    this.importDirectory.set(path);
+    this.importScanFiles.set([]);
+    this.importScanError.set(null);
     this.error.set(null);
+    this.importReviewVisible.set(true);
+    this.scanImport();
+  }
 
-    this.volumeService.importFromDirectory(volumeId, path)
-      .pipe(takeUntilDestroyed(this.#destroyRef))
+  private scanImport(): void {
+    const vol = this.volume();
+    const dir = this.importDirectory();
+    if (!vol || !dir) return;
+    this.importScanLoading.set(true);
+    this.volumeService.scanImportDirectory(vol.id, dir)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.importScanLoading.set(false)))
       .subscribe({
-        next:  () => { this.importing.set(false); this.importSuccess.set(true); },
-        error: err => { this.error.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
+        next:  res => this.importScanFiles.set(res.files),
+        error: err => this.importScanError.set(err?.error?.message ?? 'Failed to scan the directory.')
+      });
+  }
+
+  onImportReviewVisibleChange(visible: boolean): void {
+    if (!visible) this.closeImportReview();
+  }
+
+  closeImportReview(): void {
+    this.importReviewVisible.set(false);
+    this.importDirectory.set(null);
+    this.importScanFiles.set([]);
+    this.importScanError.set(null);
+  }
+
+  confirmImport(): void {
+    const vol = this.volume();
+    const dir = this.importDirectory();
+    const matcher = this.importMatcher();
+    if (!vol || !dir || !matcher || this.importApplying()) return;
+
+    const files = this.importScanFiles();
+    const fileIssueMap: Record<string, string> = {};
+    for (const s of matcher.selection()) fileIssueMap[files[s.fileIndex].name] = s.issueId;
+
+    this.importApplying.set(true);
+    this.error.set(null);
+    this.volumeService.importFromDirectory(vol.id, dir, fileIssueMap)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.importApplying.set(false)))
+      .subscribe({
+        next:  res => { this.pageJobs.register(this.pageKey, res.jobId); this.closeImportReview(); },
+        error: err => this.error.set(err?.error?.message ?? 'Import failed.')
       });
   }
 

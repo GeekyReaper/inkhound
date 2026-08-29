@@ -250,8 +250,15 @@ Exemples existants :
 - `LaunchJobSynchronizeLibrary(SynchronizeLibraryJobParameters parameters)`
 - `LaunchJobArchiveIssue(ArchiveJobParameters parameters)`
 - `LaunchJobRegenerateComicInfo(RegenerateComicInfoJobParameters parameters)`
+- `LaunchJobImportDirectory(ImportDirectoryJobParameters parameters)` — import des archives d'un
+  dossier vers un volume ; `FileIssueMap` (nom de fichier → IssueId, issu de la popup de revue) ou
+  appariement auto par numéro. Retourne le `JobContext` (le controller renvoie le `jobId`).
 
 Les paramètres sont des classes dédiées dans `Models/`, implémentant `IJobParameters` (Foundation.Core) avec une méthode `IsValid()`.
+
+Certaines méthodes `LaunchJobXxx` retournent le `JobContext` (setup synchrone + `_ = RunXxxJobAsync(job, …)`
+en fire-and-forget) pour que le controller expose le `jobId` immédiatement — cf. `LaunchJobRematchVolume`,
+`LaunchJobImportDirectory`.
 
 ### Structure obligatoire d'un LaunchJob
 

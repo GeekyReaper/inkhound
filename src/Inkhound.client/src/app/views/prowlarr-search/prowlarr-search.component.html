@@ -244,57 +244,7 @@
       }
 
       @if (torrentFiles().length > 0) {
-        <p class="text-body-secondary small mb-3">
-          {{ torrentFiles().length }} file(s) found in this pack.
-          Files matched to a missing issue are pre-selected — assign the others manually or leave them unselected.
-        </p>
-        <table cTable [hover]="true" class="mb-0">
-          <thead>
-            <tr>
-              <th style="width: 40px;">
-                <input
-                  type="checkbox"
-                  class="form-check-input"
-                  [checked]="allFilesSelected()"
-                  (change)="onToggleAllFiles()" />
-              </th>
-              <th>File</th>
-              <th style="width: 180px;">Issue</th>
-              <th class="text-end" style="width: 110px;">Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (file of torrentFiles(); track file.index) {
-              <tr [style.cursor]="isFileAssignable(file.index) ? 'pointer' : 'default'"
-                  (click)="onToggleFile(file.index)">
-                <td>
-                  <input
-                    type="checkbox"
-                    class="form-check-input"
-                    [checked]="isFileSelected(file.index)"
-                    [disabled]="!isFileAssignable(file.index)"
-                    (click)="$event.stopPropagation()"
-                    (change)="onToggleFile(file.index)" />
-                </td>
-                <td class="text-break">{{ file.name }}</td>
-                <td (click)="$event.stopPropagation()">
-                  <select class="form-select form-select-sm" style="width: auto;"
-                          (change)="onManualAssign(file.index, $any($event.target).value)">
-                    <option value="" [selected]="!fileAssignments().has(file.index)">— assign issue —</option>
-                    @for (issue of availableIssuesFor(file.index); track issue.id) {
-                      <option [value]="issue.id"
-                              [selected]="fileAssignments().get(file.index) === issue.id"
-                              [disabled]="!isIssueSelectable(issue)">
-                        {{ issueOptionLabel(issue) }}
-                      </option>
-                    }
-                  </select>
-                </td>
-                <td class="text-end text-nowrap">{{ formatSize(file.size) }}</td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <app-file-issue-matcher [files]="torrentFiles()" [issues]="volumeIssues()" />
       }
     }
 
@@ -303,7 +253,7 @@
   <c-modal-footer>
     @if (packModalStep() === 2) {
       <span class="text-body-secondary small me-auto">
-        {{ selectedFileIndices().size }} / {{ torrentFiles().length }} selected
+        {{ selectedCount() }} / {{ torrentFiles().length }} selected
       </span>
       <button cButton color="secondary" variant="outline"
               [disabled]="aborting()"
@@ -316,14 +266,14 @@
         }
       </button>
       <button cButton color="primary"
-              [disabled]="selectedFileIndices().size === 0 || applyingSelection() || aborting()"
+              [disabled]="selectedCount() === 0 || applyingSelection() || aborting()"
               (click)="onApplySelection()">
         @if (applyingSelection()) {
           <c-spinner size="sm" class="me-1"></c-spinner>
           Applying...
         } @else {
           <svg cIcon name="cilCloudDownload" size="sm" class="me-1"></svg>
-          Download {{ selectedFileIndices().size }} file(s)
+          Download {{ selectedCount() }} file(s)
         }
       </button>
     } @else {

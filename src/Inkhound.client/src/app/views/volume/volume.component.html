@@ -114,13 +114,9 @@
     <c-row class="mb-3">
       <c-col class="d-flex gap-2 align-items-center">
         <button cButton color="primary" size="sm"
-                [disabled]="importing()"
+                [disabled]="!!activeJobId()"
                 (click)="importVisible.set(true)">
-          @if (importing()) {
-            <c-spinner size="sm" class="me-1"></c-spinner>
-          } @else {
-            <svg cIcon name="cilFolderOpen" class="me-1"></svg>
-          }
+          <svg cIcon name="cilFolderOpen" class="me-1"></svg>
           Import
         </button>
         @if (isManual()) {
@@ -143,11 +139,6 @@
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete
         </button>
-        @if (importSuccess()) {
-          <c-alert color="success" class="mb-0 py-1 small">
-            Import started — processing in background.
-          </c-alert>
-        }
       </c-col>
     </c-row>
 
@@ -330,6 +321,55 @@
         <c-spinner size="sm" class="me-2"></c-spinner>Deleting…
       } @else {
         Delete
+      }
+    </button>
+  </c-modal-footer>
+</c-modal>
+
+<!-- Import d'un dossier : revue de l'appariement fichiers ↔ issues avant lancement -->
+<c-modal
+  [visible]="importReviewVisible()"
+  (visibleChange)="onImportReviewVisibleChange($event)"
+  backdrop="static"
+  size="lg"
+  [scrollable]="true">
+  <c-modal-header>
+    <h5 cModalTitle>Import from directory</h5>
+    <button cButtonClose [disabled]="importApplying()" (click)="closeImportReview()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p class="text-body-secondary small text-break mb-3">{{ importDirectory() }}</p>
+
+    @if (importScanError()) {
+      <c-alert color="danger" class="mb-0">{{ importScanError() }}</c-alert>
+    } @else if (importScanLoading()) {
+      <div class="d-flex align-items-center gap-2 text-body-secondary">
+        <c-spinner size="sm"></c-spinner>
+        Scanning directory…
+      </div>
+    } @else if (importScanFiles().length === 0) {
+      <p class="text-body-secondary mb-0 small">No .cbz / .cbr / .pdf file found in this directory.</p>
+    } @else {
+      <app-file-issue-matcher [files]="importScanFiles()" [issues]="issues()" />
+    }
+  </c-modal-body>
+  <c-modal-footer>
+    @if (importScanFiles().length > 0 && !importScanLoading() && !importScanError()) {
+      <span class="text-body-secondary small me-auto">
+        {{ importSelectedCount() }} / {{ importScanFiles().length }} selected
+      </span>
+    }
+    <button cButton color="secondary" variant="outline" [disabled]="importApplying()" (click)="closeImportReview()">
+      Cancel
+    </button>
+    <button cButton color="primary"
+            [disabled]="importSelectedCount() === 0 || importApplying()"
+            (click)="confirmImport()">
+      @if (importApplying()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Starting…
+      } @else {
+        Import {{ importSelectedCount() }} file(s)
       }
     </button>
   </c-modal-footer>

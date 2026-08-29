@@ -1,0 +1,52 @@
+<p class="text-body-secondary small mb-3">
+  {{ files().length }} file(s) found.
+  Files matched to a missing issue are pre-selected — assign the others manually or leave them unselected.
+</p>
+
+<table cTable [hover]="true" class="mb-0">
+  <thead>
+    <tr>
+      <th style="width: 40px;">
+        <input
+          type="checkbox"
+          class="form-check-input"
+          [checked]="allFilesSelected()"
+          (change)="onToggleAllFiles()" />
+      </th>
+      <th>File</th>
+      <th style="width: 180px;">Issue</th>
+      <th class="text-end" style="width: 110px;">Size</th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (file of files(); track $index; let i = $index) {
+      <tr [style.cursor]="isFileAssignable(i) ? 'pointer' : 'default'"
+          (click)="onToggleFile(i)">
+        <td>
+          <input
+            type="checkbox"
+            class="form-check-input"
+            [checked]="isFileSelected(i)"
+            [disabled]="!isFileAssignable(i)"
+            (click)="$event.stopPropagation()"
+            (change)="onToggleFile(i)" />
+        </td>
+        <td class="text-break">{{ file.name }}</td>
+        <td (click)="$event.stopPropagation()">
+          <select class="form-select form-select-sm" style="width: auto;"
+                  (change)="onManualAssign(i, $any($event.target).value)">
+            <option value="" [selected]="!isFileAssignable(i)">— assign issue —</option>
+            @for (issue of availableIssuesFor(i); track issue.id) {
+              <option [value]="issue.id"
+                      [selected]="currentAssignment(i) === issue.id"
+                      [disabled]="!isIssueSelectable(issue)">
+                {{ issueOptionLabel(issue) }}
+              </option>
+            }
+          </select>
+        </td>
+        <td class="text-end text-nowrap">{{ formatSize(file.size) }}</td>
+      </tr>
+    }
+  </tbody>
+</table>

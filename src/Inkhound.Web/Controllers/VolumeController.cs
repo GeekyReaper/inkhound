@@ -106,14 +106,36 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
-    public record ImportFromDirectoryRequest(string ImportDirectory);
+    // FileIssueMap : nom de fichier → IssueId, issu de la popup de revue. Null = appariement auto.
+    public record ImportFromDirectoryRequest(string ImportDirectory, Dictionary<string, Guid>? FileIssueMap = null);
 
-    // POST /api/volumes/{volumeId}/import
+    // GET /api/volumes/{volumeId}/import/scan?directory=<path> — aperçu des archives d'un dossier
+    // (nom + taille + numéro d'issue déduit) pour alimenter la popup de revue.
+    [HttpGet("/api/volumes/{volumeId:guid}/import/scan")]
+    public async Task<IActionResult> ScanImport(Guid volumeId, [FromQuery] string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return BadRequest(new { message = "directory is required." });
+        try
+        {
+            var files = await manager.ScanImportDirectoryAsync(volumeId, directory);
+            return Ok(new { files });
+        }
+        catch (DirectoryNotFoundException ex) { return NotFound(new { message = ex.Message }); }
+    }
+
+    // POST /api/volumes/{volumeId}/import — lance l'import en Job et retourne son jobId ; suivi via
+    // SignalR (JobPanel de la page Volume).
     [HttpPost("/api/volumes/{volumeId:guid}/import")]
     public IActionResult ImportFromDirectory(Guid volumeId, [FromBody] ImportFromDirectoryRequest request)
     {
-        _ = manager.ImportArchiveFromDirectoryAsync(volumeId, request.ImportDirectory);
-        return Accepted(new { message = $"Import started for volume {volumeId}." });
+        var job = manager.LaunchJobImportDirectory(new ImportDirectoryJobParameters
+        {
+            VolumeId = volumeId,
+            Directory = request.ImportDirectory,
+            FileIssueMap = request.FileIssueMap
+        });
+        return Accepted(new { jobId = job.JobId });
     }
 
     public record UpdateIssueRequest(

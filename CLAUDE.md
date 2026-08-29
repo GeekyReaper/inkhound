@@ -83,3 +83,9 @@ Les skills suivants sont actifs dans `.claude/skills/` et s'appliquent à tout l
 
 - `docs/architecture.md` — architecture détaillée, patterns SignalR, auth, jobs
 - `docs/project.md` — brief produit, modèle de données, flux métier
+
+## Git
+
+- Les commits doivent être faits sur la branche **master**
+- Avant chaque commit, mettre à jour les fichiers `CLAUDE.md` à la racine de chaque projet concerné
+  par les changements

@@ -155,6 +155,13 @@ export interface UpdateVolumeManuallyRequest {
   issues:      UpdateIssueRequest[];
 }
 
+// Fichier d'archive trouvé dans un dossier d'import (structurellement un MatchableFile).
+export interface ImportScanFile {
+  name:                string;
+  size:                number;
+  detectedIssueNumber: number | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class VolumeService {
   private http = inject(HttpClient);
@@ -178,10 +185,17 @@ export class VolumeService {
     return this.http.get<SearchVolumesJobResult>(`/api/volumes/search/${jobId}`);
   }
 
-  importFromDirectory(volumeId: string, importDirectory: string) {
-    return this.http.post<{ message: string }>(
+  // Aperçu des archives d'un dossier (nom + taille + numéro d'issue déduit) pour la popup de revue.
+  scanImportDirectory(volumeId: string, directory: string) {
+    return this.http.get<{ files: ImportScanFile[] }>(
+      `/api/volumes/${volumeId}/import/scan`, { params: { directory } });
+  }
+
+  // fileIssueMap : nom de fichier → issueId, issu de la popup de revue. Retourne le jobId de l'import.
+  importFromDirectory(volumeId: string, importDirectory: string, fileIssueMap: Record<string, string>) {
+    return this.http.post<{ jobId: string }>(
       `/api/volumes/${volumeId}/import`,
-      { importDirectory }
+      { importDirectory, fileIssueMap }
     );
   }
 

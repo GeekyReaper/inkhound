@@ -428,6 +428,29 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
   (pathSelected)="onImportSelected($event)" />
 ```
 
+## Composant réutilisable : FileIssueMatcherComponent
+
+`app-file-issue-matcher` (`views/file-issue-matcher/`) — tableau générique d'appariement
+**fichiers ↔ issues d'un volume** : auto-appariement par numéro détecté (issues `MISSING`),
+`<select>` manuel par ligne (toutes les issues, `DOWNLOADING` désactivées, une issue prise ailleurs
+disparaît des autres listes), coché ⟺ une issue est assignée.
+
+```typescript
+// Inputs
+files  = input.required<MatchableFile[]>();  // { name; size; detectedIssueNumber: number | null }
+issues = input.required<Issue[]>();
+// Sélection courante — lue par le parent via viewChild(FileIssueMatcherComponent).selection()
+selection = computed<{ fileIndex: number; issueId: string }[]>();  // fileIndex = position dans files()
+```
+
+Purement présentationnel (aucun appel réseau). Utilisé par :
+- `ProwlarrSearchComponent` — revue des fichiers d'un PACK torrent avant `apply-selection`.
+- `VolumeComponent` — revue de l'import d'un dossier (`GET .../import/scan` → matcher →
+  `POST .../import { fileIssueMap }`).
+
+Le parent retraduit `selection()` (indexé sur la position dans `files()`) vers la clé attendue par
+son endpoint (index de fichier qBittorrent / nom de fichier).
+
 ## Environnements
 
 - **Dev** : `apiBaseUrl = ''` (proxy Angular vers `http://localhost:5000`)
