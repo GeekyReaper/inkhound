@@ -125,6 +125,15 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         return Accepted(new { jobId = job.JobId });
     }
 
+    // DELETE /api/issues/{issueId}/file — supprime le CBZ de la librairie, remet l'issue à MISSING,
+    // efface l'analyse et le suivi de download associés (torrent qBittorrent non touché).
+    [HttpDelete("/api/issues/{issueId:guid}/file")]
+    public async Task<IActionResult> DeleteFile(Guid issueId)
+    {
+        var (success, error) = await manager.DeleteIssueFileAsync(issueId);
+        return success ? NoContent() : BadRequest(new { message = error });
+    }
+
     // GET /api/volumes/{volumeId}/issues
     [HttpGet]
     public async Task<IActionResult> GetByVolume(Guid volumeId)

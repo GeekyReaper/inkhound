@@ -303,6 +303,9 @@ Les opérations simples et rapides restent des méthodes `async Task<T>` classiq
 - Lecture / écriture d'une seule entité en base
 - Patch d'un champ (ex: `UpdateVolumeAgeRatingAsync`)
 - Appel unique à une API externe sans boucle
+- `DeleteIssueFileAsync` — supprime le CBZ de la librairie, remet l'issue à `MISSING`, purge les
+  résultats d'analyse + les lignes `IssueDownload` de l'issue (torrent qBittorrent non touché),
+  recalcule les stats du volume, déclenche un scan Kavita. Un seul `File.Delete` + un appel Kavita.
 
 ---
 

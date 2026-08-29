@@ -25,21 +25,7 @@
           <span [class]="issueStatusBadgeClass(issue()!.status)">{{ issue()!.status }}</span>
         </div>
       </c-col>
-      <c-col [xs]="'auto'" class="d-flex gap-2">
-        <button cButton color="primary" variant="outline" size="sm"
-                [disabled]="!!activeJobId() || importing()"
-                (click)="importVisible.set(true)">
-          @if (importing()) {
-            <c-spinner size="sm" class="me-1"></c-spinner>
-          } @else {
-            <svg cIcon name="cilCloudDownload" size="sm"></svg>
-          }
-          Import
-        </button>
-        <button cButton color="primary" variant="outline" size="sm" (click)="openEditModal()">
-          <svg cIcon name="cilPencil" size="sm"></svg>
-          Edit
-        </button>
+      <c-col [xs]="'auto'">
         <button cButton color="secondary" variant="outline" size="sm" (click)="goBack()">
           <svg cIcon name="cilChevronLeft" size="sm"></svg>
           Back
@@ -124,6 +110,51 @@
       </c-col>
     </c-row>
 
+    <!-- Barre d'actions -->
+    <c-row class="mb-3">
+      <c-col class="d-flex gap-2 align-items-center">
+        <button cButton color="primary" size="sm"
+                [disabled]="!!activeJobId() || importing()"
+                (click)="importVisible.set(true)">
+          @if (importing()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          } @else {
+            <svg cIcon name="cilCloudDownload" size="sm" class="me-1"></svg>
+          }
+          Import
+        </button>
+        <button cButton color="secondary" size="sm" (click)="openEditModal()">
+          <svg cIcon name="cilPencil" size="sm" class="me-1"></svg>
+          Edit
+        </button>
+        <button cButton color="danger" size="sm"
+                [disabled]="!issue()!.cbzFilename || !!activeJobId()"
+                (click)="requestDeleteFile()">
+          <svg cIcon name="cilTrash" size="sm" class="me-1"></svg>
+          Delete file
+        </button>
+      </c-col>
+    </c-row>
+
+    <!-- Suivi du job d'import -->
+    @if ((importing() && activeJobId()) || importError()) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-card>
+            <c-card-body>
+              <h6 class="mb-2">Import</h6>
+              @if (importing() && activeJobId()) {
+                <app-job-panel [jobId]="activeJobId()" />
+              }
+              @if (importError()) {
+                <c-alert color="danger" class="mb-0 mt-2">{{ importError() }}</c-alert>
+              }
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
+
     <!-- Manual Search -->
     <app-prowlarr-search mode="issue" [targetId]="issueId" />
 
@@ -144,14 +175,14 @@
               </button>
             </div>
 
-            @if ((analyzing() || importing()) && activeJobId()) {
+            @if (analyzing() && activeJobId()) {
               <div class="mb-3">
                 <app-job-panel [jobId]="activeJobId()" />
               </div>
             }
 
-            @if (jobError()) {
-              <c-alert color="danger" class="mb-3">{{ jobError() }}</c-alert>
+            @if (analyzeError()) {
+              <c-alert color="danger" class="mb-3">{{ analyzeError() }}</c-alert>
             }
 
             @if (issue()!.analyzedAt) {
@@ -262,6 +293,42 @@
     </button>
   </c-modal-footer>
 
+</c-modal>
+
+<!-- Confirmation de suppression du fichier CBZ -->
+<c-modal
+  [visible]="deleteFileModalVisible()"
+  (visibleChange)="onDeleteFileModalVisibleChange($event)"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Delete CBZ file</h5>
+    <button cButtonClose [disabled]="deletingFile()" (click)="closeDeleteFileModal()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    <p class="mb-2">
+      Delete the CBZ file <strong>{{ issue()?.cbzFilename }}</strong> for issue #{{ issue()?.issueNumber }}?
+    </p>
+    <p class="text-body-secondary small mb-0">
+      The file is removed from the library folder; the issue goes back to MISSING and its analysis
+      results and download entry are cleared. The qBittorrent torrent (if any) is not touched.
+    </p>
+    @if (deleteFileError()) {
+      <c-alert color="danger" class="mt-3 mb-0">{{ deleteFileError() }}</c-alert>
+    }
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" [disabled]="deletingFile()" (click)="closeDeleteFileModal()">
+      Cancel
+    </button>
+    <button cButton color="danger" [disabled]="deletingFile()" (click)="confirmDeleteFile()">
+      @if (deletingFile()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Deleting...
+      } @else {
+        Delete
+      }
+    </button>
+  </c-modal-footer>
 </c-modal>
 
 <!-- Import : choix d'un fichier d'archive local à normaliser en CBZ de cette issue -->

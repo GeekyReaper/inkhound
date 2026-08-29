@@ -58,13 +58,17 @@ export class IssueComponent {
   loading       = signal(true);
   loadError     = signal<string | null>(null);
   analyzing     = signal(false);
-  // Message d'erreur générique pour le job de la page (Analyze ou Import) — l'effect de complétion
-  // ne sait pas lequel a fini.
-  jobError      = signal<string | null>(null);
+  analyzeError  = signal<string | null>(null);
 
   // --- Import d'un fichier local comme CBZ de l'issue ---
   importVisible = signal(false);   // pioche du fichier (app-select-path mode="file")
   importing     = signal(false);
+  importError   = signal<string | null>(null);
+
+  // --- Suppression du fichier CBZ ---
+  deleteFileModalVisible = signal(false);
+  deletingFile           = signal(false);
+  deleteFileError        = signal<string | null>(null);
 
   // --- État de la modale d'édition ---
   editModalVisible = signal(false);
@@ -110,10 +114,13 @@ export class IssueComponent {
       this.handledJobIds.add(job.jobId);
       this.pageJobs.clear(this.pageKey);
 
+      // Un seul job de page à la fois : le drapeau encore actif indique lequel vient de finir.
+      const wasImport = this.importing();
       this.analyzing.set(false);
       this.importing.set(false);
       if (job.state === 'ERROR') {
-        this.jobError.set('Job failed — see the console for details.');
+        if (wasImport) this.importError.set('Import failed — see the console for details.');
+        else this.analyzeError.set('Analysis failed — see the console for details.');
       }
       // Sinon, l'Issue mise à jour arrive via l'abonnement lastDataUpdated ci-dessus.
     });
@@ -180,13 +187,13 @@ export class IssueComponent {
     if (this.activeJobId()) return;
 
     this.analyzing.set(true);
-    this.jobError.set(null);
+    this.analyzeError.set(null);
 
     this.issueService.analyze(this.issueId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  res => this.pageJobs.register(this.pageKey, res.jobId),
-        error: err => { this.jobError.set(err?.error?.message ?? 'Analysis failed.'); this.analyzing.set(false); }
+        error: err => { this.analyzeError.set(err?.error?.message ?? 'Analysis failed.'); this.analyzing.set(false); }
       });
   }
 
@@ -196,13 +203,48 @@ export class IssueComponent {
     if (!path || this.activeJobId()) return;
 
     this.importing.set(true);
-    this.jobError.set(null);
+    this.importError.set(null);
 
     this.issueService.importFile(this.issueId, path)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
         next:  res => this.pageJobs.register(this.pageKey, res.jobId),
-        error: err => { this.jobError.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
+        error: err => { this.importError.set(err?.error?.message ?? 'Import failed.'); this.importing.set(false); }
+      });
+  }
+
+  // --- Suppression du fichier CBZ ---
+
+  requestDeleteFile(): void {
+    this.deleteFileError.set(null);
+    this.deleteFileModalVisible.set(true);
+  }
+
+  onDeleteFileModalVisibleChange(visible: boolean): void {
+    if (!visible) this.closeDeleteFileModal();
+  }
+
+  closeDeleteFileModal(): void {
+    this.deleteFileModalVisible.set(false);
+    this.deleteFileError.set(null);
+  }
+
+  confirmDeleteFile(): void {
+    if (this.deletingFile()) return;
+
+    this.deletingFile.set(true);
+    this.deleteFileError.set(null);
+
+    this.issueService.deleteFile(this.issueId)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.deletingFile.set(false)))
+      .subscribe({
+        next: () => {
+          this.issueService.getById(this.issueId)
+            .pipe(takeUntilDestroyed(this.#destroyRef))
+            .subscribe(i => this.issue.set(i));
+          this.closeDeleteFileModal();
+        },
+        error: err => this.deleteFileError.set(err?.error?.message ?? 'Failed to delete the file.')
       });
   }
 

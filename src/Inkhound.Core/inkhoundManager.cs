@@ -1997,6 +1997,68 @@ public class InkhoundManager : BaseServiceManager
         return true;
     }
 
+    // Supprime le fichier CBZ de la librairie et remet l'issue à MISSING : efface aussi les résultats
+    // d'analyse (ils décrivent un fichier disparu) et les lignes IssueDownload de l'issue (le torrent
+    // qBittorrent n'est PAS touché). Opération courte → pas un job (cf. DeleteDownloadAsync).
+    public async Task<(bool Success, string? Error)> DeleteIssueFileAsync(Guid issueId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var issue = await ctx.Issues.FindAsync([issueId], ct);
+        if (issue is null) return (false, "Issue not found.");
+        if (string.IsNullOrEmpty(issue.CbzFilename)) return (false, "This issue has no CBZ file.");
+
+        var volume = await ctx.Volumes.FindAsync([issue.VolumeId], ct);
+        if (volume is null) return (false, "Volume not found.");
+        var library = await ctx.Libraries.FindAsync([volume.LibraryId], ct);
+        if (library is null) return (false, "Library not found.");
+
+        // Le fichier sur disque peut porter le nom calculé depuis les métadonnées actuelles OU le nom
+        // enregistré à l'import (dérive possible si les métadonnées ont changé sans regen). On sonde
+        // les deux ; un fichier déjà absent n'est pas une erreur.
+        var candidates = new[]
+        {
+            ArchiveService.GetPath(issue, volume, library),
+            Path.Combine(ArchiveService.GetPath(volume, library), issue.CbzFilename)
+        };
+        foreach (var path in candidates.Distinct())
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return (false, $"Could not delete the file: {ex.Message}");
+            }
+        }
+
+        issue.CbzFilename = null;
+        issue.FileSizeBytes = 0;
+        issue.Status = IssueStatus.MISSING;
+        issue.DownloadedAt = default;
+        issue.AnalysisScore = null;
+        issue.AnalysisScoreBand = null;
+        issue.AnalysisDominantImageFormat = null;
+        issue.AnalysisDominantResolutionWidth = null;
+        issue.AnalysisDominantResolutionHeight = null;
+        issue.AnalysisPageCount = null;
+        issue.AnalysisHasComicInfo = null;
+        issue.AnalysisZipCompressionPercent = null;
+        issue.AnalysisFileSizeBytes = null;
+        issue.AnalysisAveragePageSizeBytes = null;
+        issue.AnalysisFileHash = null;
+        issue.AnalyzedAt = null;
+
+        ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => d.IssueId == issueId));
+
+        await ctx.SaveChangesAsync(ct);
+        await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+
+        await TriggerKavitaScanAsync(volume.Id);
+        return (true, null);
+    }
+
     // Liste les fichiers d'archive d'un dossier avec le numéro d'issue déduit de leur nom — alimente
     // la popup de revue fichiers ↔ issues avant l'import. Lecture rapide, pas un job.
     public async Task<List<ImportScanFile>> ScanImportDirectoryAsync(Guid volumeId, string directory, CancellationToken ct = default)

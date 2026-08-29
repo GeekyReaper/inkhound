@@ -88,4 +88,10 @@ export class IssueService {
   importFile(issueId: string, filePath: string) {
     return this.http.post<{ jobId: string }>(`/api/issues/${issueId}/import`, { filePath });
   }
+
+  // Supprime le fichier CBZ de la librairie et remet l'issue à MISSING (analyse + suivi de download
+  // effacés). L'Issue mise à jour arrive via ManagerDataUpdated.
+  deleteFile(issueId: string) {
+    return this.http.delete<void>(`/api/issues/${issueId}/file`);
+  }
 }
