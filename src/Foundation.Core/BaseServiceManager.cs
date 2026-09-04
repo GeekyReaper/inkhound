@@ -23,6 +23,19 @@ public abstract class BaseServiceManager
 
     private static readonly AsyncLocal<JobContext> _currentJob = new();
 
+    // Cache des jobs récents (actifs + terminés depuis peu), indexé par JobId — permet à un
+    // client HTTP de rattraper un ManagerJobChanged manqué (déconnexion SignalR pendant
+    // l'exécution du job, ex: app mobile mise en arrière-plan). Ne remplace pas SignalR : c'est
+    // un filet de secours consulté uniquement à la resynchronisation (voir JobsController).
+    // JobContext étant une classe, la référence stockée ici reflète automatiquement toute
+    // mutation ultérieure (SetState, progression) sans hook supplémentaire.
+    private readonly ConcurrentDictionary<Guid, JobContext> _recentJobs = new();
+
+    // Durée de conservation d'un job APRÈS complétion (SUCCESS/ERROR) avant purge. Volontairement
+    // courte — contrairement à InkhoundManager._searchResults qui persiste les résultats sans
+    // limite, ce cache ne vise qu'à couvrir une brève fenêtre de reconnexion, pas un historique.
+    protected virtual TimeSpan JobRetention => TimeSpan.FromMinutes(15);
+
     public BaseServiceManager()
     {
         StartGlobalMonitoring();
@@ -95,6 +108,7 @@ public abstract class BaseServiceManager
 
                 CalculateGlobalState();
                 OnHealthcheck?.Invoke(CurrentState);
+                PurgeExpiredJobs();
             }
             while (await timer.WaitForNextTickAsync(ct));
         }
@@ -120,6 +134,7 @@ public abstract class BaseServiceManager
     public JobContext StartJob<T>(string title, T parameters) where T : IJobParameters
     {
         var job = new JobContext() { Title = title, OnUpdated = this.OnJobUpdated };
+        _recentJobs[job.JobId] = job;
         OnJobUpdated?.Invoke(job);
         _currentJob.Value = job;
 
@@ -137,9 +152,26 @@ public abstract class BaseServiceManager
     public JobContext StartJob(string title)
     {
         var job = new JobContext() { Title = title, OnUpdated = this.OnJobUpdated };
+        _recentJobs[job.JobId] = job;
         OnJobUpdated?.Invoke(job);
         _currentJob.Value = job;
         return job;
+    }
+
+    // Filet de rattrapage HTTP (voir JobsController) — état courant d'un job connu, y compris
+    // juste après sa complétion (fenêtre JobRetention). Ne distingue pas un job jamais lancé d'un
+    // job expiré : les deux renvoient null, pour éviter un registre permanent.
+    public JobContext? TryGetJob(Guid jobId) => _recentJobs.TryGetValue(jobId, out var job) ? job : null;
+
+    private void PurgeExpiredJobs()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var (id, job) in _recentJobs)
+        {
+            var isTerminal = job.State is JobState.SUCCESS or JobState.ERROR;
+            if (isTerminal && job.EndDate.HasValue && now - job.EndDate.Value > JobRetention)
+                _recentJobs.TryRemove(id, out _);
+        }
     }
 
     public void JobSendTrace(string message, ETraceLevel level = ETraceLevel.INFO)

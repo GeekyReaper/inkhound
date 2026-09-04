@@ -16,7 +16,8 @@ Inkhound.Web/
 │   ├── IssueController.cs        # CRUD /api/issues
 │   ├── KavitaController.cs       # /api/kavita (test connexion, scan)
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
-│   └── OptionsController.cs      # /api/options (settings app)
+│   ├── OptionsController.cs      # /api/options (settings app)
+│   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace
 ├── Middleware/ExceptionMiddleware.cs
@@ -94,6 +95,7 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
+| GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 
 ## Jobs — exposition via les controllers
 
@@ -119,6 +121,17 @@ de la librairie, remet l'issue à `MISSING` et purge l'analyse + le suivi de dow
 (`DeleteIssueFileAsync` → `NoContent` ou `BadRequest { message }`).
 
 La progression est relayée en temps réel vers les clients via SignalR par `InkhoundManagerInitializer` (qui souscrit aux événements `OnJobUpdated` et `OnTrace` du manager et les diffuse via `AppHub`).
+
+### Filet de rattrapage HTTP (`GET /api/jobs/{id}`)
+
+Le broadcast SignalR est fire-and-forget (`Clients.All`, pas de buffer) : un client déconnecté au
+moment d'un `ManagerJobChanged` (ex: app mobile mise en arrière-plan) le manque définitivement.
+`JobsController.GetStatus(jobId)` interroge `manager.TryGetJob(jobId)` (cache `_recentJobs` dans
+`BaseServiceManager`, voir `Foundation.Core/CLAUDE.md`) pour renvoyer l'état réel d'un job, y
+compris peu après sa complétion (fenêtre `JobRetention`, 15 min par défaut). Le frontend
+(`HubService.resyncTrackedJobs`) l'appelle à la reconnexion SignalR et au retour au premier plan
+de la page. 404 si le job n'a jamais existé ou si sa fenêtre de rétention est dépassée — les deux
+cas sont indistinguables (pas de registre permanent).
 
 ## SignalR Hub (`/hub/app`)
 

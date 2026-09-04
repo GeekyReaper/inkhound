@@ -399,6 +399,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
+| `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
+| `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |
 
 ### HubService — événements SignalR reçus
 
@@ -411,6 +413,22 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `ManagerDataUpdated` | `lastDataUpdated` | Entité modifiée côté serveur (Volume, Issue, Library…) |
 
 > `lastDataUpdated.dataType` se termine par `'Volume'`, `'Issue'` ou `'Library'` — utiliser `.endsWith()` pour filtrer.
+
+### HubService — résynchronisation après coupure (mobile background)
+
+`ManagerJobChanged` est un push fire-and-forget côté serveur (pas de buffer) : un job qui se
+termine pendant que le client est déconnecté (app mobile en arrière-plan, WebSocket coupé) ne sera
+jamais retransmis. `HubService` compense via un filet de rattrapage HTTP :
+
+- `onreconnected` (SignalR) et le listener `visibilitychange` (retour au premier plan) déclenchent
+  tous deux `resyncTrackedJobs()`.
+- `resyncTrackedJobs()` interroge `JobsService.getStatus(jobId)` pour chaque job suivi par
+  `PageJobService.trackedEntries()` ainsi que tout job connu encore `INITIALIZING`/`RUNNING`, et
+  applique le résultat via `applyJobUpdate()` — le **même** point d'écriture que le handler
+  `ManagerJobChanged` temps réel. Les pages métier (`effect()`/`computed()` sur `hub.jobs()`) n'ont
+  donc rien à changer pour bénéficier de la resync.
+- Un `404` (job expiré côté serveur, au-delà de `JobRetention`) libère la page via
+  `pageJobs.clear()` plutôt que de la laisser bloquée indéfiniment.
 
 ## Composant réutilisable : SelectPathComponent
 

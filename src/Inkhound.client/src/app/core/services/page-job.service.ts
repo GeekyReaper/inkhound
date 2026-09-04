@@ -4,9 +4,9 @@ const STORAGE_KEY = 'inkhound_page_jobs';
 
 // Associe l'URL résolue d'une page (ex: /library/{id}/volume/{volumeId}/issue/{issueId}) au
 // jobId du Job qui y a été lancé, pour n'autoriser qu'un job actif par page et retrouver le bon
-// jobId après un changement de vue. Persisté côté session uniquement (sessionStorage) — pas de
-// réconciliation avec le backend au chargement : si un job tourne toujours après un F5, il
-// réapparaît dès que son prochain ManagerJobChanged arrive via SignalR.
+// jobId après un changement de vue. Persisté côté session uniquement (sessionStorage). Les jobs
+// suivis ici sont resynchronisés via HTTP par HubService (trackedEntries()) à la reconnexion
+// SignalR et au retour au premier plan — voir HubService.resyncTrackedJobs.
 @Injectable({ providedIn: 'root' })
 export class PageJobService {
   private readonly map = signal<Record<string, string>>(PageJobService.load());
@@ -54,5 +54,13 @@ export class PageJobService {
   // fois la complétion effectivement traitée.
   activeJobId(pageKey: string): Signal<string | null> {
     return computed(() => this.map()[pageKey] ?? null);
+  }
+
+  // Snapshot de toutes les associations actives — permet une resynchronisation HTTP ciblée
+  // (retour au premier plan, reconnexion) sans que l'appelant connaisse les pageKeys à l'avance.
+  // Usage ponctuel/impératif (pas un Signal) : appelé uniquement au moment d'une resync, jamais
+  // lu en continu dans un template.
+  trackedEntries(): { pageKey: string; jobId: string }[] {
+    return Object.entries(this.map()).map(([pageKey, jobId]) => ({ pageKey, jobId }));
   }
 }

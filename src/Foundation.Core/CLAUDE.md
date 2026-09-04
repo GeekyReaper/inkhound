@@ -44,6 +44,28 @@ EndJob(success)
 
 Chaque appel à `OnJobUpdated` est relayé par la couche supérieure (ex: `InkhoundManagerInitializer`) vers SignalR.
 
+### Rétention des jobs récents (`_recentJobs`) — filet de rattrapage HTTP
+
+`OnJobUpdated` (donc SignalR) est le seul canal de diffusion — un client déconnecté au moment
+d'un `ManagerJobChanged` (ex: app mobile en arrière-plan) le manque définitivement, et une fois
+`EndJob()` exécuté, le `JobContext` n'a plus aucune référence via `_currentJob` (`AsyncLocal`).
+`BaseServiceManager` conserve donc en plus chaque job dans un
+`ConcurrentDictionary<Guid, JobContext> _recentJobs`, alimenté dans les deux surcharges de
+`StartJob` (la même référence d'objet est stockée, donc toute mutation ultérieure — `SetState`,
+progression — y reste visible sans hook supplémentaire).
+
+- `TryGetJob(Guid jobId)` — lecture publique, utilisée par `JobsController` (`Inkhound.Web`) pour
+  exposer `GET /api/jobs/{id}` : permet à un client de rattraper l'état réel d'un job après une
+  coupure SignalR.
+- `JobRetention` (`virtual TimeSpan`, 15 minutes par défaut) — durée de conservation d'un job
+  **après** sa complétion (`SUCCESS`/`ERROR`) ; volontairement courte, à la différence de
+  `InkhoundManager._searchResults` qui persiste des résultats sans limite.
+- `PurgeExpiredJobs()` — retire les jobs terminaux expirés, appelée à chaque tick de
+  `MonitoringLoopAsync` (boucle 30s déjà existante pour le healthcheck) : pas de timer dédié.
+
+Ce cache est un pur filet de secours consulté à la resynchronisation (retour au premier plan,
+reconnexion) — il ne remplace pas SignalR pour le suivi temps réel.
+
 ### `AsyncLocal<JobContext>` — le contexte implicite
 
 `_currentJob` est un `AsyncLocal<JobContext>` : sa valeur est propre à chaque chaîne d'exécution async. Quand `StartJob` l'assigne dans une méthode `LaunchJobXxx`, la valeur est visible partout dans la continuation async de cette méthode — y compris dans les appels aux sous-services — sans avoir à la passer en paramètre.
