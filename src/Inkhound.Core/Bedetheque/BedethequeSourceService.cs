@@ -342,14 +342,25 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     // Récupère le détail complet (dont les auteurs) de chaque album de la série — un appel HTTP
     // par album, rythmé par le RateLimiter, miroir du pattern Phase 1/Phase 2 de
-    // ComicVineSourceService.GetAllIssuesForVolumeAsync.
-    public async Task<IReadOnlyList<BdAlbum>> GetAllAlbumsForSerieAsync(int serieId, CancellationToken ct = default)
+    // ComicVineSourceService.GetAllIssuesForVolumeAsync. `progression` (optionnel) reçoit le total
+    // puis un Callback par album — permet à l'appelant (job Refresh/Add) de faire avancer sa barre
+    // de progression pendant le fetch réseau, qui est la partie la plus longue de l'opération (un
+    // album déjà vu dans les 24h précédentes ressort du cache mémoire, quasi instantané ; sinon un
+    // appel HTTP réel, throttlé à ~800ms minimum).
+    public async Task<IReadOnlyList<BdAlbum>> GetAllAlbumsForSerieAsync(int serieId, CancellationToken ct = default,
+        ProgressionCallback? progression = null)
     {
         var summaries = await GetAllAlbumSummariesForSerieAsync(serieId, ct);
         var all = new List<BdAlbum>();
-        foreach (var summary in summaries)
+        progression?.UpdateTotal(summaries.Count);
+        var fetched = new Progression { Total = summaries.Count };
+        for (var i = 0; i < summaries.Count; i++)
         {
+            var summary = summaries[i];
             var album = await GetAlbumAsync(summary.Id, ct);
+            SendTrace($"[Bedetheque] Album {i + 1}/{summaries.Count} — {summary.Titre}", ETraceLevel.INFO);
+            fetched.Increment(album is not null);
+            progression?.Callback(fetched);
             if (album is null) continue;
             // Category/Idx viennent de la page liste (summary), pas de la page détail — son propre
             // extracteur ("Tome X" sur alternativeheadline) ne couvre que les tomes classiques.

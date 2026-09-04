@@ -218,9 +218,14 @@ public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceServ
 
 
 
-    // Get ALL issues for a volume — paginates with minimal fields then fetches full detail per issue
+    // Get ALL issues for a volume — paginates with minimal fields then fetches full detail per issue.
+    // `progression` (optionnel) reçoit le total puis un Callback par issue de la Phase 2 — permet à
+    // l'appelant (job Refresh/Add) de faire avancer sa barre de progression pendant le fetch réseau,
+    // qui est la partie la plus longue de l'opération (un appel HTTP par issue, rythmé par le
+    // RateLimiter + un délai fixe de 500ms).
     public async Task<IReadOnlyList<CvIssue>> GetAllIssuesForVolumeAsync(
-        int comicVineVolumeId, ELevelDetail detail = ELevelDetail.ID, CancellationToken ct = default)
+        int comicVineVolumeId, ELevelDetail detail = ELevelDetail.ID, CancellationToken ct = default,
+        ProgressionCallback? progression = null)
     {
         // Phase 1: collect all issue IDs with minimal fields to stay under rate limit
 
@@ -242,14 +247,19 @@ public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceServ
 
         // Phase 2: fetch full detail (including person_credits) for each issue
         all.Clear(); // Phase 1 stubs only had id — discard them
-        foreach (var id in ids)
+        progression?.UpdateTotal(ids.Count);
+        var fetched = new Progression { Total = ids.Count };
+        for (var i = 0; i < ids.Count; i++)
         {
+            var id = ids[i];
             Debug.WriteLine($"[ComicVine] Fetching issue id={id}");
             var issue = await GetIssueAsync(id, ct);
-            SendTrace($"Fetched issue id={id}", ETraceLevel.INFO);
+            SendTrace($"Fetched issue {i + 1}/{ids.Count} (id={id})", ETraceLevel.INFO);
             Debug.WriteLine($"[ComicVine] Fetching issue id={id} DONE");
             if (issue is not null)
                 all.Add(issue);
+            fetched.Increment(issue is not null);
+            progression?.Callback(fetched);
             await Task.Delay(500, ct);
         }
         return all.AsReadOnly();

@@ -1166,7 +1166,12 @@ public class InkhoundManager : BaseServiceManager
             if (volume is null) { EndJob(false); return; }
 
             var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
-            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL);
+            var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(
+                comicVineVolumeId, ELevelDetail.FULL, progression: job.CallbackHandler);
+            // Repart de zéro pour la phase de création des issues — le fetch ci-dessus a déjà fait
+            // progresser job.Progress jusqu'à 100% en interne, sans Reset() cette phase hériterait
+            // d'un Completed déjà au max et resterait figée à ~100% au lieu d'un 0→100% propre.
+            job.Progress.Reset();
             job.CallbackHandler.UpdateTotal(cvIssues.Count);
 
             List<VolumeAuthor> allIssueAuthors = [];
@@ -1214,7 +1219,7 @@ public class InkhoundManager : BaseServiceManager
     public record RematchResult(int IssuesAdded, int IssuesUpdated, int IssuesRemoved);
 
     public async Task<RematchResult?> RematchVolumeFromComicVineAsync(
-        Guid volumeId, int comicVineVolumeId, CancellationToken ct = default)
+        Guid volumeId, int comicVineVolumeId, CancellationToken ct = default, ProgressionCallback? progression = null)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
@@ -1240,7 +1245,7 @@ public class InkhoundManager : BaseServiceManager
         volume.UpdatedAt    = DateTime.UtcNow;
         JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
 
-        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct);
+        var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct, progression);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
 
         var matchedExistingIds = new HashSet<Guid>();
@@ -1360,7 +1365,10 @@ public class InkhoundManager : BaseServiceManager
             if (volume is null) { EndJob(false); return; }
 
             var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
-            var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId);
+            var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, progression: job.CallbackHandler);
+            // Repart de zéro pour la phase de création des issues — voir le commentaire équivalent
+            // dans RunAddComicVineIssuesJobAsync.
+            job.Progress.Reset();
             job.CallbackHandler.UpdateTotal(bdAlbums.Count);
 
             List<VolumeAuthor> allIssueAuthors = [];
@@ -1406,7 +1414,7 @@ public class InkhoundManager : BaseServiceManager
 
     // Miroir de RematchVolumeFromComicVineAsync pour la source Bedetheque.
     public async Task<RematchResult?> RematchVolumeFromBedethequeAsync(
-        Guid volumeId, int bdSerieId, CancellationToken ct = default)
+        Guid volumeId, int bdSerieId, CancellationToken ct = default, ProgressionCallback? progression = null)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
@@ -1436,7 +1444,7 @@ public class InkhoundManager : BaseServiceManager
         volume.UpdatedAt    = DateTime.UtcNow;
         JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
 
-        var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct);
+        var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct, progression);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
 
         var matchedExistingIds = new HashSet<Guid>();
@@ -1527,11 +1535,12 @@ public class InkhoundManager : BaseServiceManager
             _ => throw new InvalidOperationException($"Unknown source '{source}'"),
         };
 
-    public Task<RematchResult?> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId, CancellationToken ct = default) =>
+    public Task<RematchResult?> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId,
+        CancellationToken ct = default, ProgressionCallback? progression = null) =>
         source.ToLowerInvariant() switch
         {
-            "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct),
-            "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct),
+            "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct, progression),
+            "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct, progression),
             _ => throw new InvalidOperationException($"Unknown source '{source}'"),
         };
 
@@ -1644,7 +1653,8 @@ public class InkhoundManager : BaseServiceManager
             if (parameters.SyncFromSource)
             {
                 JobSendTrace($"[Rematch] Fetching {parameters.Source} #{parameters.SourceId}...");
-                var result = await RematchVolumeFromSourceAsync(parameters.VolumeId, parameters.Source, parameters.SourceId);
+                var result = await RematchVolumeFromSourceAsync(
+                    parameters.VolumeId, parameters.Source, parameters.SourceId, progression: job.CallbackHandler);
                 if (result is null)
                 {
                     JobSendTrace("[Rematch] Volume not found", ETraceLevel.ERROR);
@@ -1912,6 +1922,9 @@ public class InkhoundManager : BaseServiceManager
             .ToListAsync();
 
         JobSendTrace($"[Sync] {downloadedIssues.Count} downloaded issue(s) to process for {volume.Title}");
+        // Repart de zéro pour cette phase — une phase précédente du même Refresh (sync depuis la
+        // source) a pu déjà faire progresser job.Progress jusqu'à 100%, voir RunAddComicVineIssuesJobAsync.
+        job.Progress.Reset();
         job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
 
         bool anyRenamed = false;
