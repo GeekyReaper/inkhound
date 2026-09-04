@@ -74,6 +74,7 @@ CreatedAt, UpdatedAt, DateAdded
 - `SourceType` — `"ComicVine"`, `"bedetheque"` ou `"manual"` (valeur libre, non typée — voir `ISourceService.SourceKey` pour la clé canonique de chaque source)
 - `AgeRating` — valeur de l'enum `AgeRating` ; écrire dans ComicInfo.xml via `ToKavitaString()` (jamais `.ToString()`)
 - `CountOfIssues`/`CountOfDownloadedIssues` — recalculés par `InkhoundManager.RecalculateVolumeStatisticsAsync`, **restreints aux issues `Category == Standard`** : la complétude d'un volume (compteurs, barre de progression, transition vers `COMPLETED`) ignore volontairement les Omnibus/Hors-série/... — voir `Issue.Category` ci-dessous.
+- `DateAdded` — sert uniquement au tri "Recently added" du Dashboard (`GetDashboardStatsAsync`, `OrderByDescending(v => v.DateAdded)`), aucun autre effet visible. **Tout chemin de création d'un `Volume` doit le renseigner** (avec `CreatedAt`/`UpdatedAt`) — un oubli ne casse rien à la compilation ni aux tests fonctionnels courants, il se traduit juste par un dashboard qui semble figé (bug historique corrigé en septembre 2026 sur ComicVine/Bedetheque/sync filesystem, voir `DbStorageService.ApplyPendingMigrationsAsync` pour le backfill des volumes déjà en base).
 
 ### Issue
 Numéro individuel, toujours associé à un Volume.

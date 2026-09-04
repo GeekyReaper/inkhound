@@ -287,6 +287,22 @@ public class DbStorageService : BaseService<DbStorageOption>
         // voir BedethequeAlbumClassifier. Lignes existantes → 'Standard' (repli neutre), corrigées
         // au prochain refresh de leur volume.
         await AddColumnIfMissingAsync(db, "Issues", "Category", "TEXT NOT NULL DEFAULT 'Standard'");
+
+        // Backfill Volumes.DateAdded (septembre 2026) — seul AddVolumeManuallyAsync le renseignait ;
+        // les volumes ajoutés via ComicVine, Bedetheque ou synchronisation filesystem avaient tous
+        // DateAdded == default, empêchant le tri "Recently added" du dashboard de les départager (ces
+        // trois chemins renseignent désormais DateAdded eux aussi). Repli sur CreatedAt (ou UpdatedAt
+        // si celui-ci est lui-même absent) pour les volumes déjà en base. Idempotent : une ligne une
+        // fois corrigée ne matche plus jamais la condition DateAdded == default.
+        var volumesToBackfill = await db.Volumes
+            .Where(v => v.DateAdded == default)
+            .ToListAsync();
+        if (volumesToBackfill.Count > 0)
+        {
+            foreach (var v in volumesToBackfill)
+                v.DateAdded = v.CreatedAt != default ? v.CreatedAt : v.UpdatedAt;
+            await db.SaveChangesAsync();
+        }
     }
 
     // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien

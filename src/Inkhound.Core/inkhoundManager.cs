@@ -898,10 +898,14 @@ public class InkhoundManager : BaseServiceManager
                 else
                 {
 
+                    var now = DateTime.UtcNow;
                     volume = Mapper.Map(cvVolume);
                     volume.Id = Guid.NewGuid();
                     volume.LibraryId = parameters.LibraryId;
                     volume.Status = VolumeStatus.PAUSED;
+                    volume.CreatedAt = now;
+                    volume.UpdatedAt = now;
+                    volume.DateAdded = now;
                     ctx.Volumes.Add(volume);
                     JobSendTrace($"[Sync] Added new volume {volume.Title} to database with path {dir.FullName}");
 
@@ -1141,6 +1145,7 @@ public class InkhoundManager : BaseServiceManager
         volume.Status = VolumeStatus.MONITORED;
         volume.CreatedAt = now;
         volume.UpdatedAt = now;
+        volume.DateAdded = now;
         volume.CountOfIssues = 0;
         ctx.Volumes.Add(volume);
         await ctx.SaveChangesAsync(ct);
@@ -1340,6 +1345,7 @@ public class InkhoundManager : BaseServiceManager
         volume.Status = VolumeStatus.MONITORED;
         volume.CreatedAt = now;
         volume.UpdatedAt = now;
+        volume.DateAdded = now;
         volume.CountOfIssues = 0;
         ctx.Volumes.Add(volume);
         await ctx.SaveChangesAsync(ct);
