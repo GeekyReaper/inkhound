@@ -1,0 +1,136 @@
+// Tableau "stack" : sur desktop/tablette, empêche la colonne de texte libre (Torrent/Title,
+// marquée .text-break) de se faire écraser par les colonnes voisines à largeur fixe dans
+// l'algorithme d'auto-layout HTML — une colonne "cassable n'importe où" n'a besoin d'aucune
+// largeur minimale de contenu, donc le navigateur la sacrifie en premier au profit des
+// colonnes à `width` fixe.
+// Sur mobile, transforme chaque ligne de tableau en carte verticale pour rester lisible,
+// plutôt que de laisser une colonne s'écraser.
+//
+// Usage sur le <table cTable> :
+//   class="table-stack"
+//
+// Classes/attributs à poser sur les <th>/<td> :
+//   .col-identity   → colonne "texte libre" (Torrent/Title) : largeur plancher en desktop,
+//                      pleine largeur + gras + sans label en carte mobile
+//   .col-full       → cellule à contenu riche qui doit occuper toute la largeur de la carte
+//                      mobile (barre de progression, cellule "titre + sous-titre" déjà
+//                      auto-descriptive, cellule d'actions)
+//   .col-actions    → à combiner avec .col-full sur la cellule de boutons d'action, pour les
+//                      aligner à droite en pied de carte
+//   [data-label]    → sur les <td> "scalaires" (Status, Speed, Size, ...), reprend l'intitulé
+//                      de la colonne pour l'afficher en préfixe une fois le <thead> masqué
+
+// Largeur plancher de la colonne "texte libre" — évite l'écrasement en auto-layout ; valeur
+// purement d'affichage, ajustable librement.
+$table-stack-identity-min-width: 240px;
+
+// Seuil "carte mobile", codé en dur (pas de mixin media-breakpoint-down, pour ne dépendre
+// d'aucun import de namespace Bootstrap/CoreUI dans ce partiel). S'aligne sur le breakpoint
+// `md` déjà utilisé par le header (`d-none d-md-flex`) : paire standard Bootstrap
+// max-width: 767.98px / min-width: 768px.
+$table-stack-breakpoint-down: 767.98px;
+$table-stack-breakpoint-up: 768px;
+
+// --- Desktop / tablette (≥768px) --------------------------------------------------------
+// Combiné au wrapper .table-responsive existant : un conteneur trop étroit déclenche
+// désormais un vrai scroll horizontal plutôt qu'un écrasement de la colonne texte libre.
+@media (min-width: $table-stack-breakpoint-up) {
+  .table-stack {
+    th.col-identity,
+    td.col-identity {
+      min-width: $table-stack-identity-min-width;
+    }
+  }
+}
+
+// --- Mobile (<768px) : une ligne de tableau devient une carte --------------------------
+@media (max-width: $table-stack-breakpoint-down) {
+  .table-stack {
+    // On neutralise explicitement l'algorithme de table sur toute la chaîne (table/thead/
+    // tbody), pas seulement sur <tr>, pour éviter tout comportement de boîte incohérent
+    // autour d'un <tr> passé en display:flex dans un <tbody> resté en display:table-row-group.
+    display: block;
+
+    thead {
+      display: none;
+    }
+
+    tbody {
+      display: block;
+    }
+
+    tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 0.375rem 0.75rem;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      background-color: var(--cui-table-bg, var(--cui-body-bg));
+      border: var(--cui-border-width, 1px) solid var(--cui-border-color);
+      border-radius: var(--cui-border-radius);
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
+    // CoreUI donne à chaque cellule sa propre bordure/padding/background
+    // (.table > :not(caption) > * > *) ; en mode carte, ça dessinerait un trait sous
+    // chaque puce plutôt qu'un contour de carte unique. On neutralise, et on reporte
+    // padding/bordure sur le <tr> (ci-dessus) via `gap`.
+    tbody td {
+      padding: 0;
+      border: 0;
+      background-color: transparent;
+      box-shadow: none;
+      white-space: normal !important; // neutralise .text-nowrap (Speed/ETA/Size/Added/...)
+      overflow-wrap: anywhere; // filet de sécurité pour tout token trop long
+    }
+
+    // Colonne "identité" (Torrent/Title) : toute la largeur, en tête de carte, gras, sans
+    // label — .text-break existant suffit désormais, la carte a toute la largeur dispo.
+    td.col-identity {
+      flex: 1 1 100%;
+      font-weight: 600;
+    }
+
+    // Cellules riches : toute la largeur, pas de label par défaut.
+    td.col-full {
+      flex: 1 1 100%;
+    }
+
+    // Pied de carte : boutons d'action alignés à droite (contexte flex imbriqué : la
+    // cellule est à la fois item du <tr> via .col-full, et conteneur flex pour ses boutons).
+    td.col-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.25rem;
+    }
+
+    // Cellules scalaires restantes (Status, Speed, ETA, Size, Added, Score, Indexer,
+    // Format, Type, Coverage, Seeders, Date) : puces compactes en ligne, avec label.
+    td[data-label] {
+      flex: 0 1 auto;
+      font-size: 0.8125rem;
+    }
+
+    td[data-label]::before {
+      content: attr(data-label) ": ";
+      font-weight: 600;
+      color: var(--cui-secondary-color);
+    }
+
+    // Cas particulier : la cellule Progress est à la fois .col-full ET [data-label]
+    // (son contenu — barre + % — n'est pas auto-descriptif une fois le <thead> masqué).
+    // Le label passe alors au-dessus du contenu plutôt qu'en préfixe inline.
+    td.col-full[data-label]::before {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.6875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+  }
+}

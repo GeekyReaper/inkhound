@@ -47,12 +47,12 @@
             </div>
 
             <div class="table-responsive">
-              <table cTable [hover]="true">
+              <table cTable [hover]="true" class="table-stack">
                 <thead>
                   <tr>
                     <th style="width: 75px;">Score</th>
                     <th style="width: 130px;">Indexer</th>
-                    <th>Title</th>
+                    <th class="col-identity">Title</th>
                     <th style="width: 80px;">Format</th>
                     <th style="width: 90px;">Type</th>
                     @if (mode() === 'volume') {
@@ -67,12 +67,12 @@
                 <tbody>
                   @for (item of pagedResults(); track item.result.guid) {
                     <tr>
-                      <td class="align-middle">
+                      <td class="align-middle" data-label="Score">
                         <span [class]="'badge bg-' + scoreColor(item.score)">
                           {{ item.score | number:'1.0-0' }}
                         </span>
                       </td>
-                      <td class="align-middle">
+                      <td class="align-middle" data-label="Indexer">
                         <div class="d-flex flex-column gap-1">
                           <span class="small fw-semibold">{{ item.result.indexer ?? ('ID ' + item.result.indexerId) }}</span>
                           @if (item.result.protocol?.toLowerCase() === 'torrent') {
@@ -82,7 +82,7 @@
                           }
                         </div>
                       </td>
-                      <td class="align-middle text-break">
+                      <td class="align-middle text-break col-identity">
                         <div>
                           @if (item.result.infoUrl) {
                             <a [href]="item.result.infoUrl" target="_blank" rel="noopener">{{ item.result.title }}</a>
@@ -96,10 +96,10 @@
                           </div>
                         }
                       </td>
-                      <td class="align-middle">
+                      <td class="align-middle" data-label="Format">
                         <span class="badge bg-secondary">{{ detectFormat(item.result.title) }}</span>
                       </td>
-                      <td class="align-middle">
+                      <td class="align-middle" data-label="Type">
                         @if (item.result.torrentType !== 'UNKNOWN') {
                           <div class="d-flex flex-column gap-1 align-items-start">
                             <span [class]="'badge bg-' + (item.result.torrentType === 'SINGLE' ? 'info' : 'warning')">
@@ -112,7 +112,7 @@
                         }
                       </td>
                       @if (mode() === 'volume') {
-                        <td class="align-middle text-nowrap">
+                        <td class="align-middle text-nowrap" data-label="Coverage">
                           @if (item.coverage; as cov) {
                             <span class="badge bg-{{ cov.covered > 0 ? 'success' : 'secondary' }}">
                               {{ cov.covered }} / {{ cov.total }}
@@ -120,16 +120,16 @@
                           }
                         </td>
                       }
-                      <td class="align-middle text-nowrap">{{ formatSize(item.result.size) }}</td>
-                      <td class="align-middle">
+                      <td class="align-middle text-nowrap" data-label="Size">{{ formatSize(item.result.size) }}</td>
+                      <td class="align-middle" data-label="Seeders">
                         @if (item.result.protocol?.toLowerCase() === 'torrent') {
                           {{ item.result.seeders }}
                         } @else {
                           <span class="text-body-secondary small">—</span>
                         }
                       </td>
-                      <td class="align-middle text-nowrap">{{ item.result.publishDate | date:'mediumDate' }}</td>
-                      <td class="align-middle">
+                      <td class="align-middle text-nowrap" data-label="Date">{{ item.result.publishDate | date:'mediumDate' }}</td>
+                      <td class="align-middle col-full col-actions">
                         <button cButton color="primary" variant="outline" size="sm"
                                 [disabled]="grabbingGuid() !== null"
                                 (click)="onGrab(item)"

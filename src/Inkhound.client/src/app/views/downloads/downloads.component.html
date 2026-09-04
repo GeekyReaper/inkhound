@@ -101,11 +101,11 @@
         <c-card>
           <c-card-body class="p-0">
             <div class="table-responsive">
-              <table cTable [hover]="true" class="mb-0">
+              <table cTable [hover]="true" class="mb-0 table-stack">
                 <thead>
                   <tr>
                     <th>Volume / Issue</th>
-                    <th>Torrent</th>
+                    <th class="col-identity">Torrent</th>
                     <th style="width: 100px;">Status</th>
                     <th style="width: 140px;">Progress</th>
                     <th style="width: 90px;">Speed</th>
@@ -118,7 +118,7 @@
                 <tbody>
                   @for (item of items(); track item.id) {
                     <tr>
-                      <td class="align-middle">
+                      <td class="align-middle col-full">
                         <div class="fw-semibold small">{{ item.volumeTitle ?? '—' }}</div>
                         @if (item.issueNumber !== null) {
                           <div class="text-body-secondary small">
@@ -127,13 +127,13 @@
                           </div>
                         }
                       </td>
-                      <td class="align-middle text-break small">
+                      <td class="align-middle text-break small col-identity">
                         {{ item.torrentTitle || item.torrentHash || '—' }}
                       </td>
-                      <td class="align-middle">
+                      <td class="align-middle" data-label="Status">
                         <c-badge [color]="statusBadgeColor(item.status)">{{ item.status }}</c-badge>
                       </td>
-                      <td class="align-middle">
+                      <td class="align-middle col-full" data-label="Progress">
                         @if (item.progress !== null) {
                           <c-progress class="mb-1" style="height: 6px;">
                             <c-progress-bar
@@ -148,11 +148,11 @@
                           <span class="text-body-secondary small">Tracking...</span>
                         }
                       </td>
-                      <td class="align-middle text-nowrap small">{{ formatSpeed(item.dlspeed) }}</td>
-                      <td class="align-middle text-nowrap small">{{ formatEta(item.eta) }}</td>
-                      <td class="align-middle text-nowrap small">{{ formatSize(item.size) }}</td>
-                      <td class="align-middle text-nowrap small">{{ item.addedAt | date:'mediumDate' }}</td>
-                      <td class="align-middle text-nowrap">
+                      <td class="align-middle text-nowrap small" data-label="Speed">{{ formatSpeed(item.dlspeed) }}</td>
+                      <td class="align-middle text-nowrap small" data-label="ETA">{{ formatEta(item.eta) }}</td>
+                      <td class="align-middle text-nowrap small" data-label="Size">{{ formatSize(item.size) }}</td>
+                      <td class="align-middle text-nowrap small" data-label="Added">{{ item.addedAt | date:'mediumDate' }}</td>
+                      <td class="align-middle text-nowrap col-full col-actions">
                         @if (canProcess(item)) {
                           <button cButton color="secondary" variant="ghost" size="sm"
                                   [disabled]="processingIds().has(item.id)"

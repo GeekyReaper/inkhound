@@ -457,6 +457,43 @@ Purement présentationnel (aucun appel réseau). Utilisé par :
 - `VolumeComponent` — revue de l'import d'un dossier (`GET .../import/scan` → matcher →
   `POST .../import { fileIssueMap }`).
 
+## Pattern SCSS réutilisable : tableau responsive `.table-stack`
+
+Défini dans `src/scss/_tables.scss` (importé via `_custom.scss`). À utiliser sur tout `<table
+cTable>` ayant une colonne de texte libre (titre, nom de fichier...) à côté de colonnes à largeur
+fixe — évite qu'une colonne `.text-break` sans largeur ne soit écrasée par l'auto-layout HTML au
+profit des colonnes voisines, et bascule en cartes empilées sous 768px (pas de `@media` dans le
+composant lui-même, tout est en CSS pur, zéro logique TypeScript).
+
+```html
+<table cTable [hover]="true" class="table-stack">
+  <thead>
+    <tr>
+      <th class="col-identity">Titre</th>   <!-- colonne texte libre : largeur plancher desktop -->
+      <th style="width: 90px;">Taille</th>
+      <th style="width: 60px;"></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="col-identity">{{ item.title }}</td>              <!-- pleine largeur en carte mobile -->
+      <td data-label="Taille">{{ item.size }}</td>                <!-- puce compacte "Taille: ..." en carte -->
+      <td class="col-full col-actions"><button cButton>...</button></td> <!-- pied de carte, aligné à droite -->
+    </tr>
+  </tbody>
+</table>
+```
+
+- `.col-identity` — colonne texte libre (largeur plancher en desktop/tablette, pleine largeur +
+  gras + sans label en carte mobile).
+- `.col-full` — cellule à contenu riche qui doit garder sa propre ligne en carte mobile (barre de
+  progression, cellule déjà auto-descriptive, cellule d'actions).
+- `.col-actions` — à combiner avec `.col-full` sur la cellule de boutons, pour les aligner à droite.
+- `[data-label="..."]` — sur les cellules scalaires simples, affichées en puce compacte préfixée du
+  label une fois le `<thead>` masqué en mobile.
+
+Utilisé par `DownloadsComponent` (colonne Torrent) et `ProwlarrSearchComponent` (colonne Title).
+
 Le parent retraduit `selection()` (indexé sur la position dans `files()`) vers la clé attendue par
 son endpoint (index de fichier qBittorrent / nom de fichier).
 

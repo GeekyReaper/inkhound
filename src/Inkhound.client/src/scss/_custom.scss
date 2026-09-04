@@ -6,6 +6,9 @@
 // custom tweaks for scrollbar styling (wip)
 @use "scrollbar";
 
+// tableaux "stack" — colonne texte libre non écrasée en desktop, cartes en mobile
+@use "tables";
+
  // custom calendar today cell color
 .calendar-cell.today {
   --cui-calendar-cell-today-color: var(--cui-info) !important;
