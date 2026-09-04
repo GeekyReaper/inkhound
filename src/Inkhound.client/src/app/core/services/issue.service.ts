@@ -4,6 +4,11 @@ import { VolumeAuthor, VolumeImage, PageResult, SourceKey } from './volume.servi
 
 export type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 
+// Catégorie d'album dérivée du préfixe de numérotation Bedetheque (ex. "HS1", "INT1", "ART") —
+// voir BedethequeAlbumClassifier côté backend. Standard = tome classique (bloc "Issues" de la
+// page volume) ; les autres catégories sont regroupées dans le bloc "Extra".
+export type IssueCategory = 'Standard' | 'Special' | 'SpecialEdition' | 'Omnibus' | 'Roman' | 'BestOf';
+
 export interface SourceIssue {
   sourceId:   string;
   source:     SourceKey;
@@ -26,6 +31,7 @@ export interface Issue {
   volumeId:    string;
   sourceId:    string;
   issueNumber: number;
+  category:    IssueCategory;
   title:       string | null;
   year:        number | null;
   description: string | null;

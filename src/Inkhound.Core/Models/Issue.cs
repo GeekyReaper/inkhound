@@ -2,12 +2,18 @@ namespace Inkhound.Core.Models;
 
 public enum IssueStatus { DOWNLOADING, DOWNLOADED, MISSING }
 
+// Catégorie d'album — dérivée du préfixe de numérotation Bedetheque (ex. "HS1", "INT1", "ART")
+// par BedethequeAlbumClassifier, même nomenclature que ClassifyAlbum côté bdguest-scrapper.
+// Standard = tome classique ; ComicVine/manuel n'ont pas cette notion → toujours Standard.
+public enum IssueCategory { Standard, Special, SpecialEdition, Omnibus, Roman, BestOf }
+
 public class Issue
 {
     public Guid Id { get; set; }
     public string SourceId { get; set; } = string.Empty;
     public Guid VolumeId { get; set; }
     public int IssueNumber { get; set; } = 0;
+    public IssueCategory Category { get; set; } = IssueCategory.Standard;
     public string? Title { get; set; }
     public int? Year { get; set; }
     public string? Description { get; set; }

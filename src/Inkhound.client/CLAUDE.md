@@ -183,6 +183,7 @@ src/
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste des volumes)
 │   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
+│   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService)
 │   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
 │   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
@@ -328,9 +329,13 @@ interface PageResult<T> {
 
 // ─── issue.service.ts ────────────────────────────────────────────────────────
 type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
+// Catégorie d'album Bedetheque (BedethequeAlbumClassifier côté backend) — 'Standard' pour
+// ComicVine/manuel. Page volume : bloc "Issues" = Standard uniquement, bloc "Extra" = le reste,
+// groupé par catégorie (voir volume.component.ts : standardIssues/extraGroups).
+type IssueCategory = 'Standard' | 'Special' | 'SpecialEdition' | 'Omnibus' | 'Roman' | 'BestOf';
 
 interface Issue {
-  id: string; volumeId: string; sourceId: string; issueNumber: number;
+  id: string; volumeId: string; sourceId: string; issueNumber: number; category: IssueCategory;
   title: string | null; year: number | null; description: string | null;
   status: IssueStatus; authors: VolumeAuthor[]; image: VolumeImage | null;
   cbzFilename: string | null; publishedAt: string | null;

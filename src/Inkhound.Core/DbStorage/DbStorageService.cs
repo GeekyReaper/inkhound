@@ -281,6 +281,12 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "Issues", "Genre", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "CommunityRating", "REAL NULL");
         await AddColumnIfMissingAsync(db, "Issues", "CommunityRatingCount", "INTEGER NULL");
+
+        // Issues.Category ajouté en septembre 2026 — catégorie d'album (Standard/Special/
+        // SpecialEdition/Omnibus/Roman/BestOf) dérivée du préfixe de numérotation Bedetheque,
+        // voir BedethequeAlbumClassifier. Lignes existantes → 'Standard' (repli neutre), corrigées
+        // au prochain refresh de leur volume.
+        await AddColumnIfMissingAsync(db, "Issues", "Category", "TEXT NOT NULL DEFAULT 'Standard'");
     }
 
     // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien

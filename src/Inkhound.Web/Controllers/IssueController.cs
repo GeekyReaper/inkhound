@@ -16,6 +16,7 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         Guid VolumeId,
         string SourceId,
         int IssueNumber,
+        IssueCategory Category,
         string? Title,
         int? Year,
         string? Description,
@@ -46,7 +47,7 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         DateTime? AnalyzedAt);
 
     private static IssueDto ToDto(Issue i)
-        => new(i.Id, i.VolumeId, i.SourceId, i.IssueNumber, i.Title, i.Year,
+        => new(i.Id, i.VolumeId, i.SourceId, i.IssueNumber, i.Category, i.Title, i.Year,
                i.Description, i.Status, i.Authors, i.Image, i.CbzFilename, i.PublishedAt,
                i.Ean, i.Collection, i.Publisher, i.LegalDepositDate,
                i.OfficialPageCount, i.Genre, i.CommunityRating, i.CommunityRatingCount,

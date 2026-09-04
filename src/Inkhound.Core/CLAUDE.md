@@ -73,12 +73,13 @@ CreatedAt, UpdatedAt, DateAdded
 ```
 - `SourceType` — `"ComicVine"`, `"bedetheque"` ou `"manual"` (valeur libre, non typée — voir `ISourceService.SourceKey` pour la clé canonique de chaque source)
 - `AgeRating` — valeur de l'enum `AgeRating` ; écrire dans ComicInfo.xml via `ToKavitaString()` (jamais `.ToString()`)
+- `CountOfIssues`/`CountOfDownloadedIssues` — recalculés par `InkhoundManager.RecalculateVolumeStatisticsAsync`, **restreints aux issues `Category == Standard`** : la complétude d'un volume (compteurs, barre de progression, transition vers `COMPLETED`) ignore volontairement les Omnibus/Hors-série/... — voir `Issue.Category` ci-dessous.
 
 ### Issue
 Numéro individuel, toujours associé à un Volume.
 ```
 Id, SourceId, VolumeId,
-IssueNumber, Title, Year, Description,
+IssueNumber, Category (enum IssueCategory, stocké en string), Title, Year, Description,
 Image (VolumeImage?), Authors (JSON [{Name, Role}]),
 CbzFilename, FileSizeBytes,
 DownloadedAt, PublishedAt,
@@ -86,6 +87,8 @@ Status (DOWNLOADING | DOWNLOADED | MISSING)
 ```
 - `SourceId` — identifiant de l'issue dans sa source d'origine (ComicVine ou Bedetheque) ; la source elle-même se déduit du `SourceType` du `Volume` parent
 - `CbzFilename` — nom du fichier CBZ final (sans chemin) ; `null` si l'issue n'est pas encore téléchargée
+- `Category` — `Standard | Special | SpecialEdition | Omnibus | Roman | BestOf`, dérivée par `BedethequeAlbumClassifier` (voir section Bedetheque) ; toujours `Standard` pour ComicVine/manuel. `IssueNumber` est résolu conjointement (`Idx`, gap-filled par catégorie) — le couple `(Category, IssueNumber)` sert de repli de correspondance au rematch, `SourceId` restant toujours prioritaire.
+  - Particularité du rematch Bedetheque (`RematchVolumeFromBedethequeAsync`) : contrairement aux autres champs "protégés" par statut, `IssueNumber`/`Category` sont recopiés **sans condition de `Status`** — y compris sur une issue déjà `DOWNLOADED` — pour corriger les valeurs historiquement fausses (issues téléchargées avant l'introduction de `BedethequeAlbumClassifier`, ex. `0`/`Standard` pour un hors-série). Si l'option "Regenerate ComicInfo" est cochée au Refresh, `RegenerateComicInfoForDownloadedIssuesAsync` renomme le fichier `.cbz` en conséquence (mécanisme générique déjà utilisé pour Title/Year). Le rematch ComicVine, lui, garde `IssueNumber` figé une fois l'issue téléchargée (`Status == MISSING` requis) — pas concerné par ce bug historique.
 
 ### VolumeImage (record partagé Volume + Issue)
 ```
@@ -98,13 +101,21 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 
 **Volume.Status** (`VolumeStatus`)
 - `MONITORED` — Inkhound cherche activement les issues en status MISSING
-- `COMPLETED` — toutes les issues sont en status DOWNLOADED, aucune recherche
+- `COMPLETED` — toutes les issues `Category == Standard` sont en status DOWNLOADED (les extras n'entrent pas en compte), aucune recherche
 - `PAUSED` — suspendu manuellement, aucune recherche en cours.
 
 **Issue.Status** (`IssueStatus`)
 - `MISSING` — connue via ComicVine, introuvable localement
 - `DOWNLOADING` — acquisition en cours
 - `DOWNLOADED` — fichier traité et présent dans la librairie Kavita
+
+**Issue.Category** (`IssueCategory`) — voir `BedethequeAlbumClassifier` dans la section Bedetheque
+- `Standard` — tome classique (défaut ; seule valeur possible pour ComicVine/manuel)
+- `Special` — hors-série (préfixe `HS*`)
+- `SpecialEdition` — édition spéciale non classée ailleurs (repli par défaut)
+- `Omnibus` — intégrale (préfixe `INT*`, ou titre contenant `" / "` / `"Tomes N à M"` / `"intégrale"`)
+- `Roman` — roman/novélisation (préfixe `ROMAN*`)
+- `BestOf` — compilation "Best Of" (préfixe `BO*`)
 
 ## Intégrations externes
 
@@ -124,6 +135,14 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 - Pas d'authentification ; `CookieContainer` partagé + headers façon navigateur requis
   (le site bloque les requêtes qui ressemblent à du scraping automatisé)
 - Options dans `BedethequeOptions` ; `RateLimiter` obligatoire, comme pour ComicVine
+- Catégorisation des albums (`BedethequeAlbumClassifier`, port de `ClassifyAlbum` du projet
+  `bdguest-scrapper`) : le préfixe de numérotation brut de chaque album (ex. `"1"`, `"HS1"`,
+  `"INT FL"`) est extrait sur la page liste (`ParseAlbumList`, span `itemprop="name"` de la forme
+  `"<préfixe> . <titre>"`) et classé en `Standard`/`Special`/`SpecialEdition`/`Omnibus`/`Roman`/
+  `BestOf`. Les albums sans chiffre exploitable dans leur préfixe (ex. plusieurs `"INT FL"`) se
+  voient attribuer un rang par `ResolveMissingIndices`, trié par année puis Id au sein de leur
+  catégorie. `GetAllAlbumsForSerieAsync` reporte ce résultat (page liste, fiable pour toutes les
+  catégories) sur chaque `BdAlbum` (page détail) avant mapping vers `Issue`.
 
 ### Recherche multi-source
 `InkhoundManager.SearchVolumesAsync` interroge en parallèle tous les `ISourceService`
@@ -195,6 +214,10 @@ anglais de ComicVine et le français scrapé sur Bedetheque ("Scénario", "Dessi
 | Auteurs (role=CoverArtist) | `<CoverArtist>` | — |
 | Auteurs (role=Editor) | `<Editor>` | — |
 | Auteurs (role=Translator) | `<Translator>` | — |
+
+`Issue.Category` n'est volontairement **pas** exporté dans ComicInfo.xml (aucun tag standard
+équivalent, Kavita n'a pas de notion de catégorie d'album) — reste une info interne à Inkhound,
+affichée côté Angular (page volume, blocs "Issues"/"Extra").
 
 ## Base de données SQLite
 

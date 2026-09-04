@@ -350,7 +350,10 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         foreach (var summary in summaries)
         {
             var album = await GetAlbumAsync(summary.Id, ct);
-            if (album is not null) all.Add(album);
+            if (album is null) continue;
+            // Category/Idx viennent de la page liste (summary), pas de la page détail — son propre
+            // extracteur ("Tome X" sur alternativeheadline) ne couvre que les tomes classiques.
+            all.Add(album with { Category = summary.Category, Idx = summary.Idx });
         }
         return all.AsReadOnly();
     }
@@ -493,9 +496,12 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     private static List<BdAlbumSummary> ParseAlbumList(HtmlDocument doc)
     {
-        var result = new List<BdAlbumSummary>();
         var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'liste-albums')]/li[@itemscope]");
-        if (items is null) return result;
+        if (items is null) return [];
+
+        // Champs bruts collectés en une passe, la Category/Idx est résolue juste après (nécessite
+        // de voir tous les albums de la série à la fois pour ResolveMissingIndices).
+        var raws = new List<(int Id, string Titre, string? Numero, string? Annee, string? Editeur, string? CoverUrl, string Href)>();
 
         foreach (var li in items)
         {
@@ -514,7 +520,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             if (nameSpan is not null)
             {
                 var raw = Regex.Replace(nameSpan.InnerText, @"\s+", " ").Trim();
-                var m = Regex.Match(raw, @"^(\S+)\s*\.\s*(.+)$");
+                // Le préfixe (numéro/code, ex. "1", "HS1", "INT FL") peut contenir des espaces
+                // (ex. "INT FL . La voie fiscale...") — on coupe au premier " . " littéral (lazy)
+                // plutôt que de supposer un préfixe sans espace, sinon ces codes restent collés au
+                // titre et échappent à la classification ci-dessous.
+                var m = Regex.Match(raw, @"^(.+?)\s\.\s(.+)$");
                 if (m.Success) { numero = m.Groups[1].Value.Trim(); titre = m.Groups[2].Value.Trim(); }
                 else titre = raw;
             }
@@ -529,7 +539,19 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             var dateContent = li.SelectSingleNode(".//meta[@itemprop='datePublished']")?.GetAttributeValue("content", string.Empty);
             var annee = dateContent is { Length: >= 4 } dc ? dc[..4] : null;
 
-            result.Add(new BdAlbumSummary(albumId, titre, numero, annee, editeur, coverUrl, href));
+            raws.Add((albumId, titre, numero, annee, editeur, coverUrl, href));
+        }
+
+        var classified = raws.Select(a => BedethequeAlbumClassifier.Classify(a.Numero, a.Titre)).ToList();
+        var resolvedIdx = BedethequeAlbumClassifier.ResolveMissingIndices(
+            raws.Select((a, i) => (classified[i].Category, classified[i].Idx, a.Annee, a.Id)).ToList());
+
+        var result = new List<BdAlbumSummary>(raws.Count);
+        for (var i = 0; i < raws.Count; i++)
+        {
+            var a = raws[i];
+            result.Add(new BdAlbumSummary(a.Id, a.Titre, a.Numero, a.Annee, a.Editeur, a.CoverUrl, a.Href,
+                classified[i].Category, resolvedIdx[i]));
         }
         return result;
     }

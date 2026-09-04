@@ -22,7 +22,11 @@ public record BdAlbumSummary(
     string? Annee,
     string? Editeur,
     string? CoverUrl,
-    string Url);
+    string Url,
+    // Catégorie ("Standard"/"Special"/"SpecialEdition"/"Omnibus"/"Roman"/"BestOf") et numéro
+    // résolus par BedethequeAlbumClassifier à partir de NumeroAlbum + Titre — voir ParseAlbumList.
+    string Category = "Standard",
+    int Idx = 0);
 
 public record BdSerie(
     int Id,
@@ -60,4 +64,9 @@ public record BdAlbum(
     string? Genre,
     double? Note,
     int? NombreVotes,
-    string Url);
+    string Url,
+    // Repris depuis le BdAlbumSummary correspondant (GetAllAlbumsForSerieAsync) — l'extraction du
+    // numéro sur la page détail (alternativeheadline "Tome X") ne couvre que les tomes classiques,
+    // la classification fiable vient toujours de la page liste.
+    string Category = "Standard",
+    int Idx = 0);

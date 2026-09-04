@@ -328,8 +328,10 @@ public class InkhoundManager : BaseServiceManager
     }
 
     // Recalcule CountOfIssues / CountOfDownloadedIssues (et le Status COMPLETED/MONITORED) d'un
-    // volume à partir de l'état réel des issues en base. Surcharge publique utilisable directement
-    // par le controller (ouvre son propre contexte EF Core).
+    // volume à partir de l'état réel des issues en base. Restreint aux issues Category == Standard
+    // : la complétude d'un volume ne dépend que de ses tomes classiques, un Omnibus/Hors-série/...
+    // manquant ne doit ni bloquer le passage à COMPLETED ni fausser la barre de progression.
+    // Surcharge publique utilisable directement par le controller (ouvre son propre contexte EF Core).
     public async Task<Volume?> RecalculateVolumeStatisticsAsync(Guid volumeId, CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -347,8 +349,8 @@ public class InkhoundManager : BaseServiceManager
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
         if (volume is null) return;
 
-        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId, ct);
-        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED, ct);
+        volume.CountOfIssues           = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Category == IssueCategory.Standard, ct);
+        volume.CountOfDownloadedIssues = await ctx.Issues.CountAsync(i => i.VolumeId == volumeId && i.Category == IssueCategory.Standard && i.Status == IssueStatus.DOWNLOADED, ct);
         if (volume.Status != VolumeStatus.PAUSED)
         {
             volume.Status = volume.CountOfIssues > 0 && volume.CountOfIssues == volume.CountOfDownloadedIssues
@@ -1177,7 +1179,7 @@ public class InkhoundManager : BaseServiceManager
                 issue.VolumeId = volume.Id;
                 allIssueAuthors.AddRange(issue.Authors);
                 ctx.Issues.Add(issue);
-                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber}");
+                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber} ({issue.Category})");
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
             }
@@ -1371,7 +1373,7 @@ public class InkhoundManager : BaseServiceManager
                 issue.VolumeId = volume.Id;
                 allIssueAuthors.AddRange(issue.Authors);
                 ctx.Issues.Add(issue);
-                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber}");
+                JobSendTrace($"[Add] {volume.Title} — issue #{issue.IssueNumber} ({issue.Category})");
                 job.Progress.Increment(true);
                 job.CallbackHandler.Callback(job.Progress);
             }
@@ -1387,7 +1389,8 @@ public class InkhoundManager : BaseServiceManager
                         : a)
                     .ToList();
 
-                volume.CountOfIssues = bdAlbums.Count;
+                // Complétude basée uniquement sur les tomes Standard — voir RecalculateVolumeStatisticsAsync.
+                volume.CountOfIssues = bdAlbums.Count(a => a.Category == "Standard");
                 volume.UpdatedAt = DateTime.UtcNow;
                 await ctx.SaveChangesAsync();
                 OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volume.Id));
@@ -1442,23 +1445,33 @@ public class InkhoundManager : BaseServiceManager
         foreach (var bdAlbum in bdAlbums)
         {
             var bdId = bdAlbum.Id.ToString();
-            int.TryParse(bdAlbum.NumeroAlbum, out var issueNum);
+            var mappedIssue = Mapper.Map(bdAlbum);
 
-            // Correspondance par SourceId en priorité, puis par numéro d'issue — le repli par
-            // numéro ne se restreint PAS aux issues sans SourceId : un Rematch vers une source
-            // différente laisse justement un ancien SourceId (d'une autre source) qui ne peut
-            // jamais matcher bdId ci-dessus, donc jamais tomber dans ce repli si on l'exigeait vide
-            // — l'issue restait orpheline et une nouvelle était créée au même numéro (bug constaté).
+            // Correspondance par SourceId en priorité, puis par (Category, IssueNumber) — le repli
+            // ne se restreint PAS aux issues sans SourceId : un Rematch vers une source différente
+            // laisse justement un ancien SourceId (d'une autre source) qui ne peut jamais matcher
+            // bdId ci-dessus, donc jamais tomber dans ce repli si on l'exigeait vide — l'issue
+            // restait orpheline et une nouvelle était créée au même numéro (bug constaté).
+            // Category est incluse dans le repli (pas seulement IssueNumber) : le numéro seul n'est
+            // pas unique au sein d'une série (ex. "INT1" et "INTTT1" sont tous deux Omnibus/1) —
+            // best-effort, ne garantit pas d'éliminer toutes les collisions.
             var existing =
                 existingIssues.FirstOrDefault(i => i.SourceId == bdId) ??
-                existingIssues.FirstOrDefault(i => i.IssueNumber == issueNum && !matchedExistingIds.Contains(i.Id));
-
-            var mappedIssue = Mapper.Map(bdAlbum);
+                existingIssues.FirstOrDefault(i => i.Category == mappedIssue.Category && i.IssueNumber == mappedIssue.IssueNumber && !matchedExistingIds.Contains(i.Id));
 
             if (existing is not null)
             {
                 matchedExistingIds.Add(existing.Id);
                 existing.SourceId     = mappedIssue.SourceId;
+                // IssueNumber/Category recopiés SANS condition de Status (contrairement au reste du
+                // rematch avant l'introduction de la catégorisation) : les issues téléchargées avant
+                // BedethequeAlbumClassifier peuvent porter un IssueNumber/Category historiquement
+                // erroné (ex. 0/Standard pour un hors-série) qui doit se corriger lui aussi. Si
+                // RegenerateComicInfo est coché sur ce Refresh, RegenerateComicInfoForDownloadedIssuesAsync
+                // (exécuté juste après) renomme le fichier .cbz en conséquence, comme il le fait déjà
+                // pour Title/Year.
+                existing.IssueNumber  = mappedIssue.IssueNumber;
+                existing.Category     = mappedIssue.Category;
                 existing.Title        = mappedIssue.Title;
                 existing.Year         = mappedIssue.Year;
                 existing.Description  = mappedIssue.Description;
@@ -1472,10 +1485,8 @@ public class InkhoundManager : BaseServiceManager
                 existing.Genre                  = mappedIssue.Genre;
                 existing.CommunityRating        = mappedIssue.CommunityRating;
                 existing.CommunityRatingCount   = mappedIssue.CommunityRatingCount;
-                if (existing.Status == IssueStatus.MISSING)
-                    existing.IssueNumber = issueNum;
                 issuesUpdated++;
-                JobSendTrace($"[Rematch] Issue #{existing.IssueNumber} metadata updated (status unchanged: {existing.Status})");
+                JobSendTrace($"[Rematch] Issue #{existing.IssueNumber} ({existing.Category}) metadata updated (status unchanged: {existing.Status})");
             }
             else
             {
@@ -1485,7 +1496,7 @@ public class InkhoundManager : BaseServiceManager
                 newIssue.Status  = IssueStatus.MISSING;
                 ctx.Issues.Add(newIssue);
                 issuesAdded++;
-                JobSendTrace($"[Rematch] New issue #{issueNum} — '{newIssue.Title}' detected (added as MISSING)");
+                JobSendTrace($"[Rematch] New issue #{newIssue.IssueNumber} ({newIssue.Category}) — '{newIssue.Title}' detected (added as MISSING)");
             }
         }
 

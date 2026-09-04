@@ -43,6 +43,10 @@ public class DbStorageContext : DbContext
             .Property(i => i.Status)
             .HasConversion<string>();
 
+        modelBuilder.Entity<Issue>()
+            .Property(i => i.Category)
+            .HasConversion<string>();
+
         modelBuilder.Entity<SelectedIndexer>()
             .HasKey(si => new { si.LibraryId, si.IndexerId });
 

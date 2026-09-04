@@ -9,7 +9,6 @@ import {
   BadgeComponent,
   CardBodyComponent,
   CardComponent,
-  CardFooterComponent,
   ColComponent,
   ContainerComponent,
   FormCheckComponent,
@@ -28,10 +27,11 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, ImportScanFile, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
-import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
+import { Issue, IssueCategory, IssueService } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
 import { FileIssueMatcherComponent } from '../file-issue-matcher/file-issue-matcher.component';
+import { IssueCardComponent } from './issue-card/issue-card.component';
 import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 import { PageJobService } from '../../core/services/page-job.service';
@@ -43,7 +43,7 @@ import { Library, LibraryService } from '../../core/services/library.service';
   templateUrl: './volume.component.html',
   imports: [
     ContainerComponent, RowComponent, ColComponent,
-    CardComponent, CardBodyComponent, CardFooterComponent,
+    CardComponent, CardBodyComponent,
     BadgeComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
     SelectPathComponent, ProwlarrSearchComponent, FileIssueMatcherComponent,
@@ -51,10 +51,21 @@ import { Library, LibraryService } from '../../core/services/library.service';
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent
+    JobPanelComponent, IssueCardComponent
   ]
 })
 export class VolumeComponent {
+  // Ordre d'affichage fixe des sous-sections du bloc "Extra" (les catégories absentes de la série
+  // sont simplement omises) + libellés — pas d'i18n dans ce projet, texte en dur comme le reste.
+  private static readonly EXTRA_CATEGORY_ORDER: IssueCategory[] = ['Special', 'SpecialEdition', 'Omnibus', 'BestOf', 'Roman'];
+  private static readonly CATEGORY_LABELS: Partial<Record<IssueCategory, string>> = {
+    Special: 'Special',
+    SpecialEdition: 'Special Edition',
+    Omnibus: 'Omnibus',
+    BestOf: 'Best Of',
+    Roman: 'Novel'
+  };
+
   private route         = inject(ActivatedRoute);
   private router        = inject(Router);
   private volumeService = inject(VolumeService);
@@ -124,6 +135,21 @@ export class VolumeComponent {
   error         = signal<string | null>(null);
   issues        = signal<Issue[]>([]);
   issuesLoading = signal(false);
+
+  // Bloc "Issues" : uniquement les tomes Standard. Bloc "Extra" : le reste, groupé par catégorie
+  // dans un ordre fixe, catégories absentes omises — voir EXTRA_CATEGORY_ORDER.
+  standardIssues = computed(() => this.issues().filter(i => i.category === 'Standard'));
+  extraGroups = computed(() => {
+    const extra = this.issues().filter(i => i.category !== 'Standard');
+    return VolumeComponent.EXTRA_CATEGORY_ORDER
+      .map(category => ({
+        category,
+        label: VolumeComponent.CATEGORY_LABELS[category]!,
+        issues: extra.filter(i => i.category === category).sort((a, b) => a.issueNumber - b.issueNumber)
+      }))
+      .filter(group => group.issues.length > 0);
+  });
+  extraIssuesCount = computed(() => this.extraGroups().reduce((n, group) => n + group.issues.length, 0));
 
   // --- Import d'un dossier avec revue fichiers ↔ issues ---
   importVisible       = signal(false);          // pioche du dossier (app-select-path)
@@ -347,15 +373,6 @@ export class VolumeComponent {
       MONITORED: 'badge bg-primary',
       COMPLETED: 'badge bg-success',
       PAUSED:    'badge bg-secondary'
-    };
-    return map[status];
-  }
-
-  issueStatusBadgeClass(status: IssueStatus): string {
-    const map: Record<IssueStatus, string> = {
-      DOWNLOADING: 'badge bg-info text-dark',
-      DOWNLOADED:  'badge bg-success',
-      MISSING:     'badge bg-danger'
     };
     return map[status];
   }

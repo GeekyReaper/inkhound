@@ -69,12 +69,12 @@ public static class Mapper
 
     public static Issue Map(BdAlbum album)
     {
-        int.TryParse(album.NumeroAlbum, out var issueNum);
         int.TryParse(album.Annee, out var year);
         return new Issue
         {
             SourceId = album.Id.ToString(),
-            IssueNumber = issueNum,
+            IssueNumber = album.Idx,
+            Category = Enum.TryParse<IssueCategory>(album.Category, out var category) ? category : IssueCategory.Standard,
             Title = album.Titre,
             Year = year == 0 ? null : year,
             Description = album.Description,

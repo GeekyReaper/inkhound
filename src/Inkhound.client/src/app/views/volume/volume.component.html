@@ -155,15 +155,15 @@
       <app-prowlarr-search mode="volume" [targetId]="volume()!.id" />
     </div>
 
-    <!-- Issues -->
-    <c-row>
+    <!-- Issues (Standard uniquement — les autres catégories sont dans le bloc Extra ci-dessous) -->
+    <c-row class="mb-3">
       <c-col>
         <c-card>
           <c-card-body>
             <h5 class="mb-3">
               Issues
               @if (!issuesLoading()) {
-                <span class="text-body-secondary fw-normal fs-6 ms-2">({{ issues().length }})</span>
+                <span class="text-body-secondary fw-normal fs-6 ms-2">({{ standardIssues().length }})</span>
               }
             </h5>
 
@@ -183,43 +183,13 @@
               <div class="d-flex justify-content-center py-4">
                 <c-spinner color="primary"></c-spinner>
               </div>
-            } @else if (issues().length === 0) {
-              <p class="text-body-secondary mb-0">No issues found for this volume.</p>
+            } @else if (standardIssues().length === 0) {
+              <p class="text-body-secondary mb-0">No standard issues found for this volume.</p>
             } @else {
               <c-row class="g-3">
-                @for (issue of issues(); track issue.id) {
+                @for (issue of standardIssues(); track issue.id) {
                   <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
-                    <c-card class="h-100" style="cursor: pointer;" (click)="goIssue(issue)">
-                      <div class="position-relative rounded-top overflow-hidden" style="aspect-ratio: 2/3;">
-                        @if (issue.image?.smallUrl ?? issue.image?.thumbUrl; as imgUrl) {
-                          <img
-                            [src]="imgUrl"
-                            [alt]="issue.title ?? ''"
-                            style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
-                        } @else {
-                          <div class="bg-body-secondary h-100 d-flex align-items-center justify-content-center">
-                            <span class="text-body-tertiary">#{{ issue.issueNumber }}</span>
-                          </div>
-                        }
-                        <span class="position-absolute top-0 start-0 m-1 badge bg-dark bg-opacity-75"
-                              style="font-size: 0.65rem;">#{{ issue.issueNumber }}</span>
-                      </div>
-                      <c-card-body class="p-2">
-                        <div class="small fw-semibold lh-sm mb-1">
-                          {{ issue.title ?? ('Issue #' + issue.issueNumber) }}
-                        </div>
-                        @if (issue.year) {
-                          <div class="text-body-secondary" style="font-size: 0.7rem;">{{ issue.year }}</div>
-                        }
-                        @if (issue.cbzFilename) {
-                          <code class="d-block text-truncate mt-1" style="font-size: 0.65rem;"
-                                [title]="issue.cbzFilename">{{ issue.cbzFilename }}</code>
-                        }
-                      </c-card-body>
-                      <c-card-footer class="p-2">
-                        <span [class]="issueStatusBadgeClass(issue.status)" style="font-size: 0.65rem;">{{ issue.status }}</span>
-                      </c-card-footer>
-                    </c-card>
+                    <app-issue-card [issue]="issue" (select)="goIssue(issue)" />
                   </c-col>
                 }
               </c-row>
@@ -229,6 +199,39 @@
         </c-card>
       </c-col>
     </c-row>
+
+    <!-- Extra — catégories hors Standard (Special, Special Edition, Omnibus, Best Of, Novel),
+         une sous-section par catégorie présente sur la série. -->
+    @if (!issuesLoading() && extraGroups().length > 0) {
+      <c-row>
+        <c-col>
+          <c-card>
+            <c-card-body>
+              <h5 class="mb-3">
+                Extra
+                <span class="text-body-secondary fw-normal fs-6 ms-2">({{ extraIssuesCount() }})</span>
+              </h5>
+
+              @for (group of extraGroups(); track group.category) {
+                <h6 class="text-uppercase fw-bold text-primary pb-2 mb-3 border-bottom border-primary-subtle"
+                    [class.mt-4]="!$first">
+                  {{ group.label }}
+                  <span class="text-body-secondary fw-normal">({{ group.issues.length }})</span>
+                </h6>
+                <c-row class="g-3">
+                  @for (issue of group.issues; track issue.id) {
+                    <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
+                      <app-issue-card [issue]="issue" (select)="goIssue(issue)" />
+                    </c-col>
+                  }
+                </c-row>
+              }
+
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
 
   }
 
