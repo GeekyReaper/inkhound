@@ -192,6 +192,7 @@ anglais de ComicVine et le français scrapé sur Bedetheque ("Scénario", "Dessi
 | `Issue.Title ?? Volume.Title` | `<Title>` | — |
 | `Volume.Title` | `<Series>` | — |
 | `Issue.IssueNumber` | `<Number>` | — |
+| `Issue.Category` (via `ToKavitaFormat()`) | `<Format>` | `Standard` → tag omis ; sinon mot-clé reconnu par Kavita (`Special`, `Omnibus`, `Compendium`, ...) pour router l'issue vers l'onglet "Specials" de la série, hors de la liste numérotée — voir `IssueCategoryExtensions` (`Models/Issue.cs`) |
 | `Issue.Year ?? Volume.Year` | `<Year>` | — |
 | `Issue.PublishedAt.Month` | `<Month>` | — |
 | `Issue.Publisher ?? Volume.Publisher` | `<Publisher>` | éditeur album prioritaire |
@@ -215,9 +216,11 @@ anglais de ComicVine et le français scrapé sur Bedetheque ("Scénario", "Dessi
 | Auteurs (role=Editor) | `<Editor>` | — |
 | Auteurs (role=Translator) | `<Translator>` | — |
 
-`Issue.Category` n'est volontairement **pas** exporté dans ComicInfo.xml (aucun tag standard
-équivalent, Kavita n'a pas de notion de catégorie d'album) — reste une info interne à Inkhound,
-affichée côté Angular (page volume, blocs "Issues"/"Extra").
+`Issue.Category` est exporté via `<Format>` (voir table ci-dessus) — Kavita n'a pas de notion de
+"catégorie d'album" propre, mais son vocabulaire `Format` permet de router les non-Standard vers
+l'onglet "Specials" de la série. La catégorie reste également affichée côté Angular indépendamment
+(page volume, blocs "Issues"/"Extra") — les deux mécanismes coexistent, l'un pour Kavita, l'autre
+pour l'UI Inkhound.
 
 ## Base de données SQLite
 

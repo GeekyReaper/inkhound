@@ -7,6 +7,25 @@ public enum IssueStatus { DOWNLOADING, DOWNLOADED, MISSING }
 // Standard = tome classique ; ComicVine/manuel n'ont pas cette notion → toujours Standard.
 public enum IssueCategory { Standard, Special, SpecialEdition, Omnibus, Roman, BestOf }
 
+public static class IssueCategoryExtensions
+{
+    // Mappe vers le tag <Format> de ComicInfo.xml — quand la valeur fait partie du vocabulaire
+    // reconnu par Kavita (Special, Omnibus, Annual, TPB, Compendium, ...), Kavita bascule
+    // automatiquement l'issue dans l'onglet "Specials" de la série, hors de la liste numérotée
+    // normale, indépendamment de <Number>. Standard → null (tag omis, chapitre numéroté normal).
+    // Pas de mot-clé Kavita dédié pour SpecialEdition/Roman → repli sur "Special", le plus honnête.
+    public static string? ToKavitaFormat(this IssueCategory category) => category switch
+    {
+        IssueCategory.Standard       => null,
+        IssueCategory.Special        => "Special",
+        IssueCategory.SpecialEdition => "Special",
+        IssueCategory.Omnibus        => "Omnibus",
+        IssueCategory.BestOf         => "Compendium",
+        IssueCategory.Roman          => "Special",
+        _                            => null
+    };
+}
+
 public class Issue
 {
     public Guid Id { get; set; }

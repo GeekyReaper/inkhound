@@ -484,6 +484,8 @@ public class ArchiveService : BaseService<ArchiveOption>
             new XElement("Title", issue.Title ?? volume.Title),
             new XElement("Series", volume.Title),
             new XElement("Number", issue.IssueNumber),
+            issue.Category.ToKavitaFormat() is { } format
+                ? new XElement("Format", format) : null,
             issue.Year.HasValue || volume.Year.HasValue
                 ? new XElement("Year", issue.Year ?? volume.Year) : null,
             issue.PublishedAt.HasValue
