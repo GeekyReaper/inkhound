@@ -15,11 +15,16 @@ import {
   FormCheckComponent,
   FormCheckInputDirective,
   FormCheckLabelDirective,
+  FormControlDirective,
+  FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
   ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
+  PageItemComponent,
+  PageLinkDirective,
+  PaginationComponent,
   ProgressBarComponent,
   ProgressComponent,
   RowComponent,
@@ -46,6 +51,8 @@ import { JobContext, UpdatedData } from '../../core/models/hub.models';
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
     ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
+    FormControlDirective, FormSelectDirective,
+    PaginationComponent, PageItemComponent, PageLinkDirective,
     JobPanelComponent, IconDirective
   ]
 })
@@ -65,6 +72,120 @@ export class LibraryComponent {
   syncDone       = signal<string | null>(null);
   volumes        = signal<Volume[]>([]);
   volumesLoading = signal(false);
+
+  // ─── Filtres + pagination (côté client — même approche que jobs.component) ─────
+  // La liste complète des volumes reste chargée (loadVolumes) ; filtres et découpage
+  // se font en mémoire via des computed. Toute la barre de filtres (facettes incluses)
+  // est dérivée de volumes(), donc la popup Refresh continue de lire la liste entière.
+  private static readonly SOURCE_LABELS: Record<string, string> = {
+    comicvine: 'ComicVine', bedetheque: 'Bédéthèque', manual: 'Manual'
+  };
+
+  // "ComicVine" / "bedetheque" / "manual" côté backend — normalisé, casse ignorée.
+  private static sourceKey(v: Volume): string {
+    const s = (v.sourceType ?? '').toLowerCase();
+    return s === 'comicvine' || s === 'bedetheque' ? s : 'manual';
+  }
+
+  // Minuscule + suppression des diacritiques (recherche titre insensible aux accents).
+  private static norm(s: string): string {
+    return s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
+
+  // Initiale normalisée : "Astérix" → "A" ; tout ce qui n'est pas A–Z → "#".
+  private static initial(title: string): string {
+    const c = LibraryComponent.norm(title).charAt(0).toUpperCase();
+    return c >= 'A' && c <= 'Z' ? c : '#';
+  }
+
+  readonly ALPHABET = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '#'];
+  readonly pageSize = 20;
+
+  currentPage     = signal(1);
+  search          = signal('');
+  letter          = signal<string | null>(null);
+  completeness    = signal<'all' | 'complete' | 'incomplete'>('all');
+  sourceFilter    = signal<string | null>(null);
+  yearFilter      = signal<number | null>(null);
+  ageRatingFilter = signal<AgeRating | null>(null);
+
+  readonly filteredVolumes = computed(() => {
+    const q            = LibraryComponent.norm(this.search());
+    const letter       = this.letter();
+    const completeness = this.completeness();
+    const source       = this.sourceFilter();
+    const year         = this.yearFilter();
+    const rating       = this.ageRatingFilter();
+
+    return this.volumes().filter(v => {
+      if (q && !LibraryComponent.norm(v.title).includes(q)) return false;
+      if (letter && LibraryComponent.initial(v.title) !== letter) return false;
+      if (completeness === 'complete'   && v.status !== 'COMPLETED') return false;
+      if (completeness === 'incomplete' && v.status === 'COMPLETED') return false;
+      if (source && LibraryComponent.sourceKey(v) !== source) return false;
+      if (year !== null && v.year !== year) return false;
+      if (rating && v.ageRating !== rating) return false;
+      return true;
+    });
+  });
+
+  readonly totalPages  = computed(() => Math.max(1, Math.ceil(this.filteredVolumes().length / this.pageSize)));
+  // Garde-fou : si la liste rétrécit (SignalR) alors qu'on est sur une page haute.
+  readonly clampedPage = computed(() => Math.min(this.currentPage(), this.totalPages()));
+
+  readonly pagedVolumes = computed(() => {
+    const start = (this.clampedPage() - 1) * this.pageSize;
+    return this.filteredVolumes().slice(start, start + this.pageSize);
+  });
+
+  // Fenêtre glissante de 7 pages — copie du helper de jobs.component.
+  readonly visiblePages = computed(() => {
+    const total   = this.totalPages();
+    const current = this.clampedPage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const start = Math.max(1, Math.min(current - 3, total - 6));
+    const end   = Math.min(total, start + 6);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  });
+
+  // Facettes — calculées sur la liste complète pour que la barre de filtres reste stable.
+  readonly availableInitials = computed(() => {
+    const set = new Set<string>();
+    for (const v of this.volumes()) set.add(LibraryComponent.initial(v.title));
+    return set;
+  });
+
+  readonly availableSources = computed(() => {
+    const counts = new Map<string, number>();
+    for (const v of this.volumes()) {
+      const k = LibraryComponent.sourceKey(v);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([key, count]) => ({ key, label: LibraryComponent.SOURCE_LABELS[key], count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  });
+
+  readonly availableYears = computed(() => {
+    const set = new Set<number>();
+    for (const v of this.volumes()) if (v.year != null) set.add(v.year);
+    return [...set].sort((a, b) => b - a);
+  });
+
+  readonly availableAgeRatings = computed(() => {
+    const set = new Set<AgeRating>();
+    for (const v of this.volumes()) if (v.ageRating) set.add(v.ageRating);
+    return AGE_RATINGS.filter(r => set.has(r.value));
+  });
+
+  readonly hasActiveFilter = computed(() =>
+    this.search().trim() !== '' ||
+    this.letter() !== null ||
+    this.completeness() !== 'all' ||
+    this.sourceFilter() !== null ||
+    this.yearFilter() !== null ||
+    this.ageRatingFilter() !== null
+  );
 
   // Disponibilité des étapes de la popup Refresh — à partir de volumes()/library() déjà chargés,
   // aucun appel réseau supplémentaire (mêmes règles que sur volume.component.ts).
@@ -224,8 +345,58 @@ export class LibraryComponent {
   }
 
   volumeSubtitle(volume: Volume): string {
-    const parts = [volume.year?.toString(), volume.publisher].filter((p): p is string => !!p);
+    const parts = [
+      volume.year?.toString(),
+      volume.publisher,
+      LibraryComponent.SOURCE_LABELS[LibraryComponent.sourceKey(volume)]
+    ].filter((p): p is string => !!p);
     return parts.length ? parts.join(' · ') : '—';
+  }
+
+  // ─── Filtres — chaque changement ramène à la page 1 (cf. setFilterMode de jobs.component) ─
+  setLetter(l: string | null): void {
+    this.letter.set(this.letter() === l ? null : l);
+    this.currentPage.set(1);
+  }
+
+  setCompleteness(mode: 'all' | 'complete' | 'incomplete'): void {
+    this.completeness.set(mode);
+    this.currentPage.set(1);
+  }
+
+  setSourceFilter(source: string): void {
+    this.sourceFilter.set(source || null);
+    this.currentPage.set(1);
+  }
+
+  setYearFilter(year: string): void {
+    this.yearFilter.set(year ? Number(year) : null);
+    this.currentPage.set(1);
+  }
+
+  setAgeRatingFilter(rating: string): void {
+    this.ageRatingFilter.set((rating || null) as AgeRating | null);
+    this.currentPage.set(1);
+  }
+
+  onSearch(value: string): void {
+    this.search.set(value);
+    this.currentPage.set(1);
+  }
+
+  clearFilters(): void {
+    this.search.set('');
+    this.letter.set(null);
+    this.completeness.set('all');
+    this.sourceFilter.set(null);
+    this.yearFilter.set(null);
+    this.ageRatingFilter.set(null);
+    this.currentPage.set(1);
+  }
+
+  goToPage(page: number): void {
+    if (page < 1 || page > this.totalPages()) return;
+    this.currentPage.set(page);
   }
 
   ageRatingLabel(rating: AgeRating): string {

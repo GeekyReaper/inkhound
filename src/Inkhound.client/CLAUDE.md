@@ -180,7 +180,8 @@ src/
 │   │                            # IssueService, KavitaService, OptionsService, FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── dashboard/           # DashboardComponent
-│   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste des volumes)
+│   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
+│   │   │                        #   filtres côté client : lettre / complétude / source / titre / année / age rating)
 │   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
@@ -201,7 +202,7 @@ src/
 |---|---|---|
 | `/dashboard` | `DashboardComponent` | Tableau de bord |
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
-| `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes |
+| `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/add-volume` | `VolumeAddComponent` | Ajouter un volume (recherche multi-source ou manuel) |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
