@@ -414,6 +414,13 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 
 > `lastDataUpdated.dataType` se termine par `'Volume'`, `'Issue'` ou `'Library'` — utiliser `.endsWith()` pour filtrer.
 
+> ⚠️ Les jobs n'émettent pas tous un `ManagerDataUpdated` **par entité modifiée** : le rematch/refresh
+> (`RunRematchVolumeJobAsync`) n'en diffuse un que pour le `Volume` (via `RecalculateVolumeStatistics`),
+> jamais par issue. Une page qui doit refléter des changements d'issues après un job doit donc
+> **recharger explicitement ses données dans l'`effect()` de fin de job** (état `SUCCESS`), sans se
+> reposer uniquement sur les souscriptions `lastDataUpdated` — cf. `VolumeComponent` (recharge
+> volume + `loadIssues()` à la complétion du job Refresh/Rematch/Import).
+
 ### HubService — résynchronisation après coupure (mobile background)
 
 `ManagerJobChanged` est un push fire-and-forget côté serveur (pas de buffer) : un job qui se

@@ -216,8 +216,21 @@ export class VolumeComponent {
       if (job.state !== 'SUCCESS' && job.state !== 'ERROR') return;
       this.handledJobIds.add(job.jobId);
       this.pageJobs.clear(this.pageKey);
-      if (job.state === 'ERROR') this.error.set('Job failed — see the job console for details.');
-      // Les données à jour (Volume + Issues) arrivent via lastDataUpdated, déjà écouté ci-dessus.
+      if (job.state === 'ERROR') {
+        this.error.set('Job failed — see the job console for details.');
+        return;
+      }
+      // Job terminé (Refresh / Rematch / Import) : on recharge explicitement volume + issues. Le
+      // rematch ne diffuse un ManagerDataUpdated que pour le Volume (via RecalculateVolumeStatistics),
+      // jamais par issue — sans ce rechargement, les changements de catégorie/numéro des issues ne
+      // sont visibles qu'après un refresh manuel de la page.
+      const vol = this.volume();
+      if (vol) {
+        this.volumeService.getById(vol.id)
+          .pipe(takeUntilDestroyed(this.#destroyRef))
+          .subscribe(v => this.volume.set(v));
+        this.loadIssues(vol.id);
+      }
     });
   }
 

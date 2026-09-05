@@ -554,6 +554,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         }
 
         var classified = raws.Select(a => BedethequeAlbumClassifier.Classify(a.Numero, a.Titre)).ToList();
+        BedethequeAlbumClassifier.NormalizeSingleAlbumSeries(classified);
         var resolvedIdx = BedethequeAlbumClassifier.ResolveMissingIndices(
             raws.Select((a, i) => (classified[i].Category, classified[i].Idx, a.Annee, a.Id)).ToList());
 

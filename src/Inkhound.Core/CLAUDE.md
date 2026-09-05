@@ -113,7 +113,8 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 **Issue.Category** (`IssueCategory`) — voir `BedethequeAlbumClassifier` dans la section Bedetheque
 - `Standard` — tome classique (défaut ; seule valeur possible pour ComicVine/manuel)
 - `Special` — hors-série (préfixe `HS*`)
-- `SpecialEdition` — édition spéciale non classée ailleurs (repli par défaut)
+- `SpecialEdition` — édition spéciale non classée ailleurs (repli par défaut) ; exception : une
+  série à album unique tombée dans ce repli est ramenée à `Standard`/`1` (voir `NormalizeSingleAlbumSeries`)
 - `Omnibus` — intégrale (préfixe `INT*`, ou titre contenant `" / "` / `"Tomes N à M"` / `"intégrale"`)
 - `Roman` — roman/novélisation (préfixe `ROMAN*`)
 - `BestOf` — compilation "Best Of" (préfixe `BO*`)
@@ -144,6 +145,12 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
   voient attribuer un rang par `ResolveMissingIndices`, trié par année puis Id au sein de leur
   catégorie. `GetAllAlbumsForSerieAsync` reporte ce résultat (page liste, fiable pour toutes les
   catégories) sur chaque `BdAlbum` (page détail) avant mapping vers `Issue`.
+  - **Règle one-shot** (`NormalizeSingleAlbumSeries`, appelée par `ParseAlbumList` juste après
+    `Classify`) : une série réduite à **un seul album** tombé dans le repli `SpecialEdition`
+    (préfixe absent/non reconnu) est normalisée en `(Standard, 1)` — aucune ambiguïté à lever
+    quand il n'y a qu'un tome, et sans ça le volume affiche `CountOfIssues = 0`
+    (`RecalculateVolumeStatisticsAsync` ne compte que les `Standard`). Les one-shots explicitement
+    catalogués (`HS*`, `INT*`, `ROMAN*`, `BO*`, titre `"intégrale"` / `" / "`) ne sont pas touchés.
 
 ### Recherche multi-source
 `InkhoundManager.SearchVolumesAsync` interroge en parallèle tous les `ISourceService`

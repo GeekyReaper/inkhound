@@ -62,6 +62,20 @@ public static class BedethequeAlbumClassifier
         return (categorie, !string.IsNullOrEmpty(norm) ? PremierChiffre(norm) : null);
     }
 
+    // Cas "one-shot" : quand une série se réduit à un seul album que Classify a rangé dans le repli
+    // SpecialEdition (préfixe de numérotation absent ou non reconnu, titre sans marqueur d'intégrale),
+    // il n'y a aucune ambiguïté de numérotation à lever — c'est le tome standard et unique de la
+    // série. On le repositionne en (Standard, 1) pour que la complétude du volume (comptée sur les
+    // seules issues Category == Standard) le prenne en compte. Les one-shots explicitement catalogués
+    // ailleurs (préfixe HS*/INT*/ROMAN*/BO*, titre "intégrale" / " / " ...) ne sont pas touchés :
+    // leur catégorie particulière est intentionnelle. `classified` couvre tous les albums d'UNE
+    // série, dans l'ordre de Classify — appelé par ParseAlbumList juste après la classification.
+    public static void NormalizeSingleAlbumSeries(IList<(string Category, int? Idx)> classified)
+    {
+        if (classified.Count == 1 && classified[0].Category == "SpecialEdition")
+            classified[0] = ("Standard", 1);
+    }
+
     private static int? PremierChiffre(string s)
         => Regex.Match(s, @"\d+") is { Success: true } m && int.TryParse(m.Value, out var v) ? v : null;
 
