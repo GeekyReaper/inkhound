@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, signal, untracked } from '@angular/core';
-import { TableDirective } from '@coreui/angular';
-import { Issue } from '../../core/services/issue.service';
+import { IconDirective } from '@coreui/icons-angular';
+import { ISSUE_CATEGORY_ORDER, Issue } from '../../core/services/issue.service';
 import { formatSize } from '../../core/util/format-size';
 
 // Fichier apparaissable — commun aux fichiers d'un torrent et aux fichiers d'un dossier.
@@ -28,8 +28,9 @@ export interface FileIssueAssignment {
   selector: 'app-file-issue-matcher',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TableDirective],
-  templateUrl: './file-issue-matcher.component.html'
+  imports: [IconDirective],
+  templateUrl: './file-issue-matcher.component.html',
+  styleUrl: './file-issue-matcher.component.scss'
 })
 export class FileIssueMatcherComponent {
   files  = input.required<MatchableFile[]>();
@@ -45,8 +46,17 @@ export class FileIssueMatcherComponent {
   readonly selection = computed<FileIssueAssignment[]>(() =>
     [...this.fileAssignments().entries()].map(([fileIndex, issueId]) => ({ fileIndex, issueId })));
 
+  // Issues triées par catégorie (Standard en premier, cf. ISSUE_CATEGORY_ORDER) puis par numéro —
+  // remplace l'ordre brut de issues(), qui varie selon l'appelant (trié par numéro seul côté
+  // VolumeComponent, pas trié du tout côté ProwlarrSearchComponent). Centralisé ici pour que les
+  // deux consommateurs bénéficient du même tri sans dupliquer la logique.
+  private readonly sortedIssues = computed(() =>
+    [...this.issues()].sort((a, b) =>
+      ISSUE_CATEGORY_ORDER.indexOf(a.category) - ISSUE_CATEGORY_ORDER.indexOf(b.category)
+      || a.issueNumber - b.issueNumber));
+
   // Seule cible de l'auto-appariement.
-  private readonly missingIssues = computed(() => this.issues().filter(i => i.status === 'MISSING'));
+  private readonly missingIssues = computed(() => this.sortedIssues().filter(i => i.status === 'MISSING'));
 
   protected readonly formatSize = formatSize;
 
@@ -110,7 +120,7 @@ export class FileIssueMatcherComponent {
   availableIssuesFor(index: number): Issue[] {
     const takenElsewhere = new Set(
       [...this.fileAssignments().entries()].filter(([i]) => i !== index).map(([, id]) => id));
-    return this.issues().filter(i => !takenElsewhere.has(i.id));
+    return this.sortedIssues().filter(i => !takenElsewhere.has(i.id));
   }
 
   issueOptionLabel(issue: Issue): string {

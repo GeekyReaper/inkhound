@@ -9,6 +9,12 @@ export type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 // page volume) ; les autres catégories sont regroupées dans le bloc "Extra".
 export type IssueCategory = 'Standard' | 'Special' | 'SpecialEdition' | 'Omnibus' | 'Roman' | 'BestOf';
 
+// Ordre d'affichage des catégories — Standard en tête, puis le même ordre que
+// VolumeComponent.EXTRA_CATEGORY_ORDER pour son bloc "Extra" (à garder synchronisé).
+// Utilisé par FileIssueMatcherComponent pour trier son dropdown d'issues.
+export const ISSUE_CATEGORY_ORDER: IssueCategory[] =
+  ['Standard', 'Special', 'SpecialEdition', 'Omnibus', 'BestOf', 'Roman'];
+
 export interface SourceIssue {
   sourceId:   string;
   source:     SourceKey;

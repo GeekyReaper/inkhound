@@ -1,0 +1,29 @@
+// Une "ligne" = une carte compacte (fichier + son appariement), toujours sur 2 lignes internes
+// quelle que soit la largeur d'écran (pas de tableau, pas de variante desktop distincte — demandé
+// explicitement, cf. le tableau précédent qui écrasait les colonnes Issue/Size en fenêtre étroite).
+.file-issue-row {
+  padding: 0.625rem 0.75rem;
+  border: var(--cui-border-width, 1px) solid var(--cui-border-color);
+  border-radius: var(--cui-border-radius);
+  margin-bottom: 0.5rem;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+// Nom complet toujours visible, sur plusieurs lignes si besoin (pas de troncature "...") — la
+// checkbox reste alignée en haut (.align-items-start côté template) plutôt qu'au centre vertical.
+// min-width: 0 : par défaut un item flex a min-width: auto (borné à la largeur de son contenu),
+// ce qui l'empêcherait de rétrécir pour déclencher le retour à la ligne.
+// overflow-wrap: anywhere : filet de sécurité si un segment de chemin sans espace est trop long
+// pour tenir sur une ligne même après retour à la ligne normal.
+.file-issue-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-issue-select {
+  min-width: 0;
+  flex: 1 1 auto;
+}

@@ -24,6 +24,10 @@
 // purement d'affichage, ajustable librement.
 $table-stack-identity-min-width: 240px;
 
+// Largeur plafond de la variante tronquée (.col-identity-truncate, voir plus bas) — valeur
+// purement d'affichage, ajustable librement.
+$table-stack-identity-truncate-max-width: 360px;
+
 // Seuil "carte mobile", codé en dur (pas de mixin media-breakpoint-down, pour ne dépendre
 // d'aucun import de namespace Bootstrap/CoreUI dans ce partiel). S'aligne sur le breakpoint
 // `md` déjà utilisé par le header (`d-none d-md-flex`) : paire standard Bootstrap
@@ -39,6 +43,20 @@ $table-stack-breakpoint-up: 768px;
     th.col-identity,
     td.col-identity {
       min-width: $table-stack-identity-min-width;
+    }
+
+    // Variante : colonne "identité" qui ne doit JAMAIS wrapper (ex. chemin de fichier complet,
+    // potentiellement bien plus long qu'un simple titre) — contrairement à .col-identity seule,
+    // qui autorise le retour à la ligne pour ne pas tronquer l'info. Ici un plancher de largeur ne
+    // suffit pas : sans plafond, une valeur très longue prend toute la largeur disponible et pousse
+    // les colonnes voisines hors champ (constaté en pratique). On tronque donc avec une ellipsis ;
+    // le nom complet reste consultable via l'attribut [title] (tooltip natif) posé côté template.
+    // À combiner avec .col-identity (garde son comportement carte pleine largeur en mobile).
+    td.col-identity-truncate {
+      max-width: $table-stack-identity-truncate-max-width;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
   }
 }
