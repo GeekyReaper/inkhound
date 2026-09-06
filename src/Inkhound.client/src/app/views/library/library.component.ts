@@ -199,7 +199,8 @@ export class LibraryComponent {
 
   refreshModalVisible = signal(false);
   refreshOptions = signal<RefreshVolumeOptions>({
-    syncFromSource: true, recalculateStatistics: true, regenerateComicInfo: true, scanKavita: true
+    syncFromSource: true, syncNewIssuesOnly: true,
+    recalculateStatistics: true, regenerateComicInfo: true, scanKavita: true
   });
   refreshCanRun = computed(() => {
     const o = this.refreshOptions();
@@ -429,6 +430,7 @@ export class LibraryComponent {
     if (this.activeRefreshJobIds().length > 0) return;
     this.refreshOptions.set({
       syncFromSource: this.hasAnySourcedVolume(),
+      syncNewIssuesOnly: true,
       recalculateStatistics: true,
       regenerateComicInfo: this.hasAnyDownloadedIssues(),
       scanKavita: this.hasKavitaLibrary()
@@ -438,6 +440,11 @@ export class LibraryComponent {
 
   toggleRefreshOption(key: keyof RefreshVolumeOptions): void {
     this.refreshOptions.update(o => ({ ...o, [key]: !o[key] }));
+  }
+
+  // Radio "NEW issues only" / "ALL issues" sous la case "Sync with source" (ne se toggle pas).
+  setSyncScope(newIssuesOnly: boolean): void {
+    this.refreshOptions.update(o => ({ ...o, syncNewIssuesOnly: newIssuesOnly }));
   }
 
   confirmRefresh(): void {

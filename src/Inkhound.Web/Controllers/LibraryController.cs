@@ -148,9 +148,12 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         return Accepted(new { message = $"Statistics recalculation started for library {id}." });
     }
 
+    // SyncNewIssuesOnly (radio sous "Sync with source", défaut false = historique "ALL issues") :
+    // ne synchroniser depuis la source que les issues/albums encore inconnus en base.
     public record RefreshLibraryRequest(
         bool SyncFromSource = true, bool RecalculateStatistics = true,
-        bool RegenerateComicInfo = true, bool ScanKavita = true);
+        bool RegenerateComicInfo = true, bool ScanKavita = true,
+        bool SyncNewIssuesOnly = false);
 
     // POST /api/libraries/{id}/refresh — lance un Job "Refresh" indépendant par volume (pas de job
     // parent unique — cf. LaunchJobsRefreshLibrary) et retourne la liste de leurs JobId.
@@ -160,7 +163,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         var options = req ?? new RefreshLibraryRequest();
         var jobIds = await manager.LaunchJobsRefreshLibrary(
             id, options.SyncFromSource, options.RecalculateStatistics,
-            options.RegenerateComicInfo, options.ScanKavita);
+            options.RegenerateComicInfo, options.ScanKavita, options.SyncNewIssuesOnly);
         return Accepted(new { jobIds = jobIds.Select(j => j.ToString()) });
     }
 }

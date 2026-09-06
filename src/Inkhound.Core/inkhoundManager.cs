@@ -1224,7 +1224,8 @@ public class InkhoundManager : BaseServiceManager
     public record RematchResult(int IssuesAdded, int IssuesUpdated, int IssuesRemoved);
 
     public async Task<RematchResult?> RematchVolumeFromComicVineAsync(
-        Guid volumeId, int comicVineVolumeId, CancellationToken ct = default, ProgressionCallback? progression = null)
+        Guid volumeId, int comicVineVolumeId, CancellationToken ct = default, ProgressionCallback? progression = null,
+        bool newIssuesOnly = false)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
@@ -1249,6 +1250,11 @@ public class InkhoundManager : BaseServiceManager
         volume.Genres       = mapped.Genres;
         volume.UpdatedAt    = DateTime.UtcNow;
         JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
+
+        // Mode "NEW issues only" : metadata Volume déjà recopiée ci-dessus, on ne récupère que les
+        // issues source encore absentes en base et on laisse les connues intactes.
+        if (newIssuesOnly)
+            return await SyncNewComicVineIssuesAsync(ctx, volume, cvVolume, comicVine, ct, progression);
 
         var cvIssues = await comicVine.GetAllIssuesForVolumeAsync(comicVineVolumeId, ELevelDetail.FULL, ct, progression);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
@@ -1313,6 +1319,51 @@ public class InkhoundManager : BaseServiceManager
         await ctx.SaveChangesAsync(ct);
         await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
         return new RematchResult(issuesAdded, issuesUpdated, issuesRemoved);
+    }
+
+    // Mode "NEW issues only" du Refresh ComicVine. La metadata Volume a déjà été recopiée par
+    // l'appelant. La liste d'ids source vient directement de cvVolume.Issues (déjà récupérée par
+    // GetVolumeAsync, aucun appel réseau de plus) — ces refs NE portent PAS le numéro, donc un
+    // GetIssueAsync (détail : issue_number + person_credits) reste nécessaire pour chaque nouvel
+    // id. Les issues déjà connues ne sont pas touchées (pas de maj, pas de suppression).
+    private async Task<RematchResult?> SyncNewComicVineIssuesAsync(
+        DbStorageContext ctx, Volume volume, CvVolume cvVolume,
+        ComicVineSourceService comicVine, CancellationToken ct, ProgressionCallback? progression)
+    {
+        var known = (await ctx.Issues.Where(i => i.VolumeId == volume.Id)
+            .Select(i => i.SourceId).ToListAsync(ct)).ToHashSet();
+        var newIds = (cvVolume.Issues ?? [])
+            .Select(r => r.Id)
+            .Where(id => !known.Contains(id.ToString()))
+            .Distinct()
+            .ToList();
+
+        JobSendTrace($"[Refresh] {newIds.Count} new ComicVine issue(s) to fetch (of {cvVolume.Issues?.Count ?? 0} on source)");
+        progression?.UpdateTotal(newIds.Count);
+        var progress = new Progression { Total = newIds.Count };
+
+        var added = 0;
+        foreach (var id in newIds)
+        {
+            var cvIssue = await comicVine.GetIssueAsync(id, ct);
+            if (cvIssue is not null)
+            {
+                var issue = Mapper.Map(cvIssue);
+                issue.Id       = Guid.NewGuid();
+                issue.VolumeId = volume.Id;
+                issue.Status   = IssueStatus.MISSING;
+                ctx.Issues.Add(issue);
+                added++;
+                JobSendTrace($"[Refresh] New issue #{issue.IssueNumber} — '{issue.Title}' added as MISSING");
+            }
+            progress.Increment(cvIssue is not null);
+            progression?.Callback(progress);
+            await Task.Delay(500, ct); // parité avec GetAllIssuesForVolumeAsync (politesse au-delà du RateLimiter)
+        }
+
+        await ctx.SaveChangesAsync(ct);
+        await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
+        return new RematchResult(added, 0, 0);
     }
 
     // Miroir de AddVolumeFromComicVineAsync pour la source Bedetheque : utilise les modèles natifs
@@ -1420,7 +1471,8 @@ public class InkhoundManager : BaseServiceManager
 
     // Miroir de RematchVolumeFromComicVineAsync pour la source Bedetheque.
     public async Task<RematchResult?> RematchVolumeFromBedethequeAsync(
-        Guid volumeId, int bdSerieId, CancellationToken ct = default, ProgressionCallback? progression = null)
+        Guid volumeId, int bdSerieId, CancellationToken ct = default, ProgressionCallback? progression = null,
+        bool newIssuesOnly = false)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync([volumeId], ct);
@@ -1430,7 +1482,10 @@ public class InkhoundManager : BaseServiceManager
         if (bedetheque.CurrentState.State != EState.OK)
             throw new InvalidOperationException("Bedetheque service is not available");
 
-        var bdSerie = await bedetheque.GetSerieAsync(bdSerieId, ct)
+        // forceRefresh: true — un Refresh est une demande explicite d'aller voir la source
+        // maintenant ; sans ça le cache 24h masquerait un tome ajouté récemment (bénéficie aux
+        // deux modes).
+        var bdSerie = await bedetheque.GetSerieAsync(bdSerieId, ct, forceRefresh: true)
             ?? throw new KeyNotFoundException($"Bedetheque serie {bdSerieId} not found.");
 
         var mapped = Mapper.Map(bdSerie);
@@ -1449,6 +1504,11 @@ public class InkhoundManager : BaseServiceManager
         volume.Website            = mapped.Website;
         volume.UpdatedAt    = DateTime.UtcNow;
         JobSendTrace($"[Rematch] Volume metadata: title='{volume.Title}', year={volume.Year}, publisher='{volume.Publisher}'");
+
+        // Mode "NEW issues only" : metadata Serie déjà recopiée, on ne récupère la page détail que
+        // pour les albums encore absents en base et on laisse les issues connues intactes.
+        if (newIssuesOnly)
+            return await SyncNewBedethequeAlbumsAsync(ctx, volume, bdSerie, bedetheque, ct, progression);
 
         var bdAlbums = await bedetheque.GetAllAlbumsForSerieAsync(bdSerieId, ct, progression);
         var existingIssues = await ctx.Issues.Where(i => i.VolumeId == volumeId).ToListAsync(ct);
@@ -1531,6 +1591,52 @@ public class InkhoundManager : BaseServiceManager
         return new RematchResult(issuesAdded, issuesUpdated, issuesRemoved);
     }
 
+    // Mode "NEW issues only" du Refresh Bedetheque. La metadata Serie a déjà été recopiée par
+    // l'appelant. bdSerie.Albums est la liste RÉSUMÉ classée sur la série ENTIÈRE (Category/Idx
+    // résolus par BedethequeAlbumClassifier + ResolveMissingIndices + NormalizeSingleAlbumSeries
+    // sur tout le set) — on la garde telle quelle et on ne fait un GetAlbumAsync (page détail :
+    // auteurs/EAN/...) QUE pour les albums absents en base. On NE re-classe JAMAIS un sous-ensemble.
+    private async Task<RematchResult?> SyncNewBedethequeAlbumsAsync(
+        DbStorageContext ctx, Volume volume, BdSerie bdSerie,
+        BedethequeSourceService bedetheque, CancellationToken ct, ProgressionCallback? progression)
+    {
+        var known = (await ctx.Issues.Where(i => i.VolumeId == volume.Id)
+            .Select(i => i.SourceId).ToListAsync(ct)).ToHashSet();
+        var newSummaries = bdSerie.Albums
+            .Where(a => !known.Contains(a.Id.ToString()))
+            .ToList();
+
+        JobSendTrace($"[Refresh] {newSummaries.Count} new Bedetheque album(s) to fetch (of {bdSerie.Albums.Count} on source)");
+        progression?.UpdateTotal(newSummaries.Count);
+        var progress = new Progression { Total = newSummaries.Count };
+
+        var added = 0;
+        for (var i = 0; i < newSummaries.Count; i++)
+        {
+            var summary = newSummaries[i];
+            JobSendTrace($"[Refresh] Album {i + 1}/{newSummaries.Count} — {summary.Titre}");
+            var album = await bedetheque.GetAlbumAsync(summary.Id, ct);
+            if (album is not null)
+            {
+                // Category/Idx viennent de la page liste (résolus sur la série entière), pas de la
+                // page détail — cf. GetAllAlbumsForSerieAsync.
+                var issue = Mapper.Map(album with { Category = summary.Category, Idx = summary.Idx });
+                issue.Id       = Guid.NewGuid();
+                issue.VolumeId = volume.Id;
+                issue.Status   = IssueStatus.MISSING;
+                ctx.Issues.Add(issue);
+                added++;
+                JobSendTrace($"[Refresh] New issue #{issue.IssueNumber} ({issue.Category}) — '{issue.Title}' added as MISSING");
+            }
+            progress.Increment(album is not null);
+            progression?.Callback(progress);
+        }
+
+        await ctx.SaveChangesAsync(ct);
+        await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
+        return new RematchResult(added, 0, 0);
+    }
+
     // Dispatchers génériques utilisés par les contrôleurs Web — routent vers l'implémentation
     // dédiée à la source choisie par l'utilisateur dans les résultats de recherche.
     public Task<AddVolumeResult> AddVolumeFromSourceAsync(Guid libraryId, string source, string sourceId, CancellationToken ct = default) =>
@@ -1542,11 +1648,11 @@ public class InkhoundManager : BaseServiceManager
         };
 
     public Task<RematchResult?> RematchVolumeFromSourceAsync(Guid volumeId, string source, string sourceId,
-        CancellationToken ct = default, ProgressionCallback? progression = null) =>
+        CancellationToken ct = default, ProgressionCallback? progression = null, bool newIssuesOnly = false) =>
         source.ToLowerInvariant() switch
         {
-            "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct, progression),
-            "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct, progression),
+            "comicvine" => RematchVolumeFromComicVineAsync(volumeId, int.Parse(sourceId), ct, progression, newIssuesOnly),
+            "bedetheque" => RematchVolumeFromBedethequeAsync(volumeId, int.Parse(sourceId), ct, progression, newIssuesOnly),
             _ => throw new InvalidOperationException($"Unknown source '{source}'"),
         };
 
@@ -1571,14 +1677,17 @@ public class InkhoundManager : BaseServiceManager
     // Pré-check synchrone : Source/SourceId doivent être connus AVANT de construire les paramètres
     // du job (contrairement à Rematch, où ils viennent de la requête). Volume introuvable ou manuel
     // → pas de job créé (le bouton "Refresh" est de toute façon masqué côté UI pour un volume manuel).
-    // Les 4 booléens pilotent la popup à cases à cocher côté front (sync source / stats / ComicInfo /
-    // Kavita) — tous par défaut à true (comportement identique à avant si l'appelant ne les précise pas).
+    // Les booléens pilotent la popup à cases à cocher côté front (sync source / stats / ComicInfo /
+    // Kavita) — tous par défaut à true (comportement identique à avant si l'appelant ne les précise
+    // pas). syncNewIssuesOnly (radio sous "Sync with source", défaut false = historique) : ne
+    // récupérer de la source que les issues/albums encore inconnus — voir RematchVolumeJobParameters.
     public async Task<JobContext?> LaunchJobRefreshVolume(
         Guid volumeId,
         bool syncFromSource = true,
         bool recalculateStatistics = true,
         bool regenerateComicInfo = true,
         bool scanKavita = true,
+        bool syncNewIssuesOnly = false,
         CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -1592,6 +1701,7 @@ public class InkhoundManager : BaseServiceManager
             VolumeId = volumeId, Source = volume.SourceType, SourceId = volume.SourceId,
             SyncFromSource = syncFromSource, RecalculateStatistics = recalculateStatistics,
             RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita,
+            SyncNewIssuesOnly = syncNewIssuesOnly,
             IsRefresh = true
         });
     }
@@ -1606,7 +1716,7 @@ public class InkhoundManager : BaseServiceManager
     // RateLimiter interne, donc pas de throttling supplémentaire nécessaire ici.
     public async Task<List<Guid>> LaunchJobsRefreshLibrary(
         Guid libraryId, bool syncFromSource, bool recalculateStatistics,
-        bool regenerateComicInfo, bool scanKavita, CancellationToken ct = default)
+        bool regenerateComicInfo, bool scanKavita, bool syncNewIssuesOnly = false, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var volumeIds = await ctx.Volumes
@@ -1620,7 +1730,8 @@ public class InkhoundManager : BaseServiceManager
             try
             {
                 var job = await LaunchJobRefreshVolume(
-                    volumeId, syncFromSource, recalculateStatistics, regenerateComicInfo, scanKavita, ct);
+                    volumeId, syncFromSource, recalculateStatistics, regenerateComicInfo, scanKavita,
+                    syncNewIssuesOnly, ct);
                 if (job is not null) jobIds.Add(job.JobId);
             }
             catch (InvalidOperationException)
@@ -1658,9 +1769,11 @@ public class InkhoundManager : BaseServiceManager
 
             if (parameters.SyncFromSource)
             {
-                JobSendTrace($"[Rematch] Fetching {parameters.Source} #{parameters.SourceId}...");
+                JobSendTrace($"[Rematch] Fetching {parameters.Source} #{parameters.SourceId}..."
+                    + (parameters.SyncNewIssuesOnly ? " (new issues only)" : string.Empty));
                 var result = await RematchVolumeFromSourceAsync(
-                    parameters.VolumeId, parameters.Source, parameters.SourceId, progression: job.CallbackHandler);
+                    parameters.VolumeId, parameters.Source, parameters.SourceId,
+                    progression: job.CallbackHandler, newIssuesOnly: parameters.SyncNewIssuesOnly);
                 if (result is null)
                 {
                     JobSendTrace("[Rematch] Volume not found", ETraceLevel.ERROR);

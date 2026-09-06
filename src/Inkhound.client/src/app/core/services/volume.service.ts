@@ -70,9 +70,12 @@ export interface Volume {
   updatedAt:                string;
 }
 
-// Options de la popup "Refresh" (cases à cocher) — mêmes noms que RefreshVolumeRequest côté backend.
+// Options de la popup "Refresh" — mêmes noms que RefreshVolumeRequest côté backend.
+// syncNewIssuesOnly : radio sous "Sync with source" — true = ne récupérer de la source que les
+// issues encore inconnues (défaut UI), false = re-synchroniser toutes les issues (historique).
 export interface RefreshVolumeOptions {
   syncFromSource:        boolean;
+  syncNewIssuesOnly:     boolean;
   recalculateStatistics: boolean;
   regenerateComicInfo:   boolean;
   scanKavita:             boolean;

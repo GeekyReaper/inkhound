@@ -116,6 +116,10 @@ regenerate-comic-info / analyze / **import dossier** (`POST /api/volumes/{id}/im
 `GET /api/volumes/{id}/import/scan` pour la popup de revue fichiers ↔ issues) / **import fichier
 issue** (`POST /api/issues/{id}/import { filePath }`, bouton « Import » de la page Issue).
 
+`RefreshVolumeRequest` / `RefreshLibraryRequest` portent `SyncNewIssuesOnly` (défaut `false` =
+comportement historique « ALL issues ») : radio de la popup Refresh — `true` ne synchronise depuis
+la source que les issues/albums encore inconnus (voir `Inkhound.Core/CLAUDE.md`).
+
 Hors job : `DELETE /api/issues/{id}/file` (bouton « Delete file » de la page Issue) supprime le CBZ
 de la librairie, remet l'issue à `MISSING` et purge l'analyse + le suivi de download associés
 (`DeleteIssueFileAsync` → `NoContent` ou `BadRequest { message }`).

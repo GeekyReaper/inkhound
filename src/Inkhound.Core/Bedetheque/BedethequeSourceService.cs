@@ -291,8 +291,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     #region API Mapping — détail série + albums
 
-    public async Task<BdSerie?> GetSerieAsync(int id, CancellationToken ct = default)
-        => await GetOrFetchSerieAsync(id, requireComplete: true, ct);
+    // forceRefresh: true ignore l'entrée en cache 24h et refait le GET (puis repeuple le cache) —
+    // utilisé par le flux Refresh/Rematch pour qu'un tome ajouté récemment sur la source soit
+    // effectivement vu ; la recherche/enrichissement garde le cache (forceRefresh: false).
+    public async Task<BdSerie?> GetSerieAsync(int id, CancellationToken ct = default, bool forceRefresh = false)
+        => await GetOrFetchSerieAsync(id, requireComplete: true, ct, forceRefresh);
 
     // Point d'entrée unique pour récupérer les informations d'une série, avec cache mémoire (24h,
     // par instance) partagé entre GetSerieAsync et l'enrichissement de SearchAllSeriesByNameAsync
@@ -302,9 +305,10 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     // false (enrichissement de recherche) se contente d'un aperçu (page 1) et accepte n'importe
     // quelle entrée fraîche, complète ou non — moins cher en requêtes pour une recherche qui peut
     // remonter plusieurs séries à enrichir.
-    private async Task<BdSerie?> GetOrFetchSerieAsync(int id, bool requireComplete, CancellationToken ct)
+    private async Task<BdSerie?> GetOrFetchSerieAsync(int id, bool requireComplete, CancellationToken ct, bool forceRefresh = false)
     {
-        if (_serieCache.TryGetValue(id, out var cached)
+        if (!forceRefresh
+            && _serieCache.TryGetValue(id, out var cached)
             && DateTime.UtcNow - cached.CachedAtUtc < SerieCacheDuration
             && (!requireComplete || cached.Complete))
         {

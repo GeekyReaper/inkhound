@@ -258,6 +258,26 @@
                (change)="toggleRefreshOption('syncFromSource')" />
         <label cFormCheckLabel for="refresh-source">Sync with source (metadata &amp; issues)</label>
       </c-form-check>
+      <div class="ms-4 mt-1">
+        <c-form-check>
+          <input cFormCheckInput type="radio" id="refresh-scope-new" name="refreshSyncScope"
+                 [checked]="refreshOptions().syncNewIssuesOnly"
+                 [disabled]="!refreshOptions().syncFromSource"
+                 (change)="setSyncScope(true)" />
+          <label cFormCheckLabel for="refresh-scope-new" [class.text-body-tertiary]="!refreshOptions().syncFromSource">
+            NEW issues only <span class="text-body-secondary small">— faster: only fetches issues not yet in the library</span>
+          </label>
+        </c-form-check>
+        <c-form-check>
+          <input cFormCheckInput type="radio" id="refresh-scope-all" name="refreshSyncScope"
+                 [checked]="!refreshOptions().syncNewIssuesOnly"
+                 [disabled]="!refreshOptions().syncFromSource"
+                 (change)="setSyncScope(false)" />
+          <label cFormCheckLabel for="refresh-scope-all" [class.text-body-tertiary]="!refreshOptions().syncFromSource">
+            ALL issues <span class="text-body-secondary small">— re-fetches every known issue's metadata</span>
+          </label>
+        </c-form-check>
+      </div>
     </div>
     <div class="mb-3">
       <c-form-check>

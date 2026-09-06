@@ -328,6 +328,15 @@ interface PageResult<T> {
   totalItems: number; totalPages: number; hasNext: boolean; hasPrev: boolean;
 }
 
+// Options de la popup "Refresh" (page volume ET page library — interface partagée) — mêmes noms
+// que RefreshVolumeRequest / RefreshLibraryRequest côté backend.
+interface RefreshVolumeOptions {
+  syncFromSource: boolean;
+  syncNewIssuesOnly: boolean;   // radio sous "Sync with source" : true = NEW only (défaut UI),
+                                // false = re-sync de toutes les issues (historique). setSyncScope().
+  recalculateStatistics: boolean; regenerateComicInfo: boolean; scanKavita: boolean;
+}
+
 // ─── issue.service.ts ────────────────────────────────────────────────────────
 type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 // Catégorie d'album Bedetheque (BedethequeAlbumClassifier côté backend) — 'Standard' pour
