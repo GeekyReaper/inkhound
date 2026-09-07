@@ -18,6 +18,21 @@ export interface DashboardRecentVolume {
   dateAdded: string;
 }
 
+export interface DashboardMostWantedIssue {
+  issueId:                    string;
+  volumeId:                   string;
+  libraryId:                  string;
+  volumeTitle:                string;
+  image:                      VolumeImage | null;
+  issueNumber:                number;
+  issueTitle:                 string | null;
+  ownedCount:                 number;
+  totalCount:                 number;
+  missingCount:               number;
+  currentCompletionPercent:   number;
+  projectedCompletionPercent: number;
+}
+
 export interface DashboardStats {
   librariesCount:        number;
   volumesCount:           number;
@@ -31,6 +46,7 @@ export interface DashboardStats {
   totalDownloadedBytes:   number;
   libraries:              DashboardLibraryStats[];
   recentVolumes:          DashboardRecentVolume[];
+  mostWanted:             DashboardMostWantedIssue[];
 }
 
 @Injectable({ providedIn: 'root' })

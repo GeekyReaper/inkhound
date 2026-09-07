@@ -13,6 +13,7 @@ import {
   ContainerComponent,
   ProgressBarComponent,
   ProgressComponent,
+  ProgressStackedComponent,
   RowComponent,
   SpinnerComponent,
   TemplateIdDirective,
@@ -20,7 +21,7 @@ import {
   WidgetStatCComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { DashboardService, DashboardStats } from '../../core/services/dashboard.service';
+import { DashboardService, DashboardStats, DashboardMostWantedIssue } from '../../core/services/dashboard.service';
 import { HubService } from '../../core/services/hub.service';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 import { VolumeStatus } from '../../core/services/volume.service';
@@ -32,7 +33,7 @@ import { VolumeStatus } from '../../core/services/volume.service';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
-    ProgressComponent, ProgressBarComponent, TooltipDirective,
+    ProgressComponent, ProgressBarComponent, ProgressStackedComponent, TooltipDirective,
     WidgetStatCComponent, TemplateIdDirective, IconDirective, DatePipe, RouterLink
   ]
 })
@@ -85,6 +86,18 @@ export class DashboardComponent {
   libraryProgressPercent(lib: { issuesCount: number; downloadedIssuesCount: number }): number {
     if (!lib.issuesCount) return 0;
     return Math.round((lib.downloadedIssuesCount / lib.issuesCount) * 100);
+  }
+
+  mostWantedCover(item: DashboardMostWantedIssue): string | null {
+    return item.image?.smallUrl ?? item.image?.thumbUrl ?? null;
+  }
+
+  mostWantedGainPercent(item: DashboardMostWantedIssue): number {
+    return item.projectedCompletionPercent - item.currentCompletionPercent;
+  }
+
+  mostWantedTooltip(item: DashboardMostWantedIssue): string {
+    return `${item.ownedCount} / ${item.totalCount} owned · ${item.missingCount} missing`;
   }
 
   volumeStatusBadgeColor(status: VolumeStatus): string {

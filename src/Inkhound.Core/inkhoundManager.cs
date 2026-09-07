@@ -206,13 +206,28 @@ public partial class InkhoundManager : BaseServiceManager
 
     public record DashboardLibraryStats(Guid Id, string Name, int VolumesCount, int IssuesCount, int DownloadedIssuesCount);
 
+    // Une issue MISSING (catégorie Standard) dont l'acquisition ferait passer son Volume à 100 %
+    // de complétude, ou très proche. Alimente la section « Most wanted » du Dashboard.
+    public record DashboardMostWantedIssue(
+        Guid IssueId, Guid VolumeId, Guid LibraryId, string VolumeTitle,
+        VolumeImage? Image,
+        int IssueNumber, string? IssueTitle,
+        int OwnedCount, int TotalCount, int MissingCount,
+        int CurrentCompletionPercent, int ProjectedCompletionPercent);
+
     public record DashboardStats(
         int LibrariesCount,
         int VolumesCount, int VolumesMonitored, int VolumesCompleted, int VolumesPaused,
         int IssuesCount, int IssuesDownloaded, int IssuesDownloading, int IssuesMissing,
         long TotalDownloadedBytes,
         List<DashboardLibraryStats> Libraries,
-        List<Volume> RecentVolumes);
+        List<Volume> RecentVolumes,
+        List<DashboardMostWantedIssue> MostWanted);
+
+    // « Most wanted » : un volume est éligible s'il est MONITORED et qu'il ne lui manque pas plus
+    // de MostWantedMaxMissing issues Standard ; MostWantedRowLimit lignes sont renvoyées.
+    private const int MostWantedMaxMissing = 2;
+    private const int MostWantedRowLimit   = 6;
 
     // Vue d'ensemble toutes bibliothèques confondues pour la page Dashboard — aucun agrégat de
     // ce type n'existait jusqu'ici (les autres méthodes de lecture sont scopées à une
@@ -255,13 +270,84 @@ public partial class InkhoundManager : BaseServiceManager
             .Take(6)
             .ToListAsync(ct);
 
+        // ---- Most wanted : issues MISSING dont l'acquisition rapproche un volume de 100 % ----
+
+        // 1. Nb d'issues Standard MISSING par volume, borné à <= K directement en SQL (GROUP BY).
+        var missingByVolume = await ctx.Issues
+            .Where(i => i.Status == IssueStatus.MISSING && i.Category == IssueCategory.Standard)
+            .GroupBy(i => i.VolumeId)
+            .Select(g => new { VolumeId = g.Key, MissingCount = g.Count() })
+            .Where(x => x.MissingCount <= MostWantedMaxMissing)
+            .ToListAsync(ct);
+
+        var candidateVolumeIds = missingByVolume.Select(x => x.VolumeId).ToList();
+
+        // 2. Restreindre aux volumes réellement suivis et incomplets.
+        var eligibleVolumes = await ctx.Volumes
+            .Where(v => candidateVolumeIds.Contains(v.Id)
+                     && v.Status == VolumeStatus.MONITORED
+                     && v.CountOfIssues > 0
+                     && v.CountOfDownloadedIssues < v.CountOfIssues)
+            .ToListAsync(ct);
+
+        var volumeById           = eligibleVolumes.ToDictionary(v => v.Id);
+        var missingCountByVolume = missingByVolume.ToDictionary(x => x.VolumeId, x => x.MissingCount);
+        var eligibleIds          = eligibleVolumes.Select(v => v.Id).ToList();
+
+        // 3. Charger uniquement les issues MISSING Standard de ces volumes (<= K par volume).
+        var missingIssues = await ctx.Issues
+            .Where(i => eligibleIds.Contains(i.VolumeId)
+                     && i.Status == IssueStatus.MISSING
+                     && i.Category == IssueCategory.Standard)
+            .ToListAsync(ct);
+
+        // 4. Construire + trier + limiter (logique pure, testée : RankMostWanted).
+        var mostWanted = RankMostWanted(
+            missingIssues.Select(i => (i, volumeById[i.VolumeId], missingCountByVolume[i.VolumeId])),
+            MostWantedRowLimit);
+
         return new DashboardStats(
             librariesCount,
             volumesCount, volumesMonitored, volumesCompleted, volumesPaused,
             issuesCount, issuesDownloaded, issuesDownloading, issuesMissing,
             totalDownloadedBytes,
             libraryStats,
-            recentVolumes);
+            recentVolumes,
+            mostWanted);
+    }
+
+    // Construit et ordonne les lignes « Most wanted » à partir des issues MISSING Standard
+    // candidates et de leur volume parent. Tri : moins d'issues manquantes d'abord (une série
+    // à qui il ne manque qu'un tome passe en tête), puis volume au plus grand nombre de tomes
+    // (compléter une série de 20 tomes est plus gratifiant qu'une série de 2), puis complétude
+    // actuelle la plus haute. Pur : aucune dépendance DB, testé par MostWantedRankerTests.
+    internal static List<DashboardMostWantedIssue> RankMostWanted(
+        IEnumerable<(Issue Issue, Volume Volume, int VolumeMissingCount)> candidates,
+        int limit)
+    {
+        static int Pct(int n, int total) => total > 0 ? (int)Math.Round(n / (double)total * 100.0) : 0;
+
+        static bool HasCover(VolumeImage? img) => img is not null && (img.SmallUrl is not null || img.ThumbUrl is not null);
+
+        return candidates
+            .Select(c =>
+            {
+                var (i, v, missing) = c;
+                return new DashboardMostWantedIssue(
+                    i.Id, v.Id, v.LibraryId, v.Title,
+                    HasCover(i.Image) ? i.Image : v.Image,
+                    i.IssueNumber, i.Title,
+                    v.CountOfDownloadedIssues, v.CountOfIssues, missing,
+                    Pct(v.CountOfDownloadedIssues, v.CountOfIssues),
+                    Pct(v.CountOfDownloadedIssues + 1, v.CountOfIssues));
+            })
+            .OrderBy(r => r.MissingCount)
+            .ThenByDescending(r => r.TotalCount)
+            .ThenByDescending(r => r.CurrentCompletionPercent)
+            .ThenBy(r => r.VolumeTitle)
+            .ThenBy(r => r.IssueNumber)
+            .Take(limit)
+            .ToList();
     }
 
     public async Task<Library> CreateLibraryAsync(string name, string path, int kavitaLibraryId, string kavitaPath = "")

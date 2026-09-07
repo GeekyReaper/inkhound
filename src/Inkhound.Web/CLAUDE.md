@@ -18,6 +18,7 @@ Inkhound.Web/
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
 │   ├── OptionsController.cs      # /api/options (settings app)
 │   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh)
+│   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace
@@ -99,6 +100,7 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/PUT | `/api/scheduler` | admin | Config du planificateur (2 tâches cron : import downloads / rolling refresh) |
 | POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh`) |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
+| GET | `/api/dashboard/stats` | auth | Agrégats du Dashboard : KPI globaux, stats par library, volumes récents, et `mostWanted` (issues `MISSING` proches de compléter leur volume — voir `Inkhound.Core/CLAUDE.md`) |
 
 ## Jobs — exposition via les controllers
 

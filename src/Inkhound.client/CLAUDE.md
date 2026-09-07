@@ -180,7 +180,9 @@ src/
 │   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
 │   │                            # OptionsService, SchedulerService, FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
-│   │   ├── dashboard/           # DashboardComponent
+│   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,
+│   │   │                        #   Active jobs, Downloads — section « Most wanted » : cartes des issues
+│   │   │                        #   MISSING proches de compléter leur volume, clic → page détail issue)
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
 │   │   │                        #   filtres côté client : lettre / complétude / source / titre / année / age rating —
 │   │   │                        #   filtres + page + scroll persistés par id via LibraryViewStateService)

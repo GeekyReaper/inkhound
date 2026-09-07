@@ -61,8 +61,55 @@
       </c-col>
     </c-row>
 
+    <!-- 2. Most wanted -->
+    <c-row class="mb-4">
+      <c-col xs="12">
+        <c-card>
+          <c-card-body>
+            <h5 class="mb-3">Most wanted</h5>
+            @if (s.mostWanted.length === 0) {
+              <p class="text-body-secondary mb-0">No volume close to completion.</p>
+            } @else {
+              <c-row class="g-3">
+                @for (item of s.mostWanted; track item.issueId) {
+                  <c-col xs="6" sm="4" md="3" xl="2">
+                    <c-card class="h-100" style="cursor: pointer;"
+                          [routerLink]="['/library', item.libraryId, 'volume', item.volumeId, 'issue', item.issueId]">
+                      <div style="aspect-ratio: 2/3; overflow: hidden; position: relative;">
+                        @if (mostWantedCover(item); as imgUrl) {
+                          <img [src]="imgUrl" [alt]="item.volumeTitle"
+                               style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
+                        } @else {
+                          <div class="w-100 h-100" style="background: var(--cui-secondary-bg); aspect-ratio: 2/3;"></div>
+                        }
+                        <c-badge color="danger" class="position-absolute top-0 end-0 m-1">Missing</c-badge>
+                      </div>
+                      <c-card-body class="p-2">
+                        <div class="small text-truncate" title="{{ item.volumeTitle }}">
+                          {{ item.volumeTitle }} <span class="text-body-secondary">#{{ item.issueNumber }}</span>
+                        </div>
+                        <div [cTooltip]="mostWantedTooltip(item)" cTooltipPlacement="top" class="mt-1">
+                          <c-progress-stacked style="height: 6px;">
+                            <c-progress [value]="item.currentCompletionPercent" [height]="6" color="success"></c-progress>
+                            <c-progress [value]="mostWantedGainPercent(item)" [height]="6" color="warning"></c-progress>
+                          </c-progress-stacked>
+                          <div class="text-body-secondary" style="font-size: 11px;">
+                            {{ item.currentCompletionPercent }}% &rarr; {{ item.projectedCompletionPercent }}%
+                          </div>
+                        </div>
+                      </c-card-body>
+                    </c-card>
+                  </c-col>
+                }
+              </c-row>
+            }
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
     <c-row class="g-4">
-      <!-- 2. Aperçu par bibliothèque -->
+      <!-- 3. Aperçu par bibliothèque -->
       <c-col lg="6">
         <c-card class="h-100">
           <c-card-body>
@@ -119,7 +166,7 @@
       </c-col>
     </c-row>
 
-    <!-- 3. Derniers volumes ajoutés -->
+    <!-- 5. Derniers volumes ajoutés -->
     <c-row class="mt-1">
       <c-col xs="12">
         <c-card>
@@ -154,7 +201,7 @@
       </c-col>
     </c-row>
 
-    <!-- 5. Téléchargements en cours -->
+    <!-- 6. Téléchargements en cours -->
     <c-row class="mt-4">
       <c-col xs="12">
         <c-card>
