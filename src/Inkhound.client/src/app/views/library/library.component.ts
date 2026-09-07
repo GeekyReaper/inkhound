@@ -1,8 +1,8 @@
-import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { filter, switchMap } from 'rxjs';
+import { auditTime, filter, fromEvent, switchMap, tap } from 'rxjs';
 import {
   AlertComponent,
   BadgeComponent,
@@ -33,6 +33,8 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { Library, LibraryService, libraryPageKey } from '../../core/services/library.service';
+import { EMPTY_LIBRARY_VIEW_STATE, LibraryViewStateService } from '../../core/services/library-view-state.service';
+import { NavigationTrackerService } from '../../core/services/navigation-tracker.service';
 import { KavitaService } from '../../core/services/kavita.service';
 import { AGE_RATINGS, AgeRating, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { HubService } from '../../core/services/hub.service';
@@ -43,6 +45,7 @@ import { JobContext, UpdatedData } from '../../core/models/hub.models';
 @Component({
   selector: 'app-library',
   templateUrl: './library.component.html',
+  styleUrl: './library.component.scss',
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
@@ -59,11 +62,28 @@ import { JobContext, UpdatedData } from '../../core/models/hub.models';
 export class LibraryComponent {
   private route          = inject(ActivatedRoute);
   private libraryService = inject(LibraryService);
+  private viewState      = inject(LibraryViewStateService);
+  private navTracker     = inject(NavigationTrackerService);
   private kavitaService  = inject(KavitaService);
   private volumeService  = inject(VolumeService);
   private hub            = inject(HubService);
   private pageJobs       = inject(PageJobService);
   readonly #destroyRef   = inject(DestroyRef);
+
+  // Ancre « début de la liste des volumes » (en-tête « Volumes (n) ») — cible de remontée du
+  // viewport lors d'un changement de page ou de filtre.
+  private readonly volumesTop = viewChild<ElementRef<HTMLElement>>('volumesTop');
+
+  // ─── Persistance de la vue (filtres + page + scroll) — cf. LibraryViewStateService ───────────
+  // Position de scroll à restaurer une fois la liste rendue — « latch » impératif consommé une
+  // seule fois par l'effect ci-dessous (volontairement pas un signal : seul volumesLoading doit
+  // déclencher la tentative de restauration).
+  private pendingScrollY: number | null = null;
+  // Dernière position de scroll connue, pistée en continu — filet de sécurité si `window.scrollY`
+  // a déjà été remis à 0 par le retrait du DOM au moment de la destruction (view transitions).
+  private lastScrollY = 0;
+  // Empêche la sauvegarde réactive d'écraser l'état restauré tant que la library n'est pas chargée.
+  private viewStateReady = false;
 
   library        = signal<Library | null>(null);
   loading        = signal(true);
@@ -253,6 +273,60 @@ export class LibraryComponent {
   constructor() {
     this.kavitaService.loadLibraries();
 
+    // ─── Persistance de la vue liste (filtres + page + scroll), par id de library ──────────────
+
+    // Sauvegarde réactive des filtres + page : couvre le changement de :id sans destruction du
+    // composant (Angular réutilise l'instance). `viewStateReady` bloque l'écriture tant que la
+    // library cible n'est pas chargée, sinon la valeur restaurée serait écrasée par les défauts.
+    effect(() => {
+      const snapshot = {
+        search:       this.search(),
+        letter:       this.letter(),
+        completeness: this.completeness(),
+        source:       this.sourceFilter(),
+        year:         this.yearFilter(),
+        ageRating:    this.ageRatingFilter(),
+        page:         this.currentPage(),
+      };
+      const lib = this.library();
+      if (!lib || !this.viewStateReady || this.volumesLoading()) return;
+      this.viewState.patch(lib.id, snapshot);
+    });
+
+    // Piste la position de scroll fenêtre en continu et la persiste (hors chargement).
+    fromEvent(window, 'scroll')
+      .pipe(auditTime(150), takeUntilDestroyed(this.#destroyRef))
+      .subscribe(() => {
+        this.lastScrollY = window.scrollY;
+        const lib = this.library();
+        if (lib && this.viewStateReady && !this.volumesLoading()) {
+          this.viewState.patch(lib.id, { scrollY: window.scrollY });
+        }
+      });
+
+    // Restaure la position de scroll une fois la liste des volumes rendue (back/forward seulement,
+    // pendingScrollY posé par restoreViewState). Les signaux sont lus inconditionnellement pour
+    // que l'effect se ré-exécute à la fin du chargement. Double rAF + relance différée : passe
+    // après le scroll-to-top asynchrone du RouterScroller et le reflow d'insertion des cartes.
+    effect(() => {
+      const loading = this.volumesLoading();
+      this.pagedVolumes();
+      const y = this.pendingScrollY;
+      if (y === null || loading) return;
+      this.pendingScrollY = null;
+      const apply = () => { window.scrollTo(0, y); this.lastScrollY = y; };
+      requestAnimationFrame(() => requestAnimationFrame(apply));
+      setTimeout(apply, 120);
+    });
+
+    // Filet de sécurité : commit final de la position de scroll à la destruction (ouverture d'un
+    // volume, add-volume…) — la sauvegarde réactive ci-dessus a pu être manquée si le dernier
+    // scroll n'a pas eu le temps d'être « audité ».
+    this.#destroyRef.onDestroy(() => {
+      const lib = this.library();
+      if (lib) this.viewState.patch(lib.id, { scrollY: window.scrollY || this.lastScrollY });
+    });
+
     effect(() => {
       const job = this.currentJob();
       if (!job || this.handledJobIds.has(job.jobId)) return;
@@ -280,6 +354,7 @@ export class LibraryComponent {
 
     this.route.params
       .pipe(
+        tap(() => { this.viewStateReady = false; }),
         switchMap(params => this.libraryService.getById(params['id'])),
         takeUntilDestroyed(this.#destroyRef)
       )
@@ -287,7 +362,9 @@ export class LibraryComponent {
         next: lib => {
           this.library.set(lib);
           this.loading.set(false);
+          this.restoreViewState(lib.id);
           this.loadVolumes(lib.id);
+          this.viewStateReady = true;
         },
         error: err => {
           this.error.set(err?.error?.message ?? 'Library not found.');
@@ -326,6 +403,37 @@ export class LibraryComponent {
       });
   }
 
+  // Réapplique les filtres + la page mémorisés pour cette library (ou les valeurs par défaut si
+  // aucun état : indispensable puisque le composant est réutilisé d'une library à l'autre — sans
+  // reset, les filtres de la précédente resteraient collés). Écriture directe sur les signaux (pas
+  // via les setters) → aucun scroll parasite. La position de scroll n'est ré-armée que sur un
+  // back/forward navigateur (NavigationTrackerService).
+  private restoreViewState(libraryId: string): void {
+    const saved = this.viewState.get(libraryId);
+    const s = saved ?? EMPTY_LIBRARY_VIEW_STATE;
+    this.search.set(s.search);
+    this.letter.set(s.letter);
+    this.completeness.set(s.completeness);
+    this.sourceFilter.set(s.source);
+    this.yearFilter.set(s.year);
+    this.ageRatingFilter.set(s.ageRating);
+    this.currentPage.set(s.page);
+    this.pendingScrollY = (saved && this.navTracker.isBackForward) ? saved.scrollY : null;
+  }
+
+  // Remonte le viewport au début de la liste (en-tête « Volumes (n) »), en tenant compte du
+  // header sticky via scroll-margin-top (cf. library.component.scss).
+  private scrollToVolumesTop(): void {
+    this.volumesTop()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Retour page 1 + remontée en tête de liste — commun aux changements de filtre discrets et au
+  // bouton Clear (pas à la saisie du champ recherche, qui ne doit pas faire sauter le scroll).
+  private resetPaging(): void {
+    this.currentPage.set(1);
+    this.scrollToVolumesTop();
+  }
+
   getKavitaLibraryName(id: number): string {
     if (id === 0) return 'None';
     return this.kavitaService.libraries().find(l => l.id === id)?.name ?? `#${id}`;
@@ -354,32 +462,33 @@ export class LibraryComponent {
     return parts.length ? parts.join(' · ') : '—';
   }
 
-  // ─── Filtres — chaque changement ramène à la page 1 (cf. setFilterMode de jobs.component) ─
+  // ─── Filtres — chaque changement discret ramène à la page 1 + remonte en tête de liste ──────
   setLetter(l: string | null): void {
     this.letter.set(this.letter() === l ? null : l);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
   setCompleteness(mode: 'all' | 'complete' | 'incomplete'): void {
     this.completeness.set(mode);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
   setSourceFilter(source: string): void {
     this.sourceFilter.set(source || null);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
   setYearFilter(year: string): void {
     this.yearFilter.set(year ? Number(year) : null);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
   setAgeRatingFilter(rating: string): void {
     this.ageRatingFilter.set((rating || null) as AgeRating | null);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
+  // Saisie au fil de l'eau : retour page 1 sans remonter le scroll (sinon saut à chaque frappe).
   onSearch(value: string): void {
     this.search.set(value);
     this.currentPage.set(1);
@@ -392,12 +501,13 @@ export class LibraryComponent {
     this.sourceFilter.set(null);
     this.yearFilter.set(null);
     this.ageRatingFilter.set(null);
-    this.currentPage.set(1);
+    this.resetPaging();
   }
 
   goToPage(page: number): void {
     if (page < 1 || page > this.totalPages()) return;
     this.currentPage.set(page);
+    this.scrollToVolumesTop();
   }
 
   ageRatingLabel(rating: AgeRating): string {

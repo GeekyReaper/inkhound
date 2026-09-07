@@ -1,0 +1,6 @@
+// Ancre invisible marquant le début de la liste des volumes. scroll-margin-top compense le
+// header sticky (`.header-sticky`, ~4rem) pour que le bloc « Volumes » ne se retrouve pas
+// masqué après un scrollIntoView().
+.volumes-top-anchor {
+  scroll-margin-top: 5rem;
+}

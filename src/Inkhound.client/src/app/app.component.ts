@@ -8,6 +8,7 @@ import { ColorModeService } from '@coreui/angular';
 import { IconSetService } from '@coreui/icons-angular';
 import { iconSubset } from './icons/icon-subset';
 import { HubService } from './core/services/hub.service';
+import { NavigationTrackerService } from './core/services/navigation-tracker.service';
 
 @Component({
     selector: 'app-root',
@@ -25,6 +26,8 @@ export class AppComponent implements OnInit {
   readonly #colorModeService = inject(ColorModeService);
   readonly #iconSetService = inject(IconSetService);
   readonly #hubService = inject(HubService);
+  // Instanciation immédiate : doit capter les NavigationStart dès le démarrage de l'app.
+  readonly #navigationTracker = inject(NavigationTrackerService);
 
   constructor() {
     this.#titleService.setTitle(this.title);

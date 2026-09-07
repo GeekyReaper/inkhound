@@ -176,12 +176,14 @@ src/
 │   │   ├── interceptors/        # auth, auth-error, connection
 │   │   ├── models/              # hub.models.ts (EState, JobContext, TraceDefinition, etc.)
 │   │   ├── resolvers/           # library-title, volume-title
-│   │   └── services/            # AuthService, HubService, LibraryService, VolumeService,
-│   │                            # IssueService, KavitaService, OptionsService, FilesystemService, ImageService
+│   │   └── services/            # AuthService, HubService, LibraryService, LibraryViewStateService,
+│   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
+│   │                            # OptionsService, FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── dashboard/           # DashboardComponent
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
-│   │   │                        #   filtres côté client : lettre / complétude / source / titre / année / age rating)
+│   │   │                        #   filtres côté client : lettre / complétude / source / titre / année / age rating —
+│   │   │                        #   filtres + page + scroll persistés par id via LibraryViewStateService)
 │   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
@@ -410,6 +412,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |
+| `LibraryViewStateService` | — | `get(libraryId)`, `patch(libraryId, partial)` — état de la vue liste Library (filtres + page + `scrollY`) par id, fusion + `sessionStorage` |
+| `NavigationTrackerService` | — | `lastTrigger`, `isBackForward` — déclencheur de la dernière navigation router (`imperative`/`popstate`/`hashchange`) ; instancié tôt par `AppComponent` |
 
 ### HubService — événements SignalR reçus
 
@@ -445,6 +449,33 @@ jamais retransmis. `HubService` compense via un filet de rattrapage HTTP :
   donc rien à changer pour bénéficier de la resync.
 - Un `404` (job expiré côté serveur, au-delà de `JobRetention`) libère la page via
   `pageJobs.clear()` plutôt que de la laisser bloquée indéfiniment.
+
+### LibraryViewStateService — persistance de la vue Library
+
+`LibraryComponent` (`path: ''` sous `library/:id`) est **détruit** quand on ouvre un volume /
+`add-volume`, mais **réutilisé** quand seul `:id` change (library A → library B). Ses
+filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewStateService`
+(`sessionStorage`, clé = id de library, même pattern que `PageJobService`) mémorise
+`{ search, letter, completeness, source, year, ageRating, page, scrollY }` par library ;
+`patch()` fusionne (permet de sauver séparément les filtres/page et le `scrollY`).
+
+- **Sauvegarde réactive** : un `effect()` écrit `patch(lib.id, { …filtres, page })` à chaque
+  changement — couvre le cas « réutilisation du composant » où `onDestroy` ne se déclenche pas.
+  Garde `viewStateReady` (mis à `false` dans un `tap()` sur `route.params`, `true` après chargement
+  de la library) pour ne pas écraser l'état restauré avec les défauts. `scrollY` : sauvé par le
+  listener `fromEvent(window,'scroll')` (`auditTime`) + un commit final dans `onDestroy`.
+- **Restauration filtres + page** : `restoreViewState()` dans le `subscribe` de `route.params`,
+  écriture **directe** sur les signaux (jamais via les setters → pas de scroll parasite).
+  Applique `EMPTY_LIBRARY_VIEW_STATE` s'il n'y a pas d'état mémorisé (sinon les filtres de la
+  library précédente resteraient collés).
+- **Restauration scroll** : uniquement sur back/forward navigateur — `navTracker.isBackForward`
+  (`NavigationTrackerService`, capte `NavigationStart.navigationTrigger` app-wide). Un `effect()`
+  applique `window.scrollTo` (double `requestAnimationFrame` + `setTimeout` de repli) une fois
+  `volumesLoading()` retombé — passe **après** le scroll-to-top asynchrone du `RouterScroller`
+  (`scrollPositionRestoration: 'top'`).
+- **Remontée en tête de liste** : ancre `#volumesTop` (+ `scroll-margin-top` pour le header sticky,
+  `library.component.scss`) ; `scrollToVolumesTop()` appelé par `goToPage()` et les setters de
+  filtre discrets (`resetPaging()`), **pas** par `onSearch()`.
 
 ## Composant réutilisable : SelectPathComponent
 
