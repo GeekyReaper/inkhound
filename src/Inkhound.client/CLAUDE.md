@@ -336,7 +336,12 @@ interface RefreshVolumeOptions {
   syncFromSource: boolean;
   syncNewIssuesOnly: boolean;   // radio sous "Sync with source" : true = NEW only (défaut UI),
                                 // false = re-sync de toutes les issues (historique). setSyncScope().
-  recalculateStatistics: boolean; regenerateComicInfo: boolean; scanKavita: boolean;
+  recalculateStatistics: boolean;
+  regenerateComicInfo: boolean;
+  regenerateComicInfoNewOnly: boolean; // radio sous "Regenerate ComicInfo.xml" : true = ne réinjecter
+                                       // que dans les CBZ sans ComicInfo.xml (défaut UI), false = tous.
+                                       // setComicInfoScope().
+  scanKavita: boolean;
 }
 
 // ─── issue.service.ts ────────────────────────────────────────────────────────

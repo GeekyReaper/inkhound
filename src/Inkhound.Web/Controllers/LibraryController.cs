@@ -150,10 +150,12 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
 
     // SyncNewIssuesOnly (radio sous "Sync with source", défaut false = historique "ALL issues") :
     // ne synchroniser depuis la source que les issues/albums encore inconnus en base.
+    // RegenerateComicInfoNewOnly (radio sous "Regenerate ComicInfo.xml", défaut false) : ne
+    // réinjecter le ComicInfo.xml que dans les CBZ qui n'en contiennent pas encore.
     public record RefreshLibraryRequest(
         bool SyncFromSource = true, bool RecalculateStatistics = true,
         bool RegenerateComicInfo = true, bool ScanKavita = true,
-        bool SyncNewIssuesOnly = false);
+        bool SyncNewIssuesOnly = false, bool RegenerateComicInfoNewOnly = false);
 
     // POST /api/libraries/{id}/refresh — lance un Job "Refresh" indépendant par volume (pas de job
     // parent unique — cf. LaunchJobsRefreshLibrary) et retourne la liste de leurs JobId.
@@ -163,7 +165,8 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         var options = req ?? new RefreshLibraryRequest();
         var jobIds = await manager.LaunchJobsRefreshLibrary(
             id, options.SyncFromSource, options.RecalculateStatistics,
-            options.RegenerateComicInfo, options.ScanKavita, options.SyncNewIssuesOnly);
+            options.RegenerateComicInfo, options.ScanKavita, options.SyncNewIssuesOnly,
+            options.RegenerateComicInfoNewOnly);
         return Accepted(new { jobIds = jobIds.Select(j => j.ToString()) });
     }
 }

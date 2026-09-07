@@ -562,6 +562,25 @@ public class ArchiveService : BaseService<ArchiveOption>
         return result;
     }
 
+    // Test léger (lecture seule, aucune réécriture) : le CBZ contient-il déjà une entrée
+    // "ComicInfo.xml" à la racine ? Même clé exacte que InjectComicInfoIntoCbzAsync. Utilisé par le
+    // mode "NEW only" du Refresh pour ne réinjecter que dans les archives qui n'en ont pas.
+    // En cas d'erreur de lecture → false (dans le doute, on réinjecte).
+    public bool CbzContainsComicInfo(string cbzPath)
+    {
+        if (!File.Exists(cbzPath)) return false;
+        try
+        {
+            using var zip = ZipFile.OpenRead(cbzPath);
+            return zip.GetEntry("ComicInfo.xml") is not null;
+        }
+        catch (Exception ex)
+        {
+            SendTrace($"CbzContainsComicInfo: could not read {Path.GetFileName(cbzPath)} — {ex.Message}", ETraceLevel.WARNING);
+            return false;
+        }
+    }
+
     public async Task InjectComicInfoIntoCbzAsync(Volume volume, Issue issue, string cbzPath)
     {
         if (!File.Exists(cbzPath))

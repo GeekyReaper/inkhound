@@ -91,6 +91,7 @@ Status (DOWNLOADING | DOWNLOADED | MISSING)
 - `Category` — `Standard | Special | SpecialEdition | Omnibus | Roman | BestOf`, dérivée par `BedethequeAlbumClassifier` (voir section Bedetheque) ; toujours `Standard` pour ComicVine/manuel. `IssueNumber` est résolu conjointement (`Idx`, gap-filled par catégorie) — le couple `(Category, IssueNumber)` sert de repli de correspondance au rematch, `SourceId` restant toujours prioritaire.
   - Particularité du rematch Bedetheque (`RematchVolumeFromBedethequeAsync`) : contrairement aux autres champs "protégés" par statut, `IssueNumber`/`Category` sont recopiés **sans condition de `Status`** — y compris sur une issue déjà `DOWNLOADED` — pour corriger les valeurs historiquement fausses (issues téléchargées avant l'introduction de `BedethequeAlbumClassifier`, ex. `0`/`Standard` pour un hors-série). Si l'option "Regenerate ComicInfo" est cochée au Refresh, `RegenerateComicInfoForDownloadedIssuesAsync` renomme le fichier `.cbz` en conséquence (mécanisme générique déjà utilisé pour Title/Year). Le rematch ComicVine, lui, garde `IssueNumber` figé une fois l'issue téléchargée (`Status == MISSING` requis) — pas concerné par ce bug historique.
   - Mode **"NEW issues only"** du Refresh (`RematchVolumeJobParameters.SyncNewIssuesOnly`, radio de la popup, défaut UI) : la metadata Volume/Serie est synchronisée normalement, mais on ne récupère la page détail (`GetIssueAsync`/`GetAlbumAsync`) **que pour les `SourceId` source encore absents en base**, insérés en `MISSING` via `SyncNew{ComicVine,Bedetheque}IssuesAsync`/`AlbumsAsync`. Les issues déjà connues **ne sont pas touchées** (pas de maj metadata, pas de renumérotation `IssueNumber`/`Category`, pas de suppression d'orphelins). `RecalculateVolumeStatisticsAsync` tourne quand même. Limite assumée : les indices gap-fill des catégories non-Standard peuvent dériver tant qu'un Refresh **"ALL issues"** (`SyncNewIssuesOnly == false`, comportement historique complet) n'a pas été relancé. Le Rematch changement de série (`RematchFromSource`) reste toujours en mode complet.
+  - Mode **"NEW only"** de la case *Regenerate ComicInfo.xml* du Refresh (`RematchVolumeJobParameters.RegenerateComicInfoNewOnly`, radio de la popup, défaut UI) : `RegenerateComicInfoForDownloadedIssuesAsync(newOnly: true)` ne (ré)injecte le `ComicInfo.xml` **que dans les CBZ qui n'en contiennent pas déjà un** (`ArchiveService.CbzContainsComicInfo`, lecture seule) — cible les issues sideloadées (torrent, import manuel). Les renommages de fichier restent toujours appliqués et un fichier renommé est réinjecté (métadonnées à jour). `false` (défaut backend, Rematch inclus) = réécriture dans toutes les issues `DOWNLOADED`, nécessaire quand la metadata du volume a changé.
 
 ### VolumeImage (record partagé Volume + Issue)
 ```
@@ -305,9 +306,10 @@ Certaines méthodes `LaunchJobXxx` retournent le `JobContext` (setup synchrone +
 en fire-and-forget) pour que le controller expose le `jobId` immédiatement — cf. `LaunchJobRematchVolume`,
 `LaunchJobImportDirectory`.
 
-`LaunchJobRefreshVolume` / `LaunchJobsRefreshLibrary` prennent un booléen `syncNewIssuesOnly`
-(défaut `false` = comportement historique "ALL issues" ; le Rematch changement de série ne le
-passe jamais) — voir `RematchVolumeJobParameters.SyncNewIssuesOnly` et la section Bedetheque.
+`LaunchJobRefreshVolume` / `LaunchJobsRefreshLibrary` prennent les booléens `syncNewIssuesOnly` et
+`regenerateComicInfoNewOnly` (défaut `false` = comportement historique ; le Rematch changement de
+série ne les passe jamais) — radios de la popup Refresh, voir
+`RematchVolumeJobParameters.SyncNewIssuesOnly` / `.RegenerateComicInfoNewOnly` et la section Issue.
 
 ### Structure obligatoire d'un LaunchJob
 

@@ -220,7 +220,8 @@ export class LibraryComponent {
   refreshModalVisible = signal(false);
   refreshOptions = signal<RefreshVolumeOptions>({
     syncFromSource: true, syncNewIssuesOnly: true,
-    recalculateStatistics: true, regenerateComicInfo: true, scanKavita: true
+    recalculateStatistics: true, regenerateComicInfo: true, regenerateComicInfoNewOnly: true,
+    scanKavita: true
   });
   refreshCanRun = computed(() => {
     const o = this.refreshOptions();
@@ -546,6 +547,7 @@ export class LibraryComponent {
       syncNewIssuesOnly: true,
       recalculateStatistics: true,
       regenerateComicInfo: this.hasAnyDownloadedIssues(),
+      regenerateComicInfoNewOnly: true,
       scanKavita: this.hasKavitaLibrary()
     });
     this.refreshModalVisible.set(true);
@@ -558,6 +560,11 @@ export class LibraryComponent {
   // Radio "NEW issues only" / "ALL issues" sous la case "Sync with source" (ne se toggle pas).
   setSyncScope(newIssuesOnly: boolean): void {
     this.refreshOptions.update(o => ({ ...o, syncNewIssuesOnly: newIssuesOnly }));
+  }
+
+  // Radio "NEW only" / "ALL" sous la case "Regenerate ComicInfo.xml" (ne se toggle pas).
+  setComicInfoScope(newOnly: boolean): void {
+    this.refreshOptions.update(o => ({ ...o, regenerateComicInfoNewOnly: newOnly }));
   }
 
   confirmRefresh(): void {

@@ -73,12 +73,15 @@ export interface Volume {
 // Options de la popup "Refresh" — mêmes noms que RefreshVolumeRequest côté backend.
 // syncNewIssuesOnly : radio sous "Sync with source" — true = ne récupérer de la source que les
 // issues encore inconnues (défaut UI), false = re-synchroniser toutes les issues (historique).
+// regenerateComicInfoNewOnly : radio sous "Regenerate ComicInfo.xml" — true = ne (ré)injecter que
+// dans les CBZ sans ComicInfo.xml (défaut UI), false = réécrire dans toutes les issues téléchargées.
 export interface RefreshVolumeOptions {
-  syncFromSource:        boolean;
-  syncNewIssuesOnly:     boolean;
-  recalculateStatistics: boolean;
-  regenerateComicInfo:   boolean;
-  scanKavita:             boolean;
+  syncFromSource:             boolean;
+  syncNewIssuesOnly:          boolean;
+  recalculateStatistics:      boolean;
+  regenerateComicInfo:        boolean;
+  regenerateComicInfoNewOnly: boolean;
+  scanKavita:                 boolean;
 }
 
 export type SourceKey = 'comicvine' | 'bedetheque';

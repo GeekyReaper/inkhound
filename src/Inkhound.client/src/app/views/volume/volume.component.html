@@ -300,6 +300,26 @@
           }
         </label>
       </c-form-check>
+      <div class="ms-4 mt-1">
+        <c-form-check>
+          <input cFormCheckInput type="radio" id="refresh-comicinfo-scope-new" name="refreshComicInfoScope"
+                 [checked]="refreshOptions().regenerateComicInfoNewOnly"
+                 [disabled]="!refreshOptions().regenerateComicInfo"
+                 (change)="setComicInfoScope(true)" />
+          <label cFormCheckLabel for="refresh-comicinfo-scope-new" [class.text-body-tertiary]="!refreshOptions().regenerateComicInfo">
+            NEW only <span class="text-body-secondary small">— faster: only files missing a ComicInfo.xml (renames still applied)</span>
+          </label>
+        </c-form-check>
+        <c-form-check>
+          <input cFormCheckInput type="radio" id="refresh-comicinfo-scope-all" name="refreshComicInfoScope"
+                 [checked]="!refreshOptions().regenerateComicInfoNewOnly"
+                 [disabled]="!refreshOptions().regenerateComicInfo"
+                 (change)="setComicInfoScope(false)" />
+          <label cFormCheckLabel for="refresh-comicinfo-scope-all" [class.text-body-tertiary]="!refreshOptions().regenerateComicInfo">
+            ALL issues <span class="text-body-secondary small">— re-writes ComicInfo.xml in every downloaded file</span>
+          </label>
+        </c-form-check>
+      </div>
     </div>
     <div class="mb-0">
       <c-form-check>

@@ -1680,7 +1680,9 @@ public class InkhoundManager : BaseServiceManager
     // Les booléens pilotent la popup à cases à cocher côté front (sync source / stats / ComicInfo /
     // Kavita) — tous par défaut à true (comportement identique à avant si l'appelant ne les précise
     // pas). syncNewIssuesOnly (radio sous "Sync with source", défaut false = historique) : ne
-    // récupérer de la source que les issues/albums encore inconnus — voir RematchVolumeJobParameters.
+    // récupérer de la source que les issues/albums encore inconnus. regenerateComicInfoNewOnly
+    // (radio sous "Regenerate ComicInfo.xml", défaut false) : ne réinjecter que dans les CBZ sans
+    // ComicInfo.xml — voir RematchVolumeJobParameters.
     public async Task<JobContext?> LaunchJobRefreshVolume(
         Guid volumeId,
         bool syncFromSource = true,
@@ -1688,6 +1690,7 @@ public class InkhoundManager : BaseServiceManager
         bool regenerateComicInfo = true,
         bool scanKavita = true,
         bool syncNewIssuesOnly = false,
+        bool regenerateComicInfoNewOnly = false,
         CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -1702,6 +1705,7 @@ public class InkhoundManager : BaseServiceManager
             SyncFromSource = syncFromSource, RecalculateStatistics = recalculateStatistics,
             RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita,
             SyncNewIssuesOnly = syncNewIssuesOnly,
+            RegenerateComicInfoNewOnly = regenerateComicInfoNewOnly,
             IsRefresh = true
         });
     }
@@ -1716,7 +1720,8 @@ public class InkhoundManager : BaseServiceManager
     // RateLimiter interne, donc pas de throttling supplémentaire nécessaire ici.
     public async Task<List<Guid>> LaunchJobsRefreshLibrary(
         Guid libraryId, bool syncFromSource, bool recalculateStatistics,
-        bool regenerateComicInfo, bool scanKavita, bool syncNewIssuesOnly = false, CancellationToken ct = default)
+        bool regenerateComicInfo, bool scanKavita, bool syncNewIssuesOnly = false,
+        bool regenerateComicInfoNewOnly = false, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var volumeIds = await ctx.Volumes
@@ -1731,7 +1736,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 var job = await LaunchJobRefreshVolume(
                     volumeId, syncFromSource, recalculateStatistics, regenerateComicInfo, scanKavita,
-                    syncNewIssuesOnly, ct);
+                    syncNewIssuesOnly, regenerateComicInfoNewOnly, ct);
                 if (job is not null) jobIds.Add(job.JobId);
             }
             catch (InvalidOperationException)
@@ -1792,7 +1797,8 @@ public class InkhoundManager : BaseServiceManager
 
             var syncOk = true;
             if (parameters.RegenerateComicInfo)
-                syncOk = await RegenerateComicInfoForDownloadedIssuesAsync(job, parameters.VolumeId, oldFolderPath);
+                syncOk = await RegenerateComicInfoForDownloadedIssuesAsync(
+                    job, parameters.VolumeId, oldFolderPath, parameters.RegenerateComicInfoNewOnly);
 
             if (parameters.ScanKavita)
                 await TriggerKavitaScanAsync(parameters.VolumeId);
@@ -2001,7 +2007,13 @@ public class InkhoundManager : BaseServiceManager
     // uniquement par RunRematchVolumeJobAsync, jamais par le bouton manuel "Refresh Kavita"), puis
     // réinjecte ComicInfo.xml. Ne déclenche PAS le scan Kavita — cf. TriggerKavitaScanAsync,
     // appelée séparément (les deux étapes sont désormais des cases à cocher indépendantes côté UI).
-    private async Task<bool> RegenerateComicInfoForDownloadedIssuesAsync(JobContext job, Guid volumeId, string? oldFolderPath = null)
+    //
+    // newOnly (radio "NEW only" de la popup Refresh) : on ne réinjecte que dans les CBZ qui n'ont
+    // pas déjà un ComicInfo.xml — les renommages de fichier restent toujours effectués et un fichier
+    // renommé est réinjecté (métadonnées forcément à jour). false (défaut, Rematch inclus) = on
+    // réécrit ComicInfo.xml partout.
+    private async Task<bool> RegenerateComicInfoForDownloadedIssuesAsync(
+        JobContext job, Guid volumeId, string? oldFolderPath = null, bool newOnly = false)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync(volumeId);
@@ -2040,17 +2052,21 @@ public class InkhoundManager : BaseServiceManager
             .Where(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED)
             .ToListAsync();
 
-        JobSendTrace($"[Sync] {downloadedIssues.Count} downloaded issue(s) to process for {volume.Title}");
+        JobSendTrace($"[Sync] {downloadedIssues.Count} downloaded issue(s) to process for {volume.Title}"
+            + (newOnly ? " (new only — files already carrying a ComicInfo.xml are skipped)" : string.Empty));
         // Repart de zéro pour cette phase — une phase précédente du même Refresh (sync depuis la
         // source) a pu déjà faire progresser job.Progress jusqu'à 100%, voir RunAddComicVineIssuesJobAsync.
         job.Progress.Reset();
         job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
 
         bool anyRenamed = false;
+        var injected = 0;
+        var skipped = 0;
         foreach (var issue in downloadedIssues)
         {
             var expectedPath     = ArchiveService.GetPath(issue, volume, library);
             var expectedFileName = Path.GetFileName(expectedPath);
+            var wasRenamed       = false;
 
             if (!string.IsNullOrEmpty(issue.CbzFilename) && issue.CbzFilename != expectedFileName)
             {
@@ -2066,16 +2082,30 @@ public class InkhoundManager : BaseServiceManager
                     archiveService.EnsurePermissiveFileMode(expectedPath);
                     issue.CbzFilename = expectedFileName;
                     anyRenamed = true;
+                    wasRenamed = true;
                     OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
                 }
             }
 
+            // Mode "NEW only" : on saute les archives qui ont déjà un ComicInfo.xml (sauf renommage,
+            // qui implique des métadonnées à jour à réécrire).
+            if (newOnly && !wasRenamed && archiveService.CbzContainsComicInfo(expectedPath))
+            {
+                skipped++;
+                job.Progress.Increment(true);
+                job.CallbackHandler.Callback(job.Progress);
+                continue;
+            }
+
             JobSendTrace($"[Sync] Injecting ComicInfo.xml into {issue.CbzFilename}");
             await archiveService.InjectComicInfoIntoCbzAsync(volume, issue, expectedPath);
+            injected++;
             job.Progress.Increment(true);
             job.CallbackHandler.Callback(job.Progress);
         }
         if (anyRenamed) await ctx.SaveChangesAsync();
+        if (newOnly)
+            JobSendTrace($"[Sync] ComicInfo.xml: {injected} (re)injected, {skipped} skipped (already present)");
 
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
         return true;

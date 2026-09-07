@@ -30,6 +30,13 @@ public class RematchVolumeJobParameters : IJobParameters
     // historique. N'a d'effet que si SyncFromSource == true.
     public bool SyncNewIssuesOnly { get; set; } = false;
 
+    // true = radio "NEW only" sous la case "Regenerate ComicInfo.xml" de la popup Refresh : ne
+    // (ré)injecte le ComicInfo.xml que dans les CBZ qui n'en contiennent pas encore (issues
+    // sideloadées via torrent / import manuel), plus les renommages de fichier toujours effectués.
+    // false (défaut, Rematch inclus) = réécrit ComicInfo.xml dans toutes les issues DOWNLOADED
+    // (nécessaire quand la metadata du volume a changé). N'a d'effet que si RegenerateComicInfo.
+    public bool RegenerateComicInfoNewOnly { get; set; } = false;
+
     public bool IsValid(out List<string> errors)
     {
         errors = new List<string>();
