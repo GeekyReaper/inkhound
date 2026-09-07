@@ -304,24 +304,25 @@ export class LibraryComponent {
         }
       });
 
-    // Restaure la position de scroll une fois la liste des volumes rendue (back/forward seulement,
-    // pendingScrollY posé par restoreViewState). Les signaux sont lus inconditionnellement pour
-    // que l'effect se ré-exécute à la fin du chargement. Double rAF + relance différée : passe
-    // après le scroll-to-top asynchrone du RouterScroller et le reflow d'insertion des cartes.
+    // Restaure la position de scroll une fois la liste des volumes rendue (pendingScrollY posé par
+    // restoreViewState quand on « revient » sur la page). Les signaux sont lus inconditionnellement
+    // pour que l'effect se ré-exécute à la fin du chargement. Double rAF (cas normal) + relance à
+    // 300 ms : passe après le scroll-to-top asynchrone du RouterScroller, le reflow d'insertion des
+    // cartes et l'animation de view transition (~250 ms).
     effect(() => {
       const loading = this.volumesLoading();
-      this.pagedVolumes();
+      void this.pagedVolumes();   // dépendance : re-tenter quand la liste (re)rend
       const y = this.pendingScrollY;
       if (y === null || loading) return;
       this.pendingScrollY = null;
       const apply = () => { window.scrollTo(0, y); this.lastScrollY = y; };
       requestAnimationFrame(() => requestAnimationFrame(apply));
-      setTimeout(apply, 120);
+      setTimeout(apply, 300);
     });
 
     // Filet de sécurité : commit final de la position de scroll à la destruction (ouverture d'un
-    // volume, add-volume…) — la sauvegarde réactive ci-dessus a pu être manquée si le dernier
-    // scroll n'a pas eu le temps d'être « audité ».
+    // volume, add-volume…) — au moment du onDestroy `window.scrollY` peut déjà valoir 0 (retrait
+    // du DOM), d'où le repli sur `lastScrollY`.
     this.#destroyRef.onDestroy(() => {
       const lib = this.library();
       if (lib) this.viewState.patch(lib.id, { scrollY: window.scrollY || this.lastScrollY });
@@ -406,8 +407,9 @@ export class LibraryComponent {
   // Réapplique les filtres + la page mémorisés pour cette library (ou les valeurs par défaut si
   // aucun état : indispensable puisque le composant est réutilisé d'une library à l'autre — sans
   // reset, les filtres de la précédente resteraient collés). Écriture directe sur les signaux (pas
-  // via les setters) → aucun scroll parasite. La position de scroll n'est ré-armée que sur un
-  // back/forward navigateur (NavigationTrackerService).
+  // via les setters) → aucun scroll parasite. La position de scroll n'est ré-armée que si on
+  // « revient » sur la page (retour depuis un volume / add-volume, ou back/forward navigateur) —
+  // pas lors d'une arrivée depuis la sidebar ou un autre écran (cf. NavigationTrackerService).
   private restoreViewState(libraryId: string): void {
     const saved = this.viewState.get(libraryId);
     const s = saved ?? EMPTY_LIBRARY_VIEW_STATE;
@@ -418,7 +420,8 @@ export class LibraryComponent {
     this.yearFilter.set(s.year);
     this.ageRatingFilter.set(s.ageRating);
     this.currentPage.set(s.page);
-    this.pendingScrollY = (saved && this.navTracker.isBackForward) ? saved.scrollY : null;
+    const isReturn = this.navTracker.isReturnInto(libraryPageKey(libraryId));
+    this.pendingScrollY = (saved && isReturn) ? saved.scrollY : null;
   }
 
   // Remonte le viewport au début de la liste (en-tête « Volumes (n) »), en tenant compte du

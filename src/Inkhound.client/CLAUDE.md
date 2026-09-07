@@ -413,7 +413,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |
 | `LibraryViewStateService` | — | `get(libraryId)`, `patch(libraryId, partial)` — état de la vue liste Library (filtres + page + `scrollY`) par id, fusion + `sessionStorage` |
-| `NavigationTrackerService` | — | `lastTrigger`, `isBackForward` — déclencheur de la dernière navigation router (`imperative`/`popstate`/`hashchange`) ; instancié tôt par `AppComponent` |
+| `NavigationTrackerService` | — | `lastTrigger`, `isBackForward`, `previousUrl`, `isReturnInto(baseUrl)` — suit la dernière navigation router (déclencheur + URL quittée) ; instancié tôt par `AppComponent` |
 
 ### HubService — événements SignalR reçus
 
@@ -468,11 +468,16 @@ filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewState
   écriture **directe** sur les signaux (jamais via les setters → pas de scroll parasite).
   Applique `EMPTY_LIBRARY_VIEW_STATE` s'il n'y a pas d'état mémorisé (sinon les filtres de la
   library précédente resteraient collés).
-- **Restauration scroll** : uniquement sur back/forward navigateur — `navTracker.isBackForward`
-  (`NavigationTrackerService`, capte `NavigationStart.navigationTrigger` app-wide). Un `effect()`
-  applique `window.scrollTo` (double `requestAnimationFrame` + `setTimeout` de repli) une fois
-  `volumesLoading()` retombé — passe **après** le scroll-to-top asynchrone du `RouterScroller`
-  (`scrollPositionRestoration: 'top'`).
+- **Restauration scroll** : uniquement quand on « revient » sur la page —
+  `navTracker.isReturnInto('/library/{id}')` = retour depuis une sous-page (`/library/{id}/volume/…`,
+  `/library/{id}/add-volume` — via le bouton *Back* de la page volume, le breadcrumb, ou le back
+  navigateur) **ou** back/forward navigateur. **Pas** lors d'une arrivée depuis la sidebar / un
+  autre écran. Le bouton *Back* de `VolumeComponent` fait `router.navigate()` → navigation
+  `imperative`, d'où la détection par URL quittée (`NavigationTrackerService.previousUrl`) plutôt
+  que par `navigationTrigger` seul. Un `effect()` applique `window.scrollTo` (double
+  `requestAnimationFrame` + relance à 300 ms) une fois `volumesLoading()` retombé — passe **après**
+  le scroll-to-top asynchrone du `RouterScroller` (`scrollPositionRestoration: 'top'`) et
+  l'animation de view transition.
 - **Remontée en tête de liste** : ancre `#volumesTop` (+ `scroll-margin-top` pour le header sticky,
   `library.component.scss`) ; `scrollToVolumesTop()` appelé par `goToPage()` et les setters de
   filtre discrets (`resetPaging()`), **pas** par `onSearch()`.
