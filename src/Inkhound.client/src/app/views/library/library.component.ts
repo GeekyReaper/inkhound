@@ -219,13 +219,13 @@ export class LibraryComponent {
 
   refreshModalVisible = signal(false);
   refreshOptions = signal<RefreshVolumeOptions>({
-    syncFromSource: true, syncNewIssuesOnly: true,
+    syncFromSource: true, syncNewIssuesOnly: true, checkFiles: true,
     recalculateStatistics: true, regenerateComicInfo: true, regenerateComicInfoNewOnly: true,
     scanKavita: true
   });
   refreshCanRun = computed(() => {
     const o = this.refreshOptions();
-    return o.syncFromSource || o.recalculateStatistics || o.regenerateComicInfo || o.scanKavita;
+    return o.syncFromSource || o.checkFiles || o.recalculateStatistics || o.regenerateComicInfo || o.scanKavita;
   });
 
   // Lot de jobs "Refresh" en cours — un par volume, chacun indépendant (pas de job parent, le
@@ -545,6 +545,7 @@ export class LibraryComponent {
     this.refreshOptions.set({
       syncFromSource: this.hasAnySourcedVolume(),
       syncNewIssuesOnly: true,
+      checkFiles: this.hasAnyDownloadedIssues(),
       recalculateStatistics: true,
       regenerateComicInfo: this.hasAnyDownloadedIssues(),
       regenerateComicInfoNewOnly: true,

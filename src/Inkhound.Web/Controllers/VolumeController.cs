@@ -213,13 +213,16 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
     // ne synchroniser depuis la source que les issues/albums encore inconnus en base.
     // RegenerateComicInfoNewOnly (radio sous "Regenerate ComicInfo.xml", défaut false) : ne
     // réinjecter le ComicInfo.xml que dans les CBZ qui n'en contiennent pas encore.
+    // CheckFiles (défaut false) : étape avant le recalc de stats — vérifie que chaque CBZ d'une
+    // issue DOWNLOADED est toujours sur disque (sinon → MISSING) et que son analyse CBZ est à jour.
     public record RefreshVolumeRequest(
         bool SyncFromSource = true,
         bool RecalculateStatistics = true,
         bool RegenerateComicInfo = true,
         bool ScanKavita = true,
         bool SyncNewIssuesOnly = false,
-        bool RegenerateComicInfoNewOnly = false);
+        bool RegenerateComicInfoNewOnly = false,
+        bool CheckFiles = false);
 
     // POST /api/volumes/{volumeId}/refresh — idem que /rematch, mais réutilise la source déjà
     // associée au volume (pas de recherche à refaire) ; masqué côté UI pour un volume manuel.
@@ -232,7 +235,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
             var job = await manager.LaunchJobRefreshVolume(
                 volumeId, options.SyncFromSource, options.RecalculateStatistics,
                 options.RegenerateComicInfo, options.ScanKavita, options.SyncNewIssuesOnly,
-                options.RegenerateComicInfoNewOnly);
+                options.RegenerateComicInfoNewOnly, options.CheckFiles);
             return job is not null ? Accepted(new { jobId = job.JobId }) : NotFound();
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }

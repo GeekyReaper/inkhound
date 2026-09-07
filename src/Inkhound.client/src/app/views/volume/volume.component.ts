@@ -99,13 +99,13 @@ export class VolumeComponent {
 
   refreshModalVisible = signal(false);
   refreshOptions = signal<RefreshVolumeOptions>({
-    syncFromSource: true, syncNewIssuesOnly: true,
+    syncFromSource: true, syncNewIssuesOnly: true, checkFiles: true,
     recalculateStatistics: true, regenerateComicInfo: true, regenerateComicInfoNewOnly: true,
     scanKavita: true
   });
   refreshCanRun = computed(() => {
     const o = this.refreshOptions();
-    return o.syncFromSource || o.recalculateStatistics || o.regenerateComicInfo || o.scanKavita;
+    return o.syncFromSource || o.checkFiles || o.recalculateStatistics || o.regenerateComicInfo || o.scanKavita;
   });
 
   sourceLabel = computed(() => {
@@ -266,6 +266,7 @@ export class VolumeComponent {
     this.refreshOptions.set({
       syncFromSource: true,
       syncNewIssuesOnly: true,
+      checkFiles: this.hasDownloadedIssues(),
       recalculateStatistics: true,
       regenerateComicInfo: this.hasDownloadedIssues(),
       regenerateComicInfoNewOnly: true,

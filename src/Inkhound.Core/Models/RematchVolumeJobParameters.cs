@@ -37,6 +37,13 @@ public class RematchVolumeJobParameters : IJobParameters
     // (nécessaire quand la metadata du volume a changé). N'a d'effet que si RegenerateComicInfo.
     public bool RegenerateComicInfoNewOnly { get; set; } = false;
 
+    // true = case "Check files" de la popup Refresh (exécutée avant Recalculate statistics) : pour
+    // chaque issue DOWNLOADED ayant un CbzFilename — (1) fichier absent du disque → l'issue repasse
+    // MISSING (reset complet, cf. ClearIssueDownloadState + suppression des IssueDownload) ;
+    // (2) fichier présent jamais analysé → analyse CBZ ; (3) fichier présent déjà analysé mais dont
+    // le SHA-256 courant diffère de AnalysisFileHash → ré-analyse. false (défaut, Rematch inclus).
+    public bool CheckFiles { get; set; } = false;
+
     public bool IsValid(out List<string> errors)
     {
         errors = new List<string>();

@@ -306,10 +306,20 @@ Certaines méthodes `LaunchJobXxx` retournent le `JobContext` (setup synchrone +
 en fire-and-forget) pour que le controller expose le `jobId` immédiatement — cf. `LaunchJobRematchVolume`,
 `LaunchJobImportDirectory`.
 
-`LaunchJobRefreshVolume` / `LaunchJobsRefreshLibrary` prennent les booléens `syncNewIssuesOnly` et
-`regenerateComicInfoNewOnly` (défaut `false` = comportement historique ; le Rematch changement de
-série ne les passe jamais) — radios de la popup Refresh, voir
-`RematchVolumeJobParameters.SyncNewIssuesOnly` / `.RegenerateComicInfoNewOnly` et la section Issue.
+`LaunchJobRefreshVolume` / `LaunchJobsRefreshLibrary` prennent les booléens `syncNewIssuesOnly`,
+`regenerateComicInfoNewOnly` et `checkFiles` (défaut `false` = comportement historique ; le Rematch
+changement de série ne les passe jamais) — cases/radios de la popup Refresh, voir
+`RematchVolumeJobParameters` et la section Issue.
+
+Étape **« Check files »** (`RematchVolumeJobParameters.CheckFiles`) dans `RunRematchVolumeJobAsync`,
+exécutée **avant le recalc de stats** (donc avant `RegenerateComicInfo`) via `CheckVolumeFilesAsync`
+— pour chaque issue `DOWNLOADED` avec un `CbzFilename` : fichier absent du disque → `MISSING`
+(`ClearIssueDownloadState` + purge des `IssueDownload`) ; fichier présent jamais analysé → analyse
+CBZ ; fichier présent déjà analysé mais SHA-256 courant ≠ `Issue.AnalysisFileHash` → ré-analyse. Si
+elle repasse ≥1 issue en `MISSING`, le job force un `RecalculateVolumeStatisticsAsync` même après un
+sync. Helpers factorisés : `ClearIssueDownloadState(Issue)` (partagé avec `DeleteIssueFileAsync`) et
+`AnalyzeIssueFileAsync(...)` (partagé avec `RunAnalyzeIssueJobAsync` — écrit les champs `Analysis*`
++ `AnalyzedAt`, ne sauve pas).
 
 ### Structure obligatoire d'un LaunchJob
 

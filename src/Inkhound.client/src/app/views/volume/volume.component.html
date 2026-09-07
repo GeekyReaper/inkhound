@@ -281,6 +281,24 @@
     </div>
     <div class="mb-3">
       <c-form-check>
+        <input cFormCheckInput type="checkbox" id="refresh-checkfiles"
+               [checked]="refreshOptions().checkFiles"
+               [disabled]="!hasDownloadedIssues()"
+               (change)="toggleRefreshOption('checkFiles')" />
+        <label cFormCheckLabel for="refresh-checkfiles" [class.text-body-tertiary]="!hasDownloadedIssues()">
+          Check files (downloaded issues)
+          <span class="text-body-secondary small d-block">
+            @if (hasDownloadedIssues()) {
+              Verify each CBZ is still on disk (else → missing) &amp; re-analyze changed files
+            } @else {
+              No downloaded issue to check.
+            }
+          </span>
+        </label>
+      </c-form-check>
+    </div>
+    <div class="mb-3">
+      <c-form-check>
         <input cFormCheckInput type="checkbox" id="refresh-stats"
                [checked]="refreshOptions().recalculateStatistics"
                (change)="toggleRefreshOption('recalculateStatistics')" />

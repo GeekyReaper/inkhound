@@ -1677,12 +1677,13 @@ public class InkhoundManager : BaseServiceManager
     // Pré-check synchrone : Source/SourceId doivent être connus AVANT de construire les paramètres
     // du job (contrairement à Rematch, où ils viennent de la requête). Volume introuvable ou manuel
     // → pas de job créé (le bouton "Refresh" est de toute façon masqué côté UI pour un volume manuel).
-    // Les booléens pilotent la popup à cases à cocher côté front (sync source / stats / ComicInfo /
-    // Kavita) — tous par défaut à true (comportement identique à avant si l'appelant ne les précise
-    // pas). syncNewIssuesOnly (radio sous "Sync with source", défaut false = historique) : ne
-    // récupérer de la source que les issues/albums encore inconnus. regenerateComicInfoNewOnly
-    // (radio sous "Regenerate ComicInfo.xml", défaut false) : ne réinjecter que dans les CBZ sans
-    // ComicInfo.xml — voir RematchVolumeJobParameters.
+    // Les booléens pilotent la popup à cases à cocher côté front (sync source / check files / stats /
+    // ComicInfo / Kavita) — sync/stats/ComicInfo/Kavita par défaut à true (comportement identique à
+    // avant si l'appelant ne les précise pas). syncNewIssuesOnly (radio sous "Sync with source",
+    // défaut false = historique) : ne récupérer de la source que les issues/albums encore inconnus.
+    // regenerateComicInfoNewOnly (radio sous "Regenerate ComicInfo.xml", défaut false) : ne
+    // réinjecter que dans les CBZ sans ComicInfo.xml. checkFiles (défaut false) : vérifier présence
+    // disque + fraîcheur d'analyse des CBZ avant le recalc de stats — voir RematchVolumeJobParameters.
     public async Task<JobContext?> LaunchJobRefreshVolume(
         Guid volumeId,
         bool syncFromSource = true,
@@ -1691,6 +1692,7 @@ public class InkhoundManager : BaseServiceManager
         bool scanKavita = true,
         bool syncNewIssuesOnly = false,
         bool regenerateComicInfoNewOnly = false,
+        bool checkFiles = false,
         CancellationToken ct = default)
     {
         var ctx = GetDb();
@@ -1706,6 +1708,7 @@ public class InkhoundManager : BaseServiceManager
             RegenerateComicInfo = regenerateComicInfo, ScanKavita = scanKavita,
             SyncNewIssuesOnly = syncNewIssuesOnly,
             RegenerateComicInfoNewOnly = regenerateComicInfoNewOnly,
+            CheckFiles = checkFiles,
             IsRefresh = true
         });
     }
@@ -1721,7 +1724,7 @@ public class InkhoundManager : BaseServiceManager
     public async Task<List<Guid>> LaunchJobsRefreshLibrary(
         Guid libraryId, bool syncFromSource, bool recalculateStatistics,
         bool regenerateComicInfo, bool scanKavita, bool syncNewIssuesOnly = false,
-        bool regenerateComicInfoNewOnly = false, CancellationToken ct = default)
+        bool regenerateComicInfoNewOnly = false, bool checkFiles = false, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var volumeIds = await ctx.Volumes
@@ -1736,7 +1739,7 @@ public class InkhoundManager : BaseServiceManager
             {
                 var job = await LaunchJobRefreshVolume(
                     volumeId, syncFromSource, recalculateStatistics, regenerateComicInfo, scanKavita,
-                    syncNewIssuesOnly, regenerateComicInfoNewOnly, ct);
+                    syncNewIssuesOnly, regenerateComicInfoNewOnly, checkFiles, ct);
                 if (job is not null) jobIds.Add(job.JobId);
             }
             catch (InvalidOperationException)
@@ -1787,11 +1790,21 @@ public class InkhoundManager : BaseServiceManager
                 }
                 JobSendTrace($"[Rematch] Metadata synced — {result.IssuesAdded} issue(s) added, {result.IssuesUpdated} updated, {result.IssuesRemoved} removed");
                 // RematchVolumeFromComicVineAsync/BedethequeAsync recalculent déjà les statistiques
-                // en interne — pas besoin de le refaire même si RecalculateStatistics est aussi coché.
+                // en interne — inutile de le refaire ici, sauf si "Check files" change des statuts ensuite.
             }
-            else if (parameters.RecalculateStatistics)
+
+            // "Check files" — avant le recalc de stats : peut repasser des issues DOWNLOADED en MISSING.
+            var filesFlipped = false;
+            if (parameters.CheckFiles)
+                filesFlipped = await CheckVolumeFilesAsync(job, parameters.VolumeId);
+
+            // Recalc : le sync l'a déjà fait en interne ; sinon on (re)calcule si l'utilisateur l'a
+            // demandé, ou si "Check files" a repassé des issues en MISSING (y compris après un sync).
+            // Surcharge publique (contexte neuf) : `ctx` local porte un Volume potentiellement périmé
+            // après le sync (fait sur son propre contexte) — le réutiliser réécrirait des métadonnées.
+            if ((parameters.RecalculateStatistics && !parameters.SyncFromSource) || filesFlipped)
             {
-                await RecalculateVolumeStatisticsAsync(ctx, parameters.VolumeId);
+                await RecalculateVolumeStatisticsAsync(parameters.VolumeId);
                 JobSendTrace("[Rematch] Statistics recalculated");
             }
 
@@ -2111,6 +2124,92 @@ public class InkhoundManager : BaseServiceManager
         return true;
     }
 
+    // Étape "Check files" du Refresh (avant Recalculate statistics). Pour chaque issue DOWNLOADED
+    // ayant un CbzFilename :
+    //  1. fichier absent du disque (sondé aux deux chemins possibles, comme DeleteIssueFileAsync)
+    //     → l'issue repasse MISSING (ClearIssueDownloadState + suppression des IssueDownload) ;
+    //  2. fichier présent mais jamais analysé (AnalyzedAt == null) → analyse CBZ ;
+    //  3. fichier présent, déjà analysé, mais SHA-256 courant != AnalysisFileHash → ré-analyse.
+    // Persiste et émet OnDataUpdated par issue modifiée. Ne recalcule PAS les stats (fait par
+    // l'appelant). Retourne true si ≥1 issue est repassée MISSING.
+    private async Task<bool> CheckVolumeFilesAsync(JobContext job, Guid volumeId)
+    {
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(volumeId);
+        if (volume is null) { JobSendTrace("[CheckFiles] Volume not found", ETraceLevel.ERROR); return false; }
+
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+        if (library is null) { JobSendTrace("[CheckFiles] Library not found", ETraceLevel.ERROR); return false; }
+
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var scoringSettings = GetService<KavitaService, KavitaOptions>().BuildScoringSettings();
+
+        var issues = await ctx.Issues
+            .Where(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED && i.CbzFilename != null)
+            .ToListAsync();
+
+        JobSendTrace($"[CheckFiles] {issues.Count} downloaded issue(s) to check for {volume.Title}");
+        job.Progress.Reset();
+        job.CallbackHandler.UpdateTotal(issues.Count);
+
+        var seriesFolder = ArchiveService.GetPath(volume, library);
+        var changedIssueIds = new List<Guid>();
+        var (missing, analyzed, reanalyzed, unchanged) = (0, 0, 0, 0);
+        foreach (var issue in issues)
+        {
+            // Le fichier peut porter le nom calculé depuis les métadonnées actuelles OU le nom
+            // enregistré à l'import (dérive possible si les métadonnées ont changé sans regen).
+            var cbzPath = new[]
+                {
+                    ArchiveService.GetPath(issue, volume, library),
+                    Path.Combine(seriesFolder, issue.CbzFilename!)
+                }
+                .Distinct()
+                .FirstOrDefault(File.Exists);
+
+            if (cbzPath is null)
+            {
+                JobSendTrace($"[CheckFiles] #{issue.IssueNumber} '{issue.CbzFilename}' — CBZ file gone → back to MISSING", ETraceLevel.WARNING);
+                ClearIssueDownloadState(issue);
+                ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => d.IssueId == issue.Id));
+                missing++;
+                changedIssueIds.Add(issue.Id);
+            }
+            else if (issue.AnalyzedAt is null)
+            {
+                JobSendTrace($"[CheckFiles] #{issue.IssueNumber} — never analyzed → analyzing");
+                await AnalyzeIssueFileAsync(issue, cbzPath, archiveService, scoringSettings);
+                analyzed++;
+                changedIssueIds.Add(issue.Id);
+            }
+            else
+            {
+                var hash = await ArchiveService.ComputeFileHashAsync(cbzPath);
+                if (!string.Equals(hash, issue.AnalysisFileHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    JobSendTrace($"[CheckFiles] #{issue.IssueNumber} — file changed since last analysis → re-analyzing");
+                    await AnalyzeIssueFileAsync(issue, cbzPath, archiveService, scoringSettings, hash);
+                    reanalyzed++;
+                    changedIssueIds.Add(issue.Id);
+                }
+                else
+                {
+                    unchanged++;
+                }
+            }
+
+            job.Progress.Increment(true);
+            job.CallbackHandler.Callback(job.Progress);
+        }
+
+        await ctx.SaveChangesAsync();
+        foreach (var id in changedIssueIds)
+            OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(id));
+
+        JobSendTrace($"[CheckFiles] Done — {missing} back to MISSING, {analyzed} analyzed, {reanalyzed} re-analyzed, {unchanged} unchanged");
+        return missing > 0;
+    }
+
     // Déclenche un scan Kavita du dossier de la série (si KavitaPath configuré sur la library) ou
     // de la library Kavita entière en repli — no-op silencieux (juste une trace) si la library
     // Inkhound n'est rattachée à aucune library Kavita (KavitaLibraryId == 0 et KavitaPath vide).
@@ -2205,6 +2304,23 @@ public class InkhoundManager : BaseServiceManager
             }
         }
 
+        ClearIssueDownloadState(issue);
+        ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => d.IssueId == issueId));
+
+        await ctx.SaveChangesAsync(ct);
+        await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+
+        await TriggerKavitaScanAsync(volume.Id);
+        return (true, null);
+    }
+
+    // Remet une issue à l'état "non téléchargée" : statut MISSING + purge fichier/taille/date +
+    // tous les champs d'analyse CBZ (ils décrivent un fichier disparu). Ne sauve PAS, ne supprime
+    // NI le fichier disque NI les lignes IssueDownload — à la charge de l'appelant selon le
+    // contexte (DeleteIssueFileAsync : fichier + IssueDownload ; CheckVolumeFilesAsync : IssueDownload).
+    private static void ClearIssueDownloadState(Issue issue)
+    {
         issue.CbzFilename = null;
         issue.FileSizeBytes = 0;
         issue.Status = IssueStatus.MISSING;
@@ -2221,15 +2337,6 @@ public class InkhoundManager : BaseServiceManager
         issue.AnalysisAveragePageSizeBytes = null;
         issue.AnalysisFileHash = null;
         issue.AnalyzedAt = null;
-
-        ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => d.IssueId == issueId));
-
-        await ctx.SaveChangesAsync(ct);
-        await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
-        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-
-        await TriggerKavitaScanAsync(volume.Id);
-        return (true, null);
     }
 
     // Liste les fichiers d'archive d'un dossier avec le numéro d'issue déduit de leur nom — alimente
@@ -2890,32 +2997,12 @@ public class InkhoundManager : BaseServiceManager
             });
 
             JobSendTrace($"[Analyze] Analyzing {Path.GetFileName(cbzPath)}");
-            var analysis = await archiveService.AnalyzeCbzAsync(cbzPath, scoringSettings, progress);
-            var report = ArchiveService.ScoreCbz(analysis, scoringSettings);
-
-            var dominant = analysis.Entries
-                .Where(e => e.IsImage && e.Image is { DecodeSucceeded: true })
-                .GroupBy(e => (e.Image!.WidthPx, e.Image!.HeightPx))
-                .OrderByDescending(g => g.Count())
-                .FirstOrDefault();
-
-            issue.AnalysisScore = report.Score;
-            issue.AnalysisScoreBand = report.ScoreBand;
-            issue.AnalysisDominantImageFormat = analysis.FormatBreakdown.FirstOrDefault()?.Format;
-            issue.AnalysisDominantResolutionWidth = dominant?.Key.WidthPx;
-            issue.AnalysisDominantResolutionHeight = dominant?.Key.HeightPx;
-            issue.AnalysisPageCount = analysis.ImageEntryCount;
-            issue.AnalysisHasComicInfo = analysis.HasComicInfoXml;
-            issue.AnalysisZipCompressionPercent = Math.Round((1 - analysis.ZipCompressionRatio) * 100, 1);
-            issue.AnalysisFileSizeBytes = analysis.FileSizeBytes;
-            issue.AnalysisAveragePageSizeBytes = analysis.AverageImageBytes;
-            issue.AnalysisFileHash = hash;
-            issue.AnalyzedAt = DateTime.UtcNow;
+            var report = await AnalyzeIssueFileAsync(issue, cbzPath, archiveService, scoringSettings, hash, progress);
 
             await ctx.SaveChangesAsync();
             OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
 
-            JobSendTrace($"[Analyze] Score {report.Score}/100 ({report.ScoreBand}) — {analysis.ImageEntryCount} page(s)");
+            JobSendTrace($"[Analyze] Score {report.Score}/100 ({report.ScoreBand}) — {issue.AnalysisPageCount} page(s)");
             EndJob(true);
         }
         catch (Exception ex)
@@ -2923,6 +3010,40 @@ public class InkhoundManager : BaseServiceManager
             JobSendTrace($"[Analyze] Unexpected error: {ex.Message}", ETraceLevel.ERROR);
             EndJob(false);
         }
+    }
+
+    // Analyse un CBZ existant (score de compatibilité Kavita) et écrit tous les champs Analysis* +
+    // AnalyzedAt sur l'issue. Ne SAUVE PAS — l'appelant groupe les SaveChanges. Retourne le rapport
+    // (pour la trace). hash : passé par l'appelant s'il l'a déjà calculé (CheckVolumeFilesAsync le
+    // calcule pour la comparaison à AnalysisFileHash), sinon calculé ici. progress : null hors du
+    // job d'analyse dédié (CheckVolumeFilesAsync suit la progression au niveau issue).
+    private static async Task<KavitaCompatibilityReport> AnalyzeIssueFileAsync(
+        Issue issue, string cbzPath, ArchiveService archiveService, ScoringSettings scoringSettings,
+        string? hash = null, IProgress<CbzAnalysisProgress>? progress = null, CancellationToken ct = default)
+    {
+        hash ??= await ArchiveService.ComputeFileHashAsync(cbzPath, ct);
+        var analysis = await archiveService.AnalyzeCbzAsync(cbzPath, scoringSettings, progress, ct);
+        var report = ArchiveService.ScoreCbz(analysis, scoringSettings);
+
+        var dominant = analysis.Entries
+            .Where(e => e.IsImage && e.Image is { DecodeSucceeded: true })
+            .GroupBy(e => (e.Image!.WidthPx, e.Image!.HeightPx))
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault();
+
+        issue.AnalysisScore = report.Score;
+        issue.AnalysisScoreBand = report.ScoreBand;
+        issue.AnalysisDominantImageFormat = analysis.FormatBreakdown.FirstOrDefault()?.Format;
+        issue.AnalysisDominantResolutionWidth = dominant?.Key.WidthPx;
+        issue.AnalysisDominantResolutionHeight = dominant?.Key.HeightPx;
+        issue.AnalysisPageCount = analysis.ImageEntryCount;
+        issue.AnalysisHasComicInfo = analysis.HasComicInfoXml;
+        issue.AnalysisZipCompressionPercent = Math.Round((1 - analysis.ZipCompressionRatio) * 100, 1);
+        issue.AnalysisFileSizeBytes = analysis.FileSizeBytes;
+        issue.AnalysisAveragePageSizeBytes = analysis.AverageImageBytes;
+        issue.AnalysisFileHash = hash;
+        issue.AnalyzedAt = DateTime.UtcNow;
+        return report;
     }
 
     public async Task<bool> GrabSearchResultAsync(

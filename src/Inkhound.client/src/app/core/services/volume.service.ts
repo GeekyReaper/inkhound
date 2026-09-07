@@ -73,11 +73,14 @@ export interface Volume {
 // Options de la popup "Refresh" — mêmes noms que RefreshVolumeRequest côté backend.
 // syncNewIssuesOnly : radio sous "Sync with source" — true = ne récupérer de la source que les
 // issues encore inconnues (défaut UI), false = re-synchroniser toutes les issues (historique).
+// checkFiles : étape avant "Recalculate statistics" — vérifie que chaque CBZ d'une issue téléchargée
+// est toujours sur disque (sinon → MISSING) et que son analyse CBZ est à jour.
 // regenerateComicInfoNewOnly : radio sous "Regenerate ComicInfo.xml" — true = ne (ré)injecter que
 // dans les CBZ sans ComicInfo.xml (défaut UI), false = réécrire dans toutes les issues téléchargées.
 export interface RefreshVolumeOptions {
   syncFromSource:             boolean;
   syncNewIssuesOnly:          boolean;
+  checkFiles:                 boolean;
   recalculateStatistics:      boolean;
   regenerateComicInfo:        boolean;
   regenerateComicInfoNewOnly: boolean;

@@ -336,6 +336,9 @@ interface RefreshVolumeOptions {
   syncFromSource: boolean;
   syncNewIssuesOnly: boolean;   // radio sous "Sync with source" : true = NEW only (défaut UI),
                                 // false = re-sync de toutes les issues (historique). setSyncScope().
+  checkFiles: boolean;          // case avant "Recalculate statistics" : vérifie présence disque +
+                                // à-jour de l'analyse CBZ des issues téléchargées (absent → missing).
+                                // Défaut UI coché si issues téléchargées.
   recalculateStatistics: boolean;
   regenerateComicInfo: boolean;
   regenerateComicInfoNewOnly: boolean; // radio sous "Regenerate ComicInfo.xml" : true = ne réinjecter

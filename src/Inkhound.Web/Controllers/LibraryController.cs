@@ -152,10 +152,13 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     // ne synchroniser depuis la source que les issues/albums encore inconnus en base.
     // RegenerateComicInfoNewOnly (radio sous "Regenerate ComicInfo.xml", défaut false) : ne
     // réinjecter le ComicInfo.xml que dans les CBZ qui n'en contiennent pas encore.
+    // CheckFiles (défaut false) : étape avant le recalc de stats — vérifie présence disque + à-jour
+    // de l'analyse CBZ pour chaque issue DOWNLOADED (fichier absent → MISSING).
     public record RefreshLibraryRequest(
         bool SyncFromSource = true, bool RecalculateStatistics = true,
         bool RegenerateComicInfo = true, bool ScanKavita = true,
-        bool SyncNewIssuesOnly = false, bool RegenerateComicInfoNewOnly = false);
+        bool SyncNewIssuesOnly = false, bool RegenerateComicInfoNewOnly = false,
+        bool CheckFiles = false);
 
     // POST /api/libraries/{id}/refresh — lance un Job "Refresh" indépendant par volume (pas de job
     // parent unique — cf. LaunchJobsRefreshLibrary) et retourne la liste de leurs JobId.
@@ -166,7 +169,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         var jobIds = await manager.LaunchJobsRefreshLibrary(
             id, options.SyncFromSource, options.RecalculateStatistics,
             options.RegenerateComicInfo, options.ScanKavita, options.SyncNewIssuesOnly,
-            options.RegenerateComicInfoNewOnly);
+            options.RegenerateComicInfoNewOnly, options.CheckFiles);
         return Accepted(new { jobIds = jobIds.Select(j => j.ToString()) });
     }
 }
