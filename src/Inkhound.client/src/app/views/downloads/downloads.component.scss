@@ -1,0 +1,99 @@
+// Cellule "Volume / Issue" : empilée (titre puis référence issue) en desktop, ramassée sur une
+// seule ligne "Titre | #n — Titre issue" en carte mobile.
+.dl-vol,
+.dl-issue {
+  display: block;
+}
+
+.dl-sep {
+  display: none;
+}
+
+// L'icône date n'a d'intérêt que dans la carte mobile (le <thead> y est masqué) — l'entête de
+// colonne "Added" suffit en desktop.
+@media (min-width: 768px) {
+  .dl-meta-icon {
+    display: none;
+  }
+}
+
+// --- Carte mobile (<768px) : socle `.table-stack` (src/scss/_tables.scss) --------------------
+// Réorganise les 9 cellules en 6 lignes visuelles via `order` :
+//   1. Titre volume | #n — titre issue                    (gauche)
+//   ───────────────── séparateur ─────────────────
+//   2. Nom du torrent (wrap)                               (gauche)
+//   3. Badge statut (gauche) · Speed / ETA / Size          (droite)
+//   4. Barre de progression                                (pleine largeur)
+//   5. Icône date + "dd/MM HH:mm"                          (droite)
+//   ───────────────── séparateur ─────────────────
+//   6. Boutons d'action edit / delete                      (droite)
+@media (max-width: 767.98px) {
+  .table-stack {
+    td.col-title    { order: 1; }
+    td.col-identity { order: 2; }
+    td.col-status   { order: 3; align-self: center; }
+    td.col-speed    { order: 4; }
+    td.col-eta      { order: 5; }
+    td.col-size     { order: 6; }
+    td.col-progress { order: 7; }
+    td.col-added    { order: 8; }
+    td.col-actions  { order: 9; }
+
+    // Ligne 1 : titre + référence issue sur une seule ligne, séparés par "|".
+    td.col-title {
+      .dl-vol,
+      .dl-issue {
+        display: inline;
+      }
+
+      .dl-sep {
+        display: inline;
+        margin: 0 0.35rem;
+        color: var(--cui-secondary-color);
+      }
+    }
+
+    // Séparateurs pleine largeur : avant le torrent (ligne 2) et avant les actions (ligne 6).
+    td.col-identity,
+    td.col-actions {
+      border-top: var(--cui-border-width, 1px) solid var(--cui-border-color);
+      margin-top: 0.125rem;
+      padding-top: 0.5rem;
+    }
+
+    // Ligne 2 : nom du torrent en graisse normale (le socle `.col-identity` le force à 600).
+    td.col-identity {
+      font-weight: 400;
+    }
+
+    // Ligne 3 : statut à gauche ; `margin-left: auto` sur Speed pousse le trio Speed/ETA/Size
+    // à droite (y compris s'il passe à la ligne, l'auto-margin absorbe l'espace libre de LEUR ligne).
+    td.col-speed {
+      margin-left: auto;
+    }
+
+    td.col-speed,
+    td.col-eta,
+    td.col-size {
+      flex: 0 0 auto;
+      align-self: center;
+      font-size: 0.8125rem;
+      color: var(--cui-secondary-color);
+    }
+
+    // Ligne 5 : date seule sur sa ligne (la progression à 100% force le retour), alignée à droite.
+    td.col-added {
+      flex: 0 0 auto;
+      margin-left: auto;
+      font-size: 0.8125rem;
+      color: var(--cui-secondary-color);
+    }
+
+    td.col-added .dl-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      white-space: nowrap; // rétablit le no-wrap neutralisé par `.table-stack tbody td` en mobile
+    }
+  }
+}

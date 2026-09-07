@@ -118,22 +118,20 @@
                 <tbody>
                   @for (item of items(); track item.id) {
                     <tr>
-                      <td class="align-middle col-full">
-                        <div class="fw-semibold small">{{ item.volumeTitle ?? '—' }}</div>
+                      <td class="align-middle col-full col-title">
+                        <span class="dl-vol fw-semibold small">{{ item.volumeTitle ?? '—' }}</span>
                         @if (item.issueNumber !== null) {
-                          <div class="text-body-secondary small">
-                            Issue #{{ item.issueNumber }}
-                            @if (item.issueTitle) { — {{ item.issueTitle }} }
-                          </div>
+                          <span class="dl-sep">|</span>
+                          <span class="dl-issue text-body-secondary small">#{{ item.issueNumber }}@if (item.issueTitle) { — {{ item.issueTitle }} }</span>
                         }
                       </td>
                       <td class="align-middle text-break small col-identity">
                         {{ item.torrentTitle || item.torrentHash || '—' }}
                       </td>
-                      <td class="align-middle" data-label="Status">
+                      <td class="align-middle col-status">
                         <c-badge [color]="statusBadgeColor(item.status)">{{ item.status }}</c-badge>
                       </td>
-                      <td class="align-middle col-full" data-label="Progress">
+                      <td class="align-middle col-full col-progress">
                         @if (item.progress !== null) {
                           <c-progress class="mb-1" style="height: 6px;">
                             <c-progress-bar
@@ -148,10 +146,15 @@
                           <span class="text-body-secondary small">Tracking...</span>
                         }
                       </td>
-                      <td class="align-middle text-nowrap small" data-label="Speed">{{ formatSpeed(item.dlspeed) }}</td>
-                      <td class="align-middle text-nowrap small" data-label="ETA">{{ formatEta(item.eta) }}</td>
-                      <td class="align-middle text-nowrap small" data-label="Size">{{ formatSize(item.size) }}</td>
-                      <td class="align-middle text-nowrap small" data-label="Added">{{ item.addedAt | date:'mediumDate' }}</td>
+                      <td class="align-middle text-nowrap small col-speed">{{ formatSpeed(item.dlspeed) }}</td>
+                      <td class="align-middle text-nowrap small col-eta">{{ formatEta(item.eta) }}</td>
+                      <td class="align-middle text-nowrap small col-size">{{ formatSize(item.size) }}</td>
+                      <td class="align-middle text-nowrap small col-added">
+                        <span class="dl-meta">
+                          <svg cIcon name="cilCalendar" size="sm" class="dl-meta-icon"></svg>
+                          {{ formatAdded(item.addedAt) }}
+                        </span>
+                      </td>
                       <td class="align-middle text-nowrap col-full col-actions">
                         @if (canProcess(item)) {
                           <button cButton color="secondary" variant="ghost" size="sm"

@@ -1,7 +1,7 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { interval, merge, switchMap, finalize } from 'rxjs';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import {
   AlertComponent, BadgeComponent, ButtonCloseDirective, ButtonDirective,
   CardBodyComponent, CardComponent,
@@ -27,12 +27,13 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     TableDirective, ProgressComponent, ProgressBarComponent,
     PaginationComponent, PageItemComponent, PageLinkDirective,
-    DatePipe, DecimalPipe, IconDirective,
+    DecimalPipe, IconDirective,
     JobConsoleModalComponent,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
     ModalTitleDirective, ButtonCloseDirective, FormControlDirective, FormLabelDirective,
   ],
-  templateUrl: './downloads.component.html'
+  templateUrl: './downloads.component.html',
+  styleUrl: './downloads.component.scss'
 })
 export class DownloadsComponent {
   private qbService    = inject(QBittorrentService);
@@ -291,5 +292,22 @@ export class DownloadsComponent {
     if (bytes === null || bytes <= 0) return '—';
     const mb = bytes / 1_048_576;
     return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+  }
+
+  // Date d'ajout compacte : "HH:mm" si c'est aujourd'hui, sinon "dd/MM HH:mm".
+  formatAdded(value: string | null): string {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    const now = new Date();
+    const sameDay = d.getFullYear() === now.getFullYear()
+      && d.getMonth() === now.getMonth()
+      && d.getDate() === now.getDate();
+
+    return sameDay ? time : `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${time}`;
   }
 }

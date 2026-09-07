@@ -32,6 +32,7 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
     JobConsoleModalComponent,
   ],
   templateUrl: './jobs.component.html',
+  styleUrl: './jobs.component.scss',
 })
 export class JobsComponent {
   private hub = inject(HubService);
@@ -102,5 +103,32 @@ export class JobsComponent {
     if (state === 'ERROR')   return 'danger';
     if (state === 'SUCCESS') return 'success';
     return 'primary';
+  }
+
+  // `job.duration` arrive au format .NET "c" (TimeSpan) : "[d.]hh:mm:ss[.fffffff]". On le rend
+  // en forme compacte lisible : "08s", "01m20s", "01h05m", "02d03h" (unité de tête + unité
+  // immédiatement inférieure, chacune sur 2 chiffres). Renvoie la valeur brute si non parsable.
+  formatDuration(raw: string | null): string {
+    const total = JobsComponent.parseDurationSeconds(raw);
+    if (total === null) return raw ?? '—';
+
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const s = Math.floor(total % 60);
+    const m = Math.floor(total / 60) % 60;
+    const h = Math.floor(total / 3600) % 24;
+    const d = Math.floor(total / 86400);
+
+    if (d > 0) return `${pad(d)}d${pad(h)}h`;
+    if (h > 0) return `${pad(h)}h${pad(m)}m`;
+    if (m > 0) return `${pad(m)}m${pad(s)}s`;
+    return `${pad(s)}s`;
+  }
+
+  private static parseDurationSeconds(raw: string | null): number | null {
+    if (!raw) return null;
+    const m = /^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2}(?:\.\d+)?)$/.exec(raw.trim());
+    if (!m) return null;
+    const days = m[1] ? parseInt(m[1], 10) : 0;
+    return days * 86400 + parseInt(m[2], 10) * 3600 + parseInt(m[3], 10) * 60 + parseFloat(m[4]);
   }
 }

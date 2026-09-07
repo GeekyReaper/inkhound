@@ -570,7 +570,13 @@ composant lui-même, tout est en CSS pur, zéro logique TypeScript).
 - `[data-label="..."]` — sur les cellules scalaires simples, affichées en puce compacte préfixée du
   label une fois le `<thead>` masqué en mobile.
 
-Utilisé par `DownloadsComponent` (colonne Torrent) et `ProwlarrSearchComponent` (colonne Title).
+Utilisé par `DownloadsComponent` (colonne Torrent), `ProwlarrSearchComponent` (colonne Title) et
+`JobsComponent` (colonne Title). `JobsComponent` et `DownloadsComponent` complètent le socle carte
+par un SCSS local qui réordonne les cellules via `order` en lignes visuelles (avec séparateurs
+`border-top` pour Downloads) et masque les icônes date-heure au-dessus de 768px :
+- `jobs.component.scss` — 4 lignes : titre / statut + date + durée / progression / bouton console.
+- `downloads.component.scss` — 6 lignes : titre `Vol | #n — issue` / torrent / statut + Speed·ETA·Size /
+  progression / date / actions.
 
 Le parent retraduit `selection()` (indexé sur la position dans `files()`) vers la clé attendue par
 son endpoint (index de fichier qBittorrent / nom de fichier).

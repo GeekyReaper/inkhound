@@ -1,0 +1,47 @@
+// Vue mobile (<768px) : chaque ligne de tableau devient une carte (le socle — bordure, flex-wrap,
+// <thead> masqué, reset des <td> — vient du partiel global `.table-stack`, cf. src/scss/_tables.scss).
+// On réorganise ici les cellules de la carte "job" en 4 lignes visuelles via `order` :
+//   1. Titre du job          — pleine largeur, wrap si le titre est long
+//   2. Badge statut (gauche) + date de démarrage + durée d'exécution (groupées à droite)
+//   3. Barre de progression  — pleine largeur
+//   4. Bouton console        — aligné à droite (pied de carte)
+@media (max-width: 767.98px) {
+  .table-stack {
+    td.col-identity { order: 1; }
+    td.col-status   { order: 2; flex: 0 0 auto; align-self: center; }
+    td.col-when     { order: 3; }
+    td.col-elapsed  { order: 4; }
+    td.col-progress { order: 5; }
+    td.col-actions  { order: 6; }
+
+    // Ligne 2 : le statut reste à gauche ; `margin-left: auto` sur la première méta pousse
+    // date + durée à droite — y compris si elles passent à la ligne, l'auto-margin absorbe
+    // l'espace libre de LEUR ligne.
+    td.col-when,
+    td.col-elapsed {
+      flex: 0 0 auto;
+      align-self: center;
+      font-size: 0.8125rem;
+      color: var(--cui-secondary-color);
+    }
+
+    td.col-when {
+      margin-left: auto;
+    }
+
+    .job-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      white-space: nowrap; // rétablit le no-wrap neutralisé par `.table-stack tbody td` en mobile
+    }
+  }
+}
+
+// Vue desktop : les entêtes de colonnes "Started" / "Duration" suffisent — on masque les icônes
+// qui n'ont d'intérêt que dans la carte mobile (où le <thead> est caché).
+@media (min-width: 768px) {
+  .job-meta-icon {
+    display: none;
+  }
+}

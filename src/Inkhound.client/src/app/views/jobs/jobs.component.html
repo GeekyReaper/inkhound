@@ -27,56 +27,66 @@
   } @else {
     <c-card>
       <c-card-body class="p-0">
-        <table cTable [hover]="true" [responsive]="true" class="mb-0">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Status</th>
-              <th style="min-width: 160px;">Progress</th>
-              <th>Duration</th>
-              <th>Started</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (job of pagedJobs(); track job.jobId) {
+        <div class="table-responsive">
+          <table cTable [hover]="true" class="mb-0 table-stack">
+            <thead>
               <tr>
-                <td class="align-middle">{{ job.title }}</td>
-                <td class="align-middle">
-                  <c-badge [color]="statusColor(job.state)">{{ job.state }}</c-badge>
-                </td>
-                <td class="align-middle">
-                  <c-progress class="mb-1">
-                    <c-progress-bar
-                      [value]="job.progress.percentage"
-                      [color]="progressColor(job.state)"
-                      [animated]="job.state === 'RUNNING'"
-                    ></c-progress-bar>
-                  </c-progress>
-                  <small class="text-muted">
-                    {{ job.progress.completed }}/{{ job.progress.total }}
-                    @if (job.progress.error > 0) {
-                      <span class="text-danger ms-1">({{ job.progress.error }} err)</span>
-                    }
-                  </small>
-                </td>
-                <td class="align-middle text-nowrap">
-                  @if (job.endDate) {
-                    {{ job.duration }}
-                  } @else {
-                    <span class="text-muted">in progress…</span>
-                  }
-                </td>
-                <td class="align-middle text-nowrap">{{ job.startDate | date:'dd/MM HH:mm' }}</td>
-                <td class="align-middle">
-                  <button cButton color="ghost-secondary" size="sm" (click)="openTraces(job)" title="View logs">
-                    <svg cIcon name="cilTerminal" size="sm"></svg>
-                  </button>
-                </td>
+                <th class="col-identity">Title</th>
+                <th style="width: 120px;">Status</th>
+                <th style="width: 200px;">Progress</th>
+                <th style="width: 110px;">Duration</th>
+                <th style="width: 120px;">Started</th>
+                <th style="width: 70px;"></th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (job of pagedJobs(); track job.jobId) {
+                <tr>
+                  <td class="align-middle col-identity">{{ job.title }}</td>
+                  <td class="align-middle col-status">
+                    <c-badge [color]="statusColor(job.state)">{{ job.state }}</c-badge>
+                  </td>
+                  <td class="align-middle col-full col-progress">
+                    <c-progress class="mb-1">
+                      <c-progress-bar
+                        [value]="job.progress.percentage"
+                        [color]="progressColor(job.state)"
+                        [animated]="job.state === 'RUNNING'"
+                      ></c-progress-bar>
+                    </c-progress>
+                    <small class="text-muted">
+                      {{ job.progress.completed }}/{{ job.progress.total }}
+                      @if (job.progress.error > 0) {
+                        <span class="text-danger ms-1">({{ job.progress.error }} err)</span>
+                      }
+                    </small>
+                  </td>
+                  <td class="align-middle text-nowrap col-elapsed">
+                    <span class="job-meta">
+                      <svg cIcon name="cilClock" size="sm" class="job-meta-icon"></svg>
+                      @if (job.endDate) {
+                        {{ formatDuration(job.duration) }}
+                      } @else {
+                        <span class="text-muted">in progress…</span>
+                      }
+                    </span>
+                  </td>
+                  <td class="align-middle text-nowrap col-when">
+                    <span class="job-meta">
+                      <svg cIcon name="cilCalendar" size="sm" class="job-meta-icon"></svg>
+                      {{ job.startDate | date:'dd/MM HH:mm' }}
+                    </span>
+                  </td>
+                  <td class="align-middle col-full col-actions">
+                    <button cButton color="ghost-secondary" size="sm" (click)="openTraces(job)" title="View logs">
+                      <svg cIcon name="cilTerminal" size="sm"></svg>
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       </c-card-body>
     </c-card>
 
