@@ -1,0 +1,157 @@
+<c-container class="py-4">
+
+  <c-row class="mb-4 align-items-center">
+    <c-col>
+      <h2 class="mb-0">Scheduler</h2>
+      <div class="text-body-secondary small">
+        Runs jobs automatically in the background — no browser needs to stay open.
+        Cron expressions use 5 fields and follow the server time zone.
+      </div>
+    </c-col>
+  </c-row>
+
+  @if (loading()) {
+    <div class="d-flex justify-content-center py-5">
+      <c-spinner color="primary"></c-spinner>
+    </div>
+  } @else {
+
+    <form cForm [formGroup]="form" (ngSubmit)="save()">
+
+      <!-- Import downloads -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>Import downloads</strong>
+          @if (status()?.processDownloads?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Imports every finished download into its library — same job as the “Process” button on the Downloads page.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="processDownloadsEnabled"
+                   formControlName="processDownloadsEnabled" />
+            <label cFormCheckLabel for="processDownloadsEnabled">Enabled</label>
+          </c-form-check>
+
+          <div class="mb-3">
+            <label cLabel for="processDownloadsCron">Cron expression</label>
+            <input cFormControl id="processDownloadsCron" formControlName="processDownloadsCron"
+                   type="text" placeholder="*/15 * * * *"
+                   [class.is-invalid]="form.get('processDownloadsCron')?.invalid && form.get('processDownloadsCron')?.touched" />
+            <div class="form-text text-body-secondary">Example: <code>*/15 * * * *</code> — every 15 minutes.</div>
+            @if (form.get('processDownloadsCron')?.invalid && form.get('processDownloadsCron')?.touched) {
+              <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
+            }
+          </div>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('ProcessDownloads')" (click)="runNow('ProcessDownloads')">
+              @if (runningNow().has('ProcessDownloads')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.processDownloads?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.processDownloads?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
+      <!-- Rolling refresh -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>Rolling refresh</strong>
+          @if (status()?.rollingRefresh?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Each run does a “NEW issues only” refresh on the least-recently-refreshed volumes —
+            a fixed number per run, so the whole catalogue is covered gradually instead of hammering the sources.
+            A volume you refresh manually goes to the back of the queue.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="rollingRefreshEnabled"
+                   formControlName="rollingRefreshEnabled" />
+            <label cFormCheckLabel for="rollingRefreshEnabled">Enabled</label>
+          </c-form-check>
+
+          <c-row>
+            <c-col md="7">
+              <div class="mb-3">
+                <label cLabel for="rollingRefreshCron">Cron expression</label>
+                <input cFormControl id="rollingRefreshCron" formControlName="rollingRefreshCron"
+                       type="text" placeholder="0 3 * * *"
+                       [class.is-invalid]="form.get('rollingRefreshCron')?.invalid && form.get('rollingRefreshCron')?.touched" />
+                <div class="form-text text-body-secondary">Example: <code>0 3 * * *</code> — every day at 03:00.</div>
+                @if (form.get('rollingRefreshCron')?.invalid && form.get('rollingRefreshCron')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+            <c-col md="5">
+              <div class="mb-3">
+                <label cLabel for="rollingRefreshBatchSize">Volumes per run</label>
+                <input cFormControl id="rollingRefreshBatchSize" formControlName="rollingRefreshBatchSize"
+                       type="number" min="1" step="1"
+                       [class.is-invalid]="form.get('rollingRefreshBatchSize')?.invalid && form.get('rollingRefreshBatchSize')?.touched" />
+                <div class="form-text text-body-secondary">Oldest-refreshed volumes first.</div>
+                @if (form.get('rollingRefreshBatchSize')?.invalid && form.get('rollingRefreshBatchSize')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a number of at least 1.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('RollingRefresh')" (click)="runNow('RollingRefresh')">
+              @if (runningNow().has('RollingRefresh')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.rollingRefresh?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.rollingRefresh?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
+      <div class="d-flex align-items-center gap-3">
+        <button cButton color="primary" type="submit" [disabled]="saving() || form.invalid">
+          @if (saving()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          }
+          Save
+        </button>
+        @if (saveStatus() === 'success') {
+          <c-alert color="success" class="mb-0 py-2 px-3">Scheduler configuration saved.</c-alert>
+        } @else if (saveStatus() === 'error') {
+          <c-alert color="danger" class="mb-0 py-2 px-3">{{ saveError() }}</c-alert>
+        }
+      </div>
+
+    </form>
+
+    @if (saveError() && saveStatus() !== 'error') {
+      <c-alert color="danger" class="mt-3">{{ saveError() }}</c-alert>
+    }
+
+  }
+
+</c-container>

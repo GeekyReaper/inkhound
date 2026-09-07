@@ -51,4 +51,11 @@ public class Volume
 
     public DateTime DateAdded { get; set; }
 
+    // Dernière synchronisation des métadonnées depuis la source (ComicVine/Bedetheque). null =
+    // jamais synchronisé depuis l'ajout. Renseigné à chaque sync source réussie (refresh manuel
+    // ET job de roulement du scheduler) — sert au tri du job "rolling refresh" (les volumes les
+    // moins récemment synchronisés d'abord). DISTINCT de UpdatedAt, qui bouge aussi au recalcul
+    // de stats / à l'édition.
+    public DateTime? LastRefreshedAt { get; set; }
+
 }

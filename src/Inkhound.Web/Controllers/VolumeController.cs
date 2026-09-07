@@ -85,14 +85,15 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         string? Origin,
         string? Website,
         DateTime CreatedAt,
-        DateTime UpdatedAt);
+        DateTime UpdatedAt,
+        DateTime? LastRefreshedAt);
 
     private static VolumeDto ToDto(Volume v)
         => new(v.Id, v.LibraryId, v.SourceId, v.SourceType, v.Title, v.Year,
                v.Description, v.Publisher, v.Status, v.AgeRating.ToString(), v.Genres, v.Authors,
                v.Image, v.CountOfIssues, v.CountOfDownloadedIssues,
                v.Language, v.PublicationStatus, v.Origin, v.Website,
-               v.CreatedAt, v.UpdatedAt);
+               v.CreatedAt, v.UpdatedAt, v.LastRefreshedAt);
 
     // GET /api/volumes/{volumeId}
     [HttpGet("/api/volumes/{volumeId:guid}")]

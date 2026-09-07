@@ -273,6 +273,11 @@ public class DbStorageService : BaseService<DbStorageOption>
         await AddColumnIfMissingAsync(db, "Volumes", "Origin", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Volumes", "Website", "TEXT NULL");
 
+        // Volumes.LastRefreshedAt ajouté en septembre 2026 — horodatage de la dernière synchro des
+        // métadonnées depuis la source, utilisé pour trier le job "rolling refresh" du scheduler.
+        // Nullable (NULL = jamais synchronisé) → pas de DEFAULT.
+        await AddColumnIfMissingAsync(db, "Volumes", "LastRefreshedAt", "TEXT NULL");
+
         await AddColumnIfMissingAsync(db, "Issues", "Ean", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "Collection", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "Publisher", "TEXT NULL");

@@ -53,6 +53,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-globe-alt' }
   },
   {
+    name: 'Scheduler',
+    url: '/settings/scheduler',
+    iconComponent: { name: 'cil-clock' }
+  },
+  {
     title: true,
     name: 'Access'
   },

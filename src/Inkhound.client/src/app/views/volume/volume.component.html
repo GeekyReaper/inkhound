@@ -53,6 +53,16 @@
           <dd class="col-sm-9 col-lg-10">
             <c-badge [color]="sourceColor()">{{ sourceLabel() }}</c-badge>
           </dd>
+          @if (isRefreshable()) {
+            <dt class="col-sm-3 col-lg-2">Last refreshed</dt>
+            <dd class="col-sm-9 col-lg-10">
+              @if (volume()!.lastRefreshedAt) {
+                {{ volume()!.lastRefreshedAt | date:'medium' }}
+              } @else {
+                <span class="text-body-secondary">Never</span>
+              }
+            </dd>
+          }
           @if (volume()!.year) {
             <dt class="col-sm-3 col-lg-2">Year</dt>
             <dd class="col-sm-9 col-lg-10">{{ volume()!.year }}</dd>

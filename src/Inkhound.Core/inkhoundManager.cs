@@ -29,7 +29,7 @@ using System.Text.Json;
 
 namespace Inkhound.Core;
 
-public class InkhoundManager : BaseServiceManager
+public partial class InkhoundManager : BaseServiceManager
 {
     private readonly string _dbPath;
 
@@ -111,6 +111,7 @@ public class InkhoundManager : BaseServiceManager
         GetService<ProwlarrService, ProwlarrOptions>();
         GetService<QBittorrentService, QBittorrentOptions>();
         GetService<ApiTokenService, ApiTokenOptions>();
+        GetService<SchedulerService, SchedulerOptions>();
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };
@@ -170,7 +171,8 @@ public class InkhoundManager : BaseServiceManager
 
         }
 
-
+        // Démarre la boucle de planification cron une fois les options de tous les services chargées.
+        StartScheduler();
     }
 
     public async Task ManuelLoadServiceComicvine(ComicVineOptions options)
@@ -1791,6 +1793,10 @@ public class InkhoundManager : BaseServiceManager
                 JobSendTrace($"[Rematch] Metadata synced — {result.IssuesAdded} issue(s) added, {result.IssuesUpdated} updated, {result.IssuesRemoved} removed");
                 // RematchVolumeFromComicVineAsync/BedethequeAsync recalculent déjà les statistiques
                 // en interne — inutile de le refaire ici, sauf si "Check files" change des statuts ensuite.
+
+                // Horodate la dernière synchro source (refresh manuel OU job de roulement) — sert au
+                // tri du "rolling refresh" du scheduler. Contexte neuf, un seul champ écrit.
+                await StampVolumeLastRefreshedAsync(parameters.VolumeId);
             }
 
             // "Check files" — avant le recalc de stats : peut repasser des issues DOWNLOADED en MISSING.

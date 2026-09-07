@@ -25,5 +25,10 @@ export const routes: Routes = [
     path: 'api-tokens',
     loadComponent: () => import('./api-tokens.component').then(m => m.ApiTokensComponent),
     data: { title: 'API Tokens' }
+  },
+  {
+    path: 'scheduler',
+    loadComponent: () => import('./scheduler.component').then(m => m.SchedulerSettingsComponent),
+    data: { title: 'Scheduler' }
   }
 ];

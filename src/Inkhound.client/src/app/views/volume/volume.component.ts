@@ -26,6 +26,7 @@ import {
   TooltipDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
+import { DatePipe } from '@angular/common';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, ImportScanFile, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueCategory, IssueService } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
@@ -51,7 +52,7 @@ import { Library, LibraryService } from '../../core/services/library.service';
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent, IssueCardComponent
+    JobPanelComponent, IssueCardComponent, DatePipe
   ]
 })
 export class VolumeComponent {

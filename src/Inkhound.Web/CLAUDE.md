@@ -17,6 +17,7 @@ Inkhound.Web/
 │   ├── KavitaController.cs       # /api/kavita (test connexion, scan)
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
 │   ├── OptionsController.cs      # /api/options (settings app)
+│   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh)
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace
@@ -95,6 +96,8 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
+| GET/PUT | `/api/scheduler` | admin | Config du planificateur (2 tâches cron : import downloads / rolling refresh) |
+| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh`) |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 
 ## Jobs — exposition via les controllers

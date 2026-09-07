@@ -178,7 +178,7 @@ src/
 │   │   ├── resolvers/           # library-title, volume-title
 │   │   └── services/            # AuthService, HubService, LibraryService, LibraryViewStateService,
 │   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
-│   │                            # OptionsService, FilesystemService, ImageService
+│   │                            # OptionsService, SchedulerService, FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── dashboard/           # DashboardComponent
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
@@ -187,7 +187,8 @@ src/
 │   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
-│   │   ├── settings/            # SettingsComponent (options par service via OptionsService)
+│   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
+│   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler)
 │   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
 │   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
 │   │   └── pages/               # login, 404, 500
@@ -210,6 +211,7 @@ src/
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service |
+| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
 
@@ -314,7 +316,7 @@ interface Volume {
   publisher: string | null; status: VolumeStatus; ageRating: AgeRating;
   genres: string[]; authors: VolumeAuthor[]; image: VolumeImage | null;
   countOfIssues: number; countOfDownloadedIssues: number;
-  createdAt: string; updatedAt: string;
+  createdAt: string; updatedAt: string; lastRefreshedAt: string | null;
 }
 
 type SourceKey = 'comicvine' | 'bedetheque';
@@ -417,6 +419,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
+| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |
