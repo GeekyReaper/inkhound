@@ -147,7 +147,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         using var bitmap = SKBitmap.Decode(ms);
         if (bitmap is null)
         {
-            var rawPath = Path.Combine(fullDestPath, $"page_{pageIndex:D3}{originalExtension}");
+            var rawPath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{originalExtension}");
             ms.Position = 0;
             await using var rawOut = File.Create(rawPath);
             await ms.CopyToAsync(rawOut);
@@ -163,7 +163,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         }
 
         var (format, ext) = GetTargetImageFormat();
-        var filePath = Path.Combine(fullDestPath, $"page_{pageIndex:D3}{ext}");
+        var filePath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{ext}");
         await using var output = File.Create(filePath);
         toEncode.Encode(output, format, Options.ImageQuality);
         if (!ReferenceEquals(toEncode, bitmap)) toEncode.Dispose();
@@ -211,7 +211,7 @@ public class ArchiveService : BaseService<ArchiveOption>
             try
             {
                 ++index;
-                var fileName = $"page_{index:D3}{targetExt}";
+                var fileName = $"page_{index:D4}{targetExt}";
                 var filePath = Path.Combine(fullDestPath, fileName);
 
                 await using var output = File.OpenWrite(filePath);
@@ -251,7 +251,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         using var archive = RarArchive.OpenArchive(source.FullName);
         var entries = archive.Entries
             .Where(e => !e.IsDirectory && imageExtensions.Contains(Path.GetExtension(e.Key ?? string.Empty).ToLowerInvariant()))
-            .OrderBy(e => e.Key)
+            .OrderBy(e => e.Key ?? string.Empty, NaturalSortComparer.Instance)
             .ToList();
 
         progression?.UpdateTotal(entries.Count);
@@ -299,7 +299,7 @@ public class ArchiveService : BaseService<ArchiveOption>
         using var zip = ZipFile.OpenRead(source.FullName);
         var entries = zip.Entries
             .Where(e => imageExtensions.Contains(Path.GetExtension(e.Name).ToLowerInvariant()))
-            .OrderBy(e => e.FullName)
+            .OrderBy(e => e.FullName, NaturalSortComparer.Instance)
             .ToList();
 
         progression?.UpdateTotal(entries.Count);
@@ -372,7 +372,7 @@ public class ArchiveService : BaseService<ArchiveOption>
                 }
             }
 
-            var orderedEntries = extractedEntries.OrderBy(e => e.Name, StringComparer.Ordinal).ToList();
+            var orderedEntries = extractedEntries.OrderBy(e => e.Name, NaturalSortComparer.Instance).ToList();
 
             progression?.UpdateTotal(orderedEntries.Count);
             var internalProgress = new Progression { Total = orderedEntries.Count, Completed = 0, Error = 0 };

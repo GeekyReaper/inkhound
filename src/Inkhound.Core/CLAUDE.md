@@ -188,6 +188,20 @@ Fichier brut (CBR/CBZ/ZIP/dossier)
   → Appel Kavita scan
 ```
 
+### Ordre des pages à l'extraction
+
+Les entrées d'une archive source (CBZ / CBR / TAR) sont triées avec
+`NaturalSortComparer` (`CbzQuality/Analysis/`), **jamais** par comparaison de chaînes
+brute : beaucoup d'archives utilisent des index non zéro-paddés (`index-10_1.jpg`,
+`index-100_1.jpg`, `index-11_1.jpg`), qu'un tri lexicographique désordonne
+irrémédiablement — les pages sont ensuite renommées séquentiellement, ce qui fige
+l'erreur dans le CBZ produit.
+
+Les pages extraites sont nommées `page_{index:D4}` (`page_0001` …). Le padding sur
+4 chiffres est nécessaire car Kavita lit les entrées d'un CBZ dans l'ordre
+alphabétique : sur 3 chiffres, `page_1000` passerait avant `page_999` au-delà de
+999 pages (intégrales).
+
 ## Convention de nommage CBZ
 
 ```
