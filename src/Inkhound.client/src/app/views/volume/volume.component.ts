@@ -92,7 +92,12 @@ export class VolumeComponent {
 
   // Disponibilité des étapes de la popup Refresh — grisées si non applicables (pas de fichier à
   // resynchroniser, ou library non rattachée à Kavita).
-  hasDownloadedIssues = computed(() => (this.volume()?.countOfDownloadedIssues ?? 0) > 0);
+  //
+  // Calculé sur les issues chargées, toutes catégories confondues, et NON sur
+  // volume.countOfDownloadedIssues : ce compteur ne retient que les issues `Standard` (il mesure la
+  // complétion de la série). Un volume dont seuls des hors-séries, intégrales ou omnibus sont
+  // téléchargés affichait donc 0 et grisait à tort "Check files" et "Regenerate ComicInfo.xml".
+  hasDownloadedIssues = computed(() => this.issues().some(i => i.status === 'DOWNLOADED'));
   hasKavitaLibrary = computed(() => {
     const lib = this.library();
     return !!lib && (lib.kavitaLibraryId > 0 || !!lib.kavitaPath);
@@ -168,6 +173,8 @@ export class VolumeComponent {
   confirmDeleteVisible = signal(false);
   deleting             = signal(false);
   deleteError          = signal<string | null>(null);
+  deleteFilesToo       = signal(false);
+  deleteWarning        = signal<string | null>(null);
 
   readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
   savingRating      = signal(false);
@@ -363,6 +370,9 @@ export class VolumeComponent {
 
   requestDelete(): void {
     this.deleteError.set(null);
+    this.deleteWarning.set(null);
+    // La case repart toujours décochée : l'effacement des fichiers doit être un choix explicite.
+    this.deleteFilesToo.set(false);
     this.confirmDeleteVisible.set(true);
   }
 
@@ -373,11 +383,17 @@ export class VolumeComponent {
     this.deleting.set(true);
     this.deleteError.set(null);
 
-    this.volumeService.delete(vol.id)
+    this.volumeService.delete(vol.id, this.deleteFilesToo())
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: () => {
+        next: res => {
           this.deleting.set(false);
+          // Volume supprimé mais répertoire intact : on garde la modale ouverte pour que
+          // l'utilisateur voie l'avertissement avant de quitter la page.
+          if (res?.fileWarning) {
+            this.deleteWarning.set(res.fileWarning);
+            return;
+          }
           this.confirmDeleteVisible.set(false);
           this.router.navigate(['/library', vol.libraryId]);
         },
@@ -386,6 +402,15 @@ export class VolumeComponent {
           this.deleting.set(false);
         }
       });
+  }
+
+  // Fermeture de la modale, quel que soit le moyen (Cancel, croix, Escape) : si le volume a déjà
+  // été supprimé et qu'un avertissement est affiché, la page n'existe plus → retour à la librairie.
+  closeDeleteModal(): void {
+    const vol = this.volume();
+    const wasDeleted = !!this.deleteWarning();
+    this.confirmDeleteVisible.set(false);
+    if (wasDeleted && vol) this.router.navigate(['/library', vol.libraryId]);
   }
 
   onAgeRatingChange(value: string): void {

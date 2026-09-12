@@ -395,11 +395,38 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     // Copie superficielle (+ nouvelle liste Auteurs) — même raison que CloneSerie ci-dessus.
     private static BdAlbum CloneAlbum(BdAlbum source) => source with { Auteurs = source.Auteurs.ToList() };
 
+    /// <summary>
+    /// Décode les entités HTML et réduit toute suite de blancs à un espace unique. Indispensable :
+    /// <c>InnerText</c> restitue l'indentation du HTML source, ce qui produisait des titres du genre
+    /// <c>"INT2.\n                    L'Intégrale - Tomes 4 à 6"</c> — conservés tels quels en base
+    /// et recopiés dans les noms de fichiers CBZ.
+    /// </summary>
+    public static string CleanScrapedText(string? raw)
+        => string.IsNullOrEmpty(raw) ? string.Empty : Regex.Replace(WebUtility.HtmlDecode(raw), @"\s+", " ").Trim();
+
+    /// <summary>
+    /// Nettoyage d'un titre d'album, préfixe de numérotation retiré. Même logique que le parsing de
+    /// la liste des albums d'une série (<c>ParseAlbumSummaries</c>) : on coupe d'abord sur le " . "
+    /// littéral (codes contenant un espace, ex. <c>"INT FL . La voie fiscale"</c>), sinon on retire
+    /// un préfixe numéroté accolé — <c>"1."</c>, mais aussi <c>"HS1."</c> ou <c>"INT01."</c>, que
+    /// l'ancienne expression (ancrée sur un chiffre en tête) laissait passer.
+    /// </summary>
+    public static string CleanAlbumTitle(string? raw)
+    {
+        var titre = CleanScrapedText(raw);
+
+        var m = Regex.Match(titre, @"^(.+?)\s\.\s(.+)$");
+        if (m.Success) return m.Groups[2].Value.Trim();
+
+        // Les lettres de tête sont bornées pour ne jamais entamer un vrai mot, et un chiffre reste
+        // exigé : un titre comme "L'Intégrale - Tomes 4 à 6" n'est pas touché.
+        return Regex.Replace(titre, @"^[A-Za-z]{0,4}\d+[a-zA-Z']*\s*[.-]\s*", string.Empty).Trim();
+    }
+
     private BdSerie? ParseSerie(HtmlDocument doc, int id, string serieUrl)
     {
-        var titre = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h1/a")?.InnerText.Trim();
+        var titre = CleanScrapedText(doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h1/a")?.InnerText);
         if (string.IsNullOrEmpty(titre)) return null;
-        titre = WebUtility.HtmlDecode(titre);
 
         var h3 = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h3");
 
@@ -534,7 +561,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             string? numero = null;
             if (nameSpan is not null)
             {
-                var raw = Regex.Replace(nameSpan.InnerText, @"\s+", " ").Trim();
+                var raw = CleanScrapedText(nameSpan.InnerText);
                 // Le préfixe (numéro/code, ex. "1", "HS1", "INT FL") peut contenir des espaces
                 // (ex. "INT FL . La voie fiscale...") — on coupe au premier " . " littéral (lazy)
                 // plutôt que de supposer un préfixe sans espace, sinon ces codes restent collés au
@@ -545,9 +572,8 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             }
             else
             {
-                titre = img?.GetAttributeValue("alt", string.Empty) ?? string.Empty;
+                titre = CleanScrapedText(img?.GetAttributeValue("alt", string.Empty));
             }
-            titre = WebUtility.HtmlDecode(titre);
 
             var editeur = li.SelectSingleNode(".//span[@itemprop='publisher']")?.InnerText.Trim() is { Length: > 0 } ep ? ep : null;
 
@@ -580,7 +606,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         var serieHref = serieLink.GetAttributeValue("href", string.Empty);
         var serieMatch = Regex.Match(serieHref, @"serie-(\d+)-");
         var serieId = serieMatch.Success ? int.Parse(serieMatch.Groups[1].Value) : 0;
-        var serieTitre = WebUtility.HtmlDecode(serieLink.InnerText.Trim());
+        var serieTitre = CleanScrapedText(serieLink.InnerText);
 
         var altHeadline = doc.DocumentNode.SelectSingleNode("//meta[@itemprop='alternativeheadline']")?.GetAttributeValue("content", string.Empty);
         string? numAlbum = null;
@@ -590,9 +616,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             if (m.Success) numAlbum = m.Groups[1].Value.Trim();
         }
 
-        var titre = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h2")?.InnerText.Trim() ?? string.Empty;
-        titre = Regex.Replace(titre, @"^\d+[a-zA-Z']*\s*[.-]\s*", string.Empty).Trim();
-        titre = WebUtility.HtmlDecode(titre);
+        var titre = CleanAlbumTitle(doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h2")?.InnerText);
 
         var h3 = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h3");
 

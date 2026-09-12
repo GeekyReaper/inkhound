@@ -242,14 +242,18 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
-    // DELETE /api/volumes/{volumeId}
+    // DELETE /api/volumes/{volumeId}?deleteFiles=true
+    // deleteFiles=true supprime aussi récursivement le répertoire du volume dans la librairie.
+    // Réponses : 204 si tout s'est bien passé, 200 { fileWarning } si le volume a été supprimé
+    // en base mais que son répertoire n'a pas pu l'être.
     [HttpDelete("/api/volumes/{volumeId:guid}")]
-    public async Task<IActionResult> Delete(Guid volumeId)
+    public async Task<IActionResult> Delete(Guid volumeId, [FromQuery] bool deleteFiles = false)
     {
         try
         {
-            var deleted = await manager.DeleteVolumeAsync(volumeId);
-            return deleted ? NoContent() : NotFound();
+            var (found, fileWarning) = await manager.DeleteVolumeAsync(volumeId, deleteFiles);
+            if (!found) return NotFound();
+            return fileWarning is null ? NoContent() : Ok(new { fileWarning });
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }

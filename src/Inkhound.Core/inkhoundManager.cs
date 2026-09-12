@@ -395,17 +395,82 @@ public partial class InkhoundManager : BaseServiceManager
         return true;
     }
 
-    public async Task<bool> DeleteVolumeAsync(Guid id)
+    /// <summary>
+    /// Supprime un volume, ses issues et leurs lignes de download. Quand <paramref name="deleteFiles"/>
+    /// vaut <c>true</c>, le répertoire du volume dans la librairie est supprimé récursivement (fichiers
+    /// étrangers au pipeline compris) — l'échec de cette suppression disque n'annule pas la suppression
+    /// en base, il est remonté via <c>FileWarning</c>.
+    /// </summary>
+    /// <returns><c>Found</c> à false si le volume n'existe pas ; <c>FileWarning</c> non null si le
+    /// répertoire n'a pas pu être supprimé (ou a été refusé par le garde-fou de confinement).</returns>
+    public async Task<(bool Found, string? FileWarning)> DeleteVolumeAsync(Guid id, bool deleteFiles = false)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync(id);
-        if (volume is null) return false;
+        if (volume is null) return (false, null);
 
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+
+        // Suppression disque AVANT la suppression en base : le chemin se calcule depuis le volume et la librairie.
+        string? fileWarning = null;
+        if (deleteFiles)
+        {
+            fileWarning = DeleteVolumeDirectory(volume, library);
+        }
+
+        var issueIds = await ctx.Issues.Where(i => i.VolumeId == id).Select(i => i.Id).ToListAsync();
+        ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => issueIds.Contains(d.IssueId)));
         ctx.Issues.RemoveRange(ctx.Issues.Where(i => i.VolumeId == id));
         ctx.Volumes.Remove(volume);
         await ctx.SaveChangesAsync();
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(id));
-        return true;
+
+        // Le dossier ayant disparu, un scan ciblé n'a plus de sens : on rafraîchit la librairie Kavita entière.
+        if (deleteFiles && library is { KavitaLibraryId: > 0 })
+        {
+            await ScanKavitaLibraryAsync(library.KavitaLibraryId);
+        }
+
+        return (true, fileWarning);
+    }
+
+    /// <summary>
+    /// Supprime récursivement le répertoire d'un volume. La cible est validée par
+    /// <see cref="ArchiveService.TryGetVolumeDirectory"/>, qui refuse tout chemin ne désignant pas un
+    /// sous-dossier strict de <see cref="Library.Path"/>.
+    /// </summary>
+    /// <returns>null si le répertoire a été supprimé ou n'existait pas, sinon le message d'avertissement.</returns>
+    private string? DeleteVolumeDirectory(Volume volume, Library? library)
+    {
+        if (library is null)
+        {
+            JobSendTrace($"DeleteVolume: library {volume.LibraryId} not found — directory left untouched", ETraceLevel.WARNING);
+            return "Library not found: the volume directory was left untouched.";
+        }
+
+        if (!ArchiveService.TryGetVolumeDirectory(volume, library, out var target, out var guardError))
+        {
+            JobSendTrace($"DeleteVolume: refusing to delete the directory of '{volume.Title}' — {guardError}", ETraceLevel.ERROR);
+            return $"{guardError} No file was deleted.";
+        }
+
+        if (!Directory.Exists(target))
+        {
+            JobSendTrace($"DeleteVolume: directory '{target}' does not exist — nothing to delete");
+            return null;
+        }
+
+        try
+        {
+            Directory.Delete(target, recursive: true);
+            JobSendTrace($"DeleteVolume: directory '{target}' deleted");
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            JobSendTrace($"DeleteVolume: could not delete directory '{target}' — {ex.Message}", ETraceLevel.ERROR);
+            return $"The volume was deleted but its directory could not be removed: {ex.Message}";
+        }
     }
     #endregion
 
@@ -1851,17 +1916,16 @@ public partial class InkhoundManager : BaseServiceManager
                 return;
             }
 
-            // Chemin de dossier ATTENDU avant mutation — Volume n'a pas de Path propre, son dossier
-            // est toujours recalculé depuis Title/Year ; il faut donc capturer l'ANCIEN chemin avant
-            // que le rematch n'écrase ces champs, pour pouvoir renommer le dossier physique ensuite.
-            // Sans étape "sync source", Title/Year ne changent jamais — inutile de le capturer.
+            // Dossier RÉELLEMENT présent avant mutation — Volume n'a pas de Path propre, son dossier
+            // est toujours recalculé depuis Title/Year ; il faut donc capturer l'ancien dossier avant
+            // que le rematch n'écrase ces champs, pour pouvoir le renommer ensuite.
+            // La capture est inconditionnelle : le nom attendu change aussi quand la normalisation du
+            // titre évolue (fusion des espaces), sans que Title/Year bougent — et dans ce cas le
+            // chemin calculé ne suffit pas, seul le dossier existant sur disque fait foi.
             string? oldFolderPath = null;
-            if (parameters.SyncFromSource)
-            {
-                var library = await ctx.Libraries.FindAsync(volumeBefore.LibraryId);
-                if (library is not null)
-                    oldFolderPath = ArchiveService.GetPath(volumeBefore, library);
-            }
+            var libraryBefore = await ctx.Libraries.FindAsync(volumeBefore.LibraryId);
+            if (libraryBefore is not null)
+                oldFolderPath = ArchiveService.FindExistingVolumeDirectory(volumeBefore, libraryBefore);
 
             if (parameters.SyncFromSource)
             {
@@ -1885,6 +1949,14 @@ public partial class InkhoundManager : BaseServiceManager
                 await StampVolumeLastRefreshedAsync(parameters.VolumeId);
             }
 
+            // Renommages AVANT "Check files" : ce dernier sonde les fichiers sous le dossier
+            // recalculé, et les déclarerait manquants si dossier ou fichiers portaient encore leur
+            // ancien nom. Inconditionnels : le nom attendu change aussi bien quand la source met à
+            // jour un titre que quand la normalisation du nom évolue, sans rapport avec les cases
+            // cochées dans la popup.
+            await RenameVolumeDirectoryIfNeededAsync(parameters.VolumeId, oldFolderPath);
+            var renamedIssueIds = await RenameIssueFilesIfNeededAsync(parameters.VolumeId);
+
             // "Check files" — avant le recalc de stats : peut repasser des issues DOWNLOADED en MISSING.
             var filesFlipped = false;
             if (parameters.CheckFiles)
@@ -1903,7 +1975,7 @@ public partial class InkhoundManager : BaseServiceManager
             var syncOk = true;
             if (parameters.RegenerateComicInfo)
                 syncOk = await RegenerateComicInfoForDownloadedIssuesAsync(
-                    job, parameters.VolumeId, oldFolderPath, parameters.RegenerateComicInfoNewOnly);
+                    job, parameters.VolumeId, parameters.RegenerateComicInfoNewOnly, renamedIssueIds);
 
             if (parameters.ScanKavita)
                 await TriggerKavitaScanAsync(parameters.VolumeId);
@@ -2096,7 +2168,11 @@ public partial class InkhoundManager : BaseServiceManager
         job.SetState(JobState.RUNNING);
         try
         {
-            var success = await RegenerateComicInfoForDownloadedIssuesAsync(job, parameters.VolumeId);
+            // Renommage d'abord : la réinjection vise le fichier au nom calculé, il faut donc que le
+            // fichier y soit déjà. Le dossier n'est pas concerné ici (Title/Year ne changent pas).
+            var renamedIssueIds = await RenameIssueFilesIfNeededAsync(parameters.VolumeId);
+            var success = await RegenerateComicInfoForDownloadedIssuesAsync(
+                job, parameters.VolumeId, newOnly: false, renamedIssueIds);
             if (success) await TriggerKavitaScanAsync(parameters.VolumeId);
             EndJob(success);
         }
@@ -2107,18 +2183,121 @@ public partial class InkhoundManager : BaseServiceManager
         }
     }
 
-    // Renomme les fichiers CBZ déjà téléchargés dont le nom ne correspond plus aux métadonnées
-    // actuelles (et le dossier de la série si Title/Year ont changé — oldFolderPath fourni
-    // uniquement par RunRematchVolumeJobAsync, jamais par le bouton manuel "Refresh Kavita"), puis
-    // réinjecte ComicInfo.xml. Ne déclenche PAS le scan Kavita — cf. TriggerKavitaScanAsync,
-    // appelée séparément (les deux étapes sont désormais des cases à cocher indépendantes côté UI).
+    /// <summary>
+    /// Aligne le dossier physique de la série sur le nom recalculé depuis <c>Title</c>/<c>Year</c>.
+    /// <paramref name="oldFolderPath"/> est le dossier réellement présent capturé AVANT le sync
+    /// (cf. <c>ArchiveService.FindExistingVolumeDirectory</c>) : il couvre le rematch vers une autre
+    /// série, mais aussi une simple évolution de la normalisation du titre.
+    /// <para>À appeler avant toute étape qui sonde les fichiers sur disque.</para>
+    /// </summary>
+    private async Task RenameVolumeDirectoryIfNeededAsync(Guid volumeId, string? oldFolderPath)
+    {
+        if (oldFolderPath is null || !Directory.Exists(oldFolderPath)) return;
+
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(volumeId);
+        if (volume is null) return;
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+        if (library is null) return;
+
+        var newFolderPath = ArchiveService.GetPath(volume, library);
+        if (string.Equals(oldFolderPath, newFolderPath, StringComparison.OrdinalIgnoreCase)) return;
+
+        if (Directory.Exists(newFolderPath))
+        {
+            JobSendTrace("[Sync] Target folder already exists — skipping folder rename", ETraceLevel.WARNING);
+            return;
+        }
+
+        try
+        {
+            Directory.Move(oldFolderPath, newFolderPath);
+            JobSendTrace($"[Sync] Renamed series folder '{Path.GetFileName(oldFolderPath)}' -> '{Path.GetFileName(newFolderPath)}'");
+        }
+        catch (IOException ex)
+        {
+            JobSendTrace($"[Sync] Could not rename volume folder: {ex.Message}", ETraceLevel.WARNING);
+        }
+    }
+
+    /// <summary>
+    /// Aligne le nom des fichiers CBZ déjà téléchargés sur le nom calculé depuis les métadonnées
+    /// courantes — que le titre ait changé à la source ou que la normalisation du nom ait évolué.
+    /// <para>
+    /// Étape à part entière du Refresh, exécutée <b>inconditionnellement</b> et avant "Check files" :
+    /// elle ne dépend pas de la case "Regenerate ComicInfo.xml", sans quoi un simple changement de
+    /// normalisation laisserait indéfiniment des fichiers au nom périmé. Le dossier de la série est
+    /// traité juste avant par <see cref="RenameVolumeDirectoryIfNeededAsync"/>.
+    /// </para>
+    /// </summary>
+    /// <returns>Les ids des issues effectivement renommées (métadonnées à réécrire côté ComicInfo).</returns>
+    private async Task<HashSet<Guid>> RenameIssueFilesIfNeededAsync(Guid volumeId)
+    {
+        var renamed = new HashSet<Guid>();
+
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync(volumeId);
+        if (volume is null) return renamed;
+        var library = await ctx.Libraries.FindAsync(volume.LibraryId);
+        if (library is null) return renamed;
+
+        var archiveService = GetService<ArchiveService, ArchiveOption>();
+        var folder = ArchiveService.GetPath(volume, library);
+
+        var downloadedIssues = await ctx.Issues
+            .Where(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED)
+            .ToListAsync();
+
+        foreach (var issue in downloadedIssues)
+        {
+            if (string.IsNullOrEmpty(issue.CbzFilename)) continue;
+
+            var expectedPath     = ArchiveService.GetPath(issue, volume, library);
+            var expectedFileName = Path.GetFileName(expectedPath);
+            if (issue.CbzFilename == expectedFileName) continue;
+
+            var currentPath = Path.Combine(folder, issue.CbzFilename);
+            if (!File.Exists(currentPath))
+            {
+                JobSendTrace($"[Sync] Expected file '{issue.CbzFilename}' not found — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
+                continue;
+            }
+            if (File.Exists(expectedPath) && !string.Equals(currentPath, expectedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                JobSendTrace($"[Sync] Target filename already exists — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
+                continue;
+            }
+
+            try
+            {
+                JobSendTrace($"[Sync] Renaming '{issue.CbzFilename}' -> '{expectedFileName}'");
+                File.Move(currentPath, expectedPath);
+                archiveService.EnsurePermissiveFileMode(expectedPath);
+                issue.CbzFilename = expectedFileName;
+                renamed.Add(issue.Id);
+                OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                JobSendTrace($"[Sync] Could not rename '{issue.CbzFilename}': {ex.Message}", ETraceLevel.WARNING);
+            }
+        }
+
+        if (renamed.Count > 0) await ctx.SaveChangesAsync();
+        return renamed;
+    }
+
+    // Réinjecte ComicInfo.xml dans les CBZ téléchargés. Les renommages (dossier de la série et
+    // fichiers) sont traités en amont par RenameVolumeDirectoryIfNeededAsync /
+    // RenameIssueFilesIfNeededAsync. Ne déclenche PAS le scan Kavita — cf. TriggerKavitaScanAsync,
+    // appelée séparément (les deux étapes sont des cases à cocher indépendantes côté UI).
     //
     // newOnly (radio "NEW only" de la popup Refresh) : on ne réinjecte que dans les CBZ qui n'ont
-    // pas déjà un ComicInfo.xml — les renommages de fichier restent toujours effectués et un fichier
-    // renommé est réinjecté (métadonnées forcément à jour). false (défaut, Rematch inclus) = on
+    // pas déjà un ComicInfo.xml — sauf pour les issues de renamedIssueIds, dont le fichier vient
+    // d'être renommé (métadonnées forcément à jour à réécrire). false (défaut, Rematch inclus) = on
     // réécrit ComicInfo.xml partout.
     private async Task<bool> RegenerateComicInfoForDownloadedIssuesAsync(
-        JobContext job, Guid volumeId, string? oldFolderPath = null, bool newOnly = false)
+        JobContext job, Guid volumeId, bool newOnly = false, HashSet<Guid>? renamedIssueIds = null)
     {
         var ctx = GetDb();
         var volume = await ctx.Volumes.FindAsync(volumeId);
@@ -2127,31 +2306,7 @@ public partial class InkhoundManager : BaseServiceManager
         var library = await ctx.Libraries.FindAsync(volume.LibraryId);
         if (library is null) { JobSendTrace("[Sync] Library not found", ETraceLevel.ERROR); return false; }
 
-        // Renommage du dossier de la série si Title/Year ont changé (Rematch vers une série différente).
-        if (oldFolderPath is not null)
-        {
-            var newFolderPath = ArchiveService.GetPath(volume, library);
-            if (!string.Equals(oldFolderPath, newFolderPath, StringComparison.OrdinalIgnoreCase) && Directory.Exists(oldFolderPath))
-            {
-                if (!Directory.Exists(newFolderPath))
-                {
-                    try
-                    {
-                        Directory.Move(oldFolderPath, newFolderPath);
-                        JobSendTrace($"[Sync] Renamed series folder to '{Path.GetFileName(newFolderPath)}'");
-                    }
-                    catch (IOException ex)
-                    {
-                        JobSendTrace($"[Sync] Could not rename volume folder: {ex.Message}", ETraceLevel.WARNING);
-                    }
-                }
-                else
-                {
-                    JobSendTrace("[Sync] Target folder already exists — skipping folder rename", ETraceLevel.WARNING);
-                }
-            }
-        }
-
+        renamedIssueIds ??= [];
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var downloadedIssues = await ctx.Issues
             .Where(i => i.VolumeId == volumeId && i.Status == IssueStatus.DOWNLOADED)
@@ -2164,37 +2319,15 @@ public partial class InkhoundManager : BaseServiceManager
         job.Progress.Reset();
         job.CallbackHandler.UpdateTotal(downloadedIssues.Count);
 
-        bool anyRenamed = false;
         var injected = 0;
         var skipped = 0;
         foreach (var issue in downloadedIssues)
         {
-            var expectedPath     = ArchiveService.GetPath(issue, volume, library);
-            var expectedFileName = Path.GetFileName(expectedPath);
-            var wasRenamed       = false;
-
-            if (!string.IsNullOrEmpty(issue.CbzFilename) && issue.CbzFilename != expectedFileName)
-            {
-                var currentPath = Path.Combine(ArchiveService.GetPath(volume, library), issue.CbzFilename);
-                if (!File.Exists(currentPath))
-                    JobSendTrace($"[Sync] Expected file '{issue.CbzFilename}' not found — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
-                else if (File.Exists(expectedPath) && !string.Equals(currentPath, expectedPath, StringComparison.OrdinalIgnoreCase))
-                    JobSendTrace($"[Sync] Target filename already exists — skipping rename for issue #{issue.IssueNumber}", ETraceLevel.WARNING);
-                else
-                {
-                    JobSendTrace($"[Sync] Renaming '{issue.CbzFilename}' -> '{expectedFileName}'");
-                    File.Move(currentPath, expectedPath);
-                    archiveService.EnsurePermissiveFileMode(expectedPath);
-                    issue.CbzFilename = expectedFileName;
-                    anyRenamed = true;
-                    wasRenamed = true;
-                    OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(issue.Id));
-                }
-            }
+            var expectedPath = ArchiveService.GetPath(issue, volume, library);
 
             // Mode "NEW only" : on saute les archives qui ont déjà un ComicInfo.xml (sauf renommage,
             // qui implique des métadonnées à jour à réécrire).
-            if (newOnly && !wasRenamed && archiveService.CbzContainsComicInfo(expectedPath))
+            if (newOnly && !renamedIssueIds.Contains(issue.Id) && archiveService.CbzContainsComicInfo(expectedPath))
             {
                 skipped++;
                 job.Progress.Increment(true);
@@ -2208,7 +2341,6 @@ public partial class InkhoundManager : BaseServiceManager
             job.Progress.Increment(true);
             job.CallbackHandler.Callback(job.Progress);
         }
-        if (anyRenamed) await ctx.SaveChangesAsync();
         if (newOnly)
             JobSendTrace($"[Sync] ComicInfo.xml: {injected} (re)injected, {skipped} skipped (already present)");
 

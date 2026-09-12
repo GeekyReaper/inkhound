@@ -3,6 +3,7 @@ using System.Formats.Tar;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Foundation.Core;
 using Foundation.Core.Model;
@@ -727,9 +728,16 @@ public class ArchiveService : BaseService<ArchiveOption>
         var number = issue.IssueNumber.ToString("D3");
         var issueYear = issue.PublishedAt.HasValue ? $" ({issue.PublishedAt.Value.Year})" : string.Empty;
 
+        // Code de catégorie intercalé entre le titre du volume et le numéro (omis pour Standard) :
+        // les numéros de tome ne sont uniques qu'au sein d'une catégorie ("INT1" et le tome 1
+        // portent tous deux IssueNumber = 1), et le tri alphabétique du dossier garde ainsi la série
+        // principale groupée au lieu d'y intercaler hors-séries et intégrales.
+        var categoryCode = issue.Category.ToFilenameCode();
+        var prefix = categoryCode is null ? title : $"{title} - {categoryCode}";
+
         var name = string.IsNullOrWhiteSpace(issue.Title)
-            ? $"{title} - {number}{issueYear}"
-            : $"{title} - {number} - {NormalizeTitle(issue.Title)}{issueYear}";
+            ? $"{prefix} - {number}{issueYear}"
+            : $"{prefix} - {number} - {NormalizeTitle(issue.Title)}{issueYear}";
 
         name = name + ".cbz";
 
@@ -756,6 +764,71 @@ public class ArchiveService : BaseService<ArchiveOption>
         }
 
         return path;
+    }
+
+    /// <summary>
+    /// Résout le répertoire d'un volume en garantissant qu'il s'agit d'un sous-dossier <b>strict</b>
+    /// de <see cref="Library.Path"/> — à appeler impérativement avant toute suppression récursive.
+    /// <para>
+    /// <see cref="NormalizeTitle"/> ne conserve que les caractères alphanumériques : un titre qui
+    /// n'en contient aucun (ex. <c>"???"</c>), sans année, produit un nom de dossier vide, donc un
+    /// chemin égal à la racine de la librairie. Supprimer récursivement ce chemin effacerait toute
+    /// la librairie.
+    /// </para>
+    /// </summary>
+    /// <returns><c>false</c> avec <paramref name="error"/> renseigné si le chemin résolu n'est pas sûr.</returns>
+    public static bool TryGetVolumeDirectory(Volume volume, Library library, out string path, out string? error)
+    {
+        path = string.Empty;
+
+        var folderName = GetPath(volume);
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            error = "The volume title does not resolve to a valid directory name.";
+            return false;
+        }
+
+        var libraryRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(library.Path));
+        var target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(library.Path, folderName)));
+
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        if (!target.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
+        {
+            error = "The computed directory is outside the library folder.";
+            return false;
+        }
+
+        path = target;
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Retourne le dossier réellement présent sur disque pour ce volume, ou <c>null</c>.
+    /// <para>
+    /// Le dossier attendu est celui de <see cref="GetPath(Volume, Library?)"/>. S'il n'existe pas,
+    /// on cherche un dossier frère qui n'en diffère que par les blancs : les dossiers créés avant que
+    /// <c>NormalizeTitle</c> ne fusionne les espaces portent un nom comme <c>"I R    - All Watcher"</c>
+    /// là où le calcul donne désormais <c>"I R - All Watcher"</c>. Sans cette reprise, le volume
+    /// serait considéré comme n'ayant plus aucun fichier.
+    /// </para>
+    /// </summary>
+    public static string? FindExistingVolumeDirectory(Volume volume, Library library)
+    {
+        static string Squash(string value) => Regex.Replace(value, @"\s+", " ").Trim();
+
+        // Contrôlé AVANT tout : un titre sans caractère retenu donne un nom de dossier vide, donc un
+        // chemin égal à la racine de la librairie — que l'appelant renommerait ou supprimerait.
+        var expectedName = Squash(GetPath(volume));
+        if (expectedName.Length == 0) return null;
+
+        var expected = GetPath(volume, library);
+        if (Directory.Exists(expected)) return expected;
+
+        if (!Directory.Exists(library.Path)) return null;
+
+        return Directory.EnumerateDirectories(library.Path)
+            .FirstOrDefault(dir => string.Equals(Squash(Path.GetFileName(dir)), expectedName, StringComparison.OrdinalIgnoreCase));
     }
 
     public static Task<List<DirectoryInfo>> GetDirectoriesAsync(string path) =>
@@ -807,6 +880,16 @@ public class ArchiveService : BaseService<ArchiveOption>
         return EArchiveType.UNKNOW;
     }
 
+    /// <summary>
+    /// Réduit un titre à un nom de fichier/dossier sûr : diacritiques supprimés, seuls les
+    /// caractères alphanumériques et <c>-</c> conservés, tout le reste devenant un espace.
+    /// <para>
+    /// Les espaces consécutifs sont fusionnés : sans cela, la ponctuation en produit autant qu'elle
+    /// compte de caractères (« Boing ! Boing ! » → « Boing   Boing »), et les titres scrapés qui
+    /// contiennent l'indentation HTML de la page source (sauts de ligne + dizaines d'espaces)
+    /// donnaient des noms de fichiers béants.
+    /// </para>
+    /// </summary>
     private static string NormalizeTitle(string input)
     {
         var normalized = input.Normalize(NormalizationForm.FormD);
@@ -815,7 +898,11 @@ public class ArchiveService : BaseService<ArchiveOption>
         {
             if (CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.NonSpacingMark)
                 continue;
-            sb.Append(char.IsLetterOrDigit(c) || c == '-' ? c : ' ');
+
+            if (char.IsLetterOrDigit(c) || c == '-')
+                sb.Append(c);
+            else if (sb.Length > 0 && sb[^1] != ' ')
+                sb.Append(' ');
         }
         return sb.ToString().Trim();
     }

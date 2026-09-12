@@ -121,6 +121,13 @@ regenerate-comic-info / analyze / **import dossier** (`POST /api/volumes/{id}/im
 `GET /api/volumes/{id}/import/scan` pour la popup de revue fichiers ↔ issues) / **import fichier
 issue** (`POST /api/issues/{id}/import { filePath }`, bouton « Import » de la page Issue).
 
+`DELETE /api/volumes/{id}` accepte le query param **`deleteFiles`** (défaut `false`, case à cocher
+de la popup de confirmation) : `true` supprime aussi récursivement le répertoire du volume et tous
+ses fichiers. Trois réponses possibles — `404` volume inconnu, `204` suppression complète, et
+`200 { fileWarning }` quand le volume a bien été supprimé en base mais que son répertoire n'a pas
+pu l'être (verrou, droits, ou refus du garde-fou de confinement). Le front doit traiter ce `200`
+comme un avertissement, pas comme un échec : la suppression a bien eu lieu.
+
 `RefreshVolumeRequest` / `RefreshLibraryRequest` portent des cases/radios de la popup Refresh
 (défaut `false` = comportement historique) : `SyncNewIssuesOnly` (`true` = ne synchroniser depuis
 la source que les issues/albums encore inconnus), `RegenerateComicInfoNewOnly` (`true` = ne

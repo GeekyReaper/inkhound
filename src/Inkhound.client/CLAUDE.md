@@ -320,6 +320,12 @@ interface Volume {
   countOfIssues: number; countOfDownloadedIssues: number;
   createdAt: string; updatedAt: string; lastRefreshedAt: string | null;
 }
+// ⚠️ countOfIssues / countOfDownloadedIssues ne comptent que les issues de catégorie `Standard` —
+// ils mesurent la complétion de la série (barre de progression, statut COMPLETED). Ne JAMAIS s'en
+// servir pour décider « ce volume a-t-il des fichiers ? » : un volume dont seuls des hors-séries,
+// intégrales ou omnibus sont téléchargés y vaut 0. Pour cette question, filtrer les issues
+// chargées sur `status === 'DOWNLOADED'` (cf. `hasDownloadedIssues` de VolumeComponent, qui
+// conditionne les cases « Check files » et « Regenerate ComicInfo.xml » de la popup Refresh).
 
 type SourceKey = 'comicvine' | 'bedetheque';
 
@@ -333,6 +339,13 @@ interface PageResult<T> {
   items: T[]; pageNumber: number; pageSize: number;
   totalItems: number; totalPages: number; hasNext: boolean; hasPrev: boolean;
 }
+
+// Popup "Delete Volume" (page volume) — la case `deleteFilesToo` alimente le query param
+// `deleteFiles` et repart TOUJOURS décochée à chaque ouverture (requestDelete()) : l'effacement
+// des fichiers doit être un choix explicite. Réponse `{ fileWarning }` (HTTP 200) = le volume A
+// ÉTÉ supprimé mais pas son répertoire → la modale reste ouverte sur l'avertissement et n'offre
+// plus qu'un bouton "Close" ; toute fermeture passe alors par closeDeleteModal(), qui redirige
+// vers la librairie puisque la page du volume n'a plus d'objet.
 
 // Options de la popup "Refresh" (page volume ET page library — interface partagée) — mêmes noms
 // que RefreshVolumeRequest / RefreshLibraryRequest côté backend.
@@ -417,7 +430,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()` |
-| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `delete()`, `importFromDirectory()` |
+| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `delete(id, deleteFiles?)`, `importFromDirectory()` |
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |

@@ -24,6 +24,22 @@ public static class IssueCategoryExtensions
         IssueCategory.Roman          => "Special",
         _                            => null
     };
+
+    // Segment inséré dans le nom du fichier CBZ entre le titre du volume et le numéro
+    // (ArchiveService.GetPath) — codes courts repris de la numérotation Bedetheque.
+    // Standard → null (segment omis) : les tomes classiques gardent le nom historique et, un chiffre
+    // triant avant une lettre, restent groupés en tête du dossier sans être dispersés par les
+    // hors-séries et intégrales.
+    public static string? ToFilenameCode(this IssueCategory category) => category switch
+    {
+        IssueCategory.Standard       => null,
+        IssueCategory.Special        => "HS",
+        IssueCategory.SpecialEdition => "SP",
+        IssueCategory.Omnibus        => "INT",
+        IssueCategory.Roman          => "ROM",
+        IssueCategory.BestOf         => "BO",
+        _                            => null
+    };
 }
 
 public class Issue

@@ -372,28 +372,53 @@
 
 <c-modal
   [visible]="confirmDeleteVisible()"
-  (visibleChange)="confirmDeleteVisible.set($event)"
+  (visibleChange)="$event ? confirmDeleteVisible.set(true) : closeDeleteModal()"
   backdrop="static">
   <c-modal-header>
     <h5 cModalTitle>Delete Volume</h5>
-    <button cButtonClose [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)"></button>
+    <button cButtonClose [disabled]="deleting()" (click)="closeDeleteModal()"></button>
   </c-modal-header>
   <c-modal-body>
     <p>Are you sure you want to delete <strong>{{ volume()?.title }}</strong>?</p>
-    <p class="text-body-secondary small mb-0">This will also delete all associated issues. Files on disk will not be affected.</p>
+    <p class="text-body-secondary small">This will also delete all associated issues.</p>
+
+    <c-form-check>
+      <input cFormCheckInput type="checkbox" id="delete-files"
+             [checked]="deleteFilesToo()"
+             [disabled]="deleting() || !!deleteWarning()"
+             (change)="deleteFilesToo.set(!deleteFilesToo())" />
+      <label cFormCheckLabel for="delete-files">Also delete the volume directory and all its files</label>
+    </c-form-check>
+
+    @if (deleteFilesToo()) {
+      <c-alert color="warning" class="mt-3 mb-0 small">
+        The volume folder will be removed from the library <strong>with everything inside it</strong>,
+        including files Inkhound did not create. This cannot be undone.
+      </c-alert>
+    } @else {
+      <p class="text-body-secondary small mt-3 mb-0">Files on disk will not be affected.</p>
+    }
+
+    @if (deleteWarning()) {
+      <c-alert color="warning" class="mt-3 mb-0">{{ deleteWarning() }}</c-alert>
+    }
     @if (deleteError()) {
       <c-alert color="danger" class="mt-3 mb-0">{{ deleteError() }}</c-alert>
     }
   </c-modal-body>
   <c-modal-footer>
-    <button cButton color="secondary" [disabled]="deleting()" (click)="confirmDeleteVisible.set(false)">Cancel</button>
-    <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
-      @if (deleting()) {
-        <c-spinner size="sm" class="me-2"></c-spinner>Deleting…
-      } @else {
-        Delete
-      }
-    </button>
+    @if (deleteWarning()) {
+      <button cButton color="secondary" (click)="closeDeleteModal()">Close</button>
+    } @else {
+      <button cButton color="secondary" [disabled]="deleting()" (click)="closeDeleteModal()">Cancel</button>
+      <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+        @if (deleting()) {
+          <c-spinner size="sm" class="me-2"></c-spinner>Deleting…
+        } @else {
+          Delete
+        }
+      </button>
+    }
   </c-modal-footer>
 </c-modal>
 

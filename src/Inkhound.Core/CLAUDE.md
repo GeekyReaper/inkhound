@@ -91,9 +91,9 @@ Status (DOWNLOADING | DOWNLOADED | MISSING)
 - `SourceId` — identifiant de l'issue dans sa source d'origine (ComicVine ou Bedetheque) ; la source elle-même se déduit du `SourceType` du `Volume` parent
 - `CbzFilename` — nom du fichier CBZ final (sans chemin) ; `null` si l'issue n'est pas encore téléchargée
 - `Category` — `Standard | Special | SpecialEdition | Omnibus | Roman | BestOf`, dérivée par `BedethequeAlbumClassifier` (voir section Bedetheque) ; toujours `Standard` pour ComicVine/manuel. `IssueNumber` est résolu conjointement (`Idx`, gap-filled par catégorie) — le couple `(Category, IssueNumber)` sert de repli de correspondance au rematch, `SourceId` restant toujours prioritaire.
-  - Particularité du rematch Bedetheque (`RematchVolumeFromBedethequeAsync`) : contrairement aux autres champs "protégés" par statut, `IssueNumber`/`Category` sont recopiés **sans condition de `Status`** — y compris sur une issue déjà `DOWNLOADED` — pour corriger les valeurs historiquement fausses (issues téléchargées avant l'introduction de `BedethequeAlbumClassifier`, ex. `0`/`Standard` pour un hors-série). Si l'option "Regenerate ComicInfo" est cochée au Refresh, `RegenerateComicInfoForDownloadedIssuesAsync` renomme le fichier `.cbz` en conséquence (mécanisme générique déjà utilisé pour Title/Year). Le rematch ComicVine, lui, garde `IssueNumber` figé une fois l'issue téléchargée (`Status == MISSING` requis) — pas concerné par ce bug historique.
+  - Particularité du rematch Bedetheque (`RematchVolumeFromBedethequeAsync`) : contrairement aux autres champs "protégés" par statut, `IssueNumber`/`Category` sont recopiés **sans condition de `Status`** — y compris sur une issue déjà `DOWNLOADED` — pour corriger les valeurs historiquement fausses (issues téléchargées avant l'introduction de `BedethequeAlbumClassifier`, ex. `0`/`Standard` pour un hors-série). `RenameIssueFilesIfNeededAsync` renomme le fichier `.cbz` en conséquence au Refresh (mécanisme générique déjà utilisé pour Title/Year, sans condition de case cochée). Le rematch ComicVine, lui, garde `IssueNumber` figé une fois l'issue téléchargée (`Status == MISSING` requis) — pas concerné par ce bug historique.
   - Mode **"NEW issues only"** du Refresh (`RematchVolumeJobParameters.SyncNewIssuesOnly`, radio de la popup, défaut UI) : la metadata Volume/Serie est synchronisée normalement, mais on ne récupère la page détail (`GetIssueAsync`/`GetAlbumAsync`) **que pour les `SourceId` source encore absents en base**, insérés en `MISSING` via `SyncNew{ComicVine,Bedetheque}IssuesAsync`/`AlbumsAsync`. Les issues déjà connues **ne sont pas touchées** (pas de maj metadata, pas de renumérotation `IssueNumber`/`Category`, pas de suppression d'orphelins). `RecalculateVolumeStatisticsAsync` tourne quand même. Limite assumée : les indices gap-fill des catégories non-Standard peuvent dériver tant qu'un Refresh **"ALL issues"** (`SyncNewIssuesOnly == false`, comportement historique complet) n'a pas été relancé. Le Rematch changement de série (`RematchFromSource`) reste toujours en mode complet.
-  - Mode **"NEW only"** de la case *Regenerate ComicInfo.xml* du Refresh (`RematchVolumeJobParameters.RegenerateComicInfoNewOnly`, radio de la popup, défaut UI) : `RegenerateComicInfoForDownloadedIssuesAsync(newOnly: true)` ne (ré)injecte le `ComicInfo.xml` **que dans les CBZ qui n'en contiennent pas déjà un** (`ArchiveService.CbzContainsComicInfo`, lecture seule) — cible les issues sideloadées (torrent, import manuel). Les renommages de fichier restent toujours appliqués et un fichier renommé est réinjecté (métadonnées à jour). `false` (défaut backend, Rematch inclus) = réécriture dans toutes les issues `DOWNLOADED`, nécessaire quand la metadata du volume a changé.
+  - Mode **"NEW only"** de la case *Regenerate ComicInfo.xml* du Refresh (`RematchVolumeJobParameters.RegenerateComicInfoNewOnly`, radio de la popup, défaut UI) : `RegenerateComicInfoForDownloadedIssuesAsync(newOnly: true)` ne (ré)injecte le `ComicInfo.xml` **que dans les CBZ qui n'en contiennent pas déjà un** (`ArchiveService.CbzContainsComicInfo`, lecture seule) — cible les issues sideloadées (torrent, import manuel). Les renommages de fichier sont une étape distincte et inconditionnelle (`RenameIssueFilesIfNeededAsync`, cf. « Renommages au Refresh ») ; un fichier renommé est toujours réinjecté, même en mode "NEW only" (métadonnées à jour). `false` (défaut backend, Rematch inclus) = réécriture dans toutes les issues `DOWNLOADED`, nécessaire quand la metadata du volume a changé.
 
 ### VolumeImage (record partagé Volume + Issue)
 ```
@@ -145,6 +145,16 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 - Pas d'authentification ; `CookieContainer` partagé + headers façon navigateur requis
   (le site bloque les requêtes qui ressemblent à du scraping automatisé)
 - Options dans `BedethequeOptions` ; `RateLimiter` obligatoire, comme pour ComicVine
+- **Nettoyage des titres scrapés** — `CleanScrapedText` (décodage HTML + fusion de tous les blancs)
+  est obligatoire sur tout texte issu d'un `InnerText` : HtmlAgilityPack restitue l'indentation du
+  HTML source, d'où des titres comme `"INT2.\n                    L'Intégrale - Tomes 4 à 6"`
+  stockés tels quels en base puis recopiés dans les noms de fichiers CBZ. Un simple `.Trim()` ne
+  suffit pas (il ne touche pas les blancs internes).
+  `CleanAlbumTitle` y ajoute le retrait du préfixe de numérotation : coupe sur le `" . "` littéral
+  (codes à espace, `"INT FL . …"`), sinon retire un préfixe accolé — `"1."`, mais aussi `"HS1."` /
+  `"INT01."`, que l'ancienne expression ancrée sur `^\d+` laissait passer. Un chiffre reste exigé et
+  les lettres de tête sont bornées, pour ne jamais tronquer un titre comme
+  `"L'Intégrale - Tomes 4 à 6"`.
 - Catégorisation des albums (`BedethequeAlbumClassifier`, port de `ClassifyAlbum` du projet
   `bdguest-scrapper`) : le préfixe de numérotation brut de chaque album (ex. `"1"`, `"HS1"`,
   `"INT FL"`) est extrait sur la page liste (`ParseAlbumList`, span `itemprop="name"` de la forme
@@ -180,7 +190,7 @@ la persistance (il n'a pas d'auteurs/genres).
 ```
 Fichier brut (CBR/CBZ/ZIP/dossier)
   → Normalisation CBZ (ArchiveService)
-  → Renommage Kavita : "{VolumeTitle} - {IssueNumber:000} - {IssueTitle} ({IssueYear}).cbz"
+  → Renommage Kavita : "{VolumeTitle} - [{CategoryCode} - ]{IssueNumber:000} - {IssueTitle} ({IssueYear}).cbz"
   → Génération ComicInfo.xml (données Issue + Volume)
   → Injection ComicInfo.xml dans le CBZ
   → Déplacement vers {Library.RootPath}/{Volume.Title} ({Volume.Year})/
@@ -208,7 +218,63 @@ alphabétique : sur 3 chiffres, `page_1000` passerait avant `page_999` au-delà 
 Batman - 001.cbz
 Batman - 002 - Le joker.cbz
 Batman - 003 (2012).cbz
+Batman - INT - 001 - Integrale 1.cbz     (issue non Standard)
 ```
+
+### Code de catégorie dans le nom de fichier
+
+`ArchiveService.GetPath(issue, volume, …)` intercale entre le titre du volume et le numéro un code
+court issu de `IssueCategoryExtensions.ToFilenameCode()` (`Models/Issue.cs`) :
+
+| Catégorie | Code |
+|---|---|
+| `Standard` | *(aucun — segment omis)* |
+| `Special` | `HS` |
+| `SpecialEdition` | `SP` |
+| `Omnibus` | `INT` |
+| `Roman` | `ROM` |
+| `BestOf` | `BO` |
+
+Deux raisons : `IssueNumber` n'est unique qu'**au sein d'une catégorie** (l'intégrale `INT1` et le
+tome 1 portent tous deux `IssueNumber = 1`), et le tri alphabétique du dossier garde la série
+principale groupée au lieu d'y intercaler hors-séries et intégrales. `Standard` n'a volontairement
+pas de code : un chiffre trie avant une lettre, donc les tomes classiques restent en tête, et les
+fichiers déjà nommés ne bougent pas.
+
+### Normalisation des titres (`ArchiveService.NormalizeTitle`)
+
+Diacritiques supprimés, seuls les alphanumériques et `-` conservés, **tout le reste devient un
+espace — mais jamais deux d'affilée**. Sans cette fusion, la ponctuation produit autant d'espaces
+qu'elle compte de caractères (`"Boing ! Boing !"` → `"Boing   Boing"`), et un titre scrapé
+contenant l'indentation HTML de la page source donne un nom de fichier béant.
+
+Un `Volume` n'a pas de champ `Path` : son dossier est **toujours recalculé** depuis `Title`/`Year`.
+Toute évolution de `NormalizeTitle` change donc le nom attendu des dossiers déjà sur disque —
+d'où `ArchiveService.FindExistingVolumeDirectory(volume, library)`, qui retourne le dossier
+réellement présent : le chemin calculé s'il existe, sinon un dossier frère qui n'en diffère que par
+les blancs. C'est lui qui alimente `oldFolderPath`.
+
+### Renommages au Refresh
+
+Deux étapes **inconditionnelles** de `RunRematchVolumeJobAsync`, dans cet ordre imposé — elles ne
+dépendent d'aucune case de la popup Refresh, et s'exécutent **après le sync source** (les
+métadonnées doivent être à jour) mais **avant "Check files"** :
+
+1. **Le dossier de la série** — `RenameVolumeDirectoryIfNeededAsync`. `oldFolderPath` est capturé
+   *avant* le sync source, qui écrase `Title`/`Year`.
+2. **Les fichiers CBZ** — `RenameIssueFilesIfNeededAsync` : toute issue `DOWNLOADED` dont
+   `CbzFilename` diffère du nom calculé est renommée, que le titre ait changé à la source ou que la
+   normalisation ait évolué. Retourne les ids renommés, passés ensuite à
+   `RegenerateComicInfoForDownloadedIssuesAsync` pour forcer la réécriture de leur `ComicInfo.xml`
+   même en mode "NEW only".
+
+L'ordre est critique : "Check files" sonde les fichiers sous le dossier recalculé et repasserait des
+issues en `MISSING` si dossier ou fichiers portaient encore leur ancien nom.
+
+> ⚠️ Ces renommages ont été rattachés à `RegenerateComicInfoForDownloadedIssuesAsync` par le passé,
+> donc soumis à la case *Regenerate ComicInfo.xml*. Ne pas y revenir : un changement de
+> normalisation laissait alors des fichiers au nom périmé indéfiniment, sans aucune case pour les
+> rattraper (constaté en septembre 2026).
 
 ## Mapping ComicInfo.xml
 
@@ -377,6 +443,29 @@ Les opérations simples et rapides restent des méthodes `async Task<T>` classiq
 - `DeleteIssueFileAsync` — supprime le CBZ de la librairie, remet l'issue à `MISSING`, purge les
   résultats d'analyse + les lignes `IssueDownload` de l'issue (torrent qBittorrent non touché),
   recalcule les stats du volume, déclenche un scan Kavita. Un seul `File.Delete` + un appel Kavita.
+- `DeleteVolumeAsync(id, deleteFiles)` — voir ci-dessous.
+
+### `DeleteVolumeAsync(Guid id, bool deleteFiles = false)`
+
+Retourne `(bool Found, string? FileWarning)`. Supprime le volume, ses issues et leurs lignes
+`IssueDownload`.
+
+Avec `deleteFiles: true`, le répertoire du volume dans la librairie est supprimé **récursivement**
+(fichiers étrangers au pipeline compris) **avant** la suppression en base — le chemin se calcule
+depuis le volume et la librairie, qui n'existent plus après. Un échec disque n'annule pas la
+suppression en base : il est remonté dans `FileWarning`, jamais levé.
+
+⚠️ **Garde-fou de confinement (`DeleteVolumeDirectory`)** — `ArchiveService.GetPath` normalise le
+titre en ne conservant que les alphanumériques : un titre sans aucun caractère retenu (ex. `"???"`)
+et sans année produit un nom de dossier vide, donc un chemin **égal à la racine de la librairie**.
+Un `Directory.Delete(recursive: true)` y effacerait toute la librairie. La suppression est donc
+refusée (avec un `FileWarning`) si le nom de dossier est vide ou si le chemin résolu n'est pas un
+sous-dossier **strict** de `Library.Path`. Toute évolution du calcul de chemin doit conserver cette
+vérification.
+
+Le scan Kavita post-suppression utilise `ScanKavitaLibraryAsync(library.KavitaLibraryId)` et **non**
+`TriggerKavitaScanAsync(volumeId)` : ce dernier relit le volume en base (disparu) et scanne un
+dossier qui vient d'être supprimé.
 
 ---
 

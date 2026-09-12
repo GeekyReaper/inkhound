@@ -251,7 +251,12 @@ export class VolumeService {
     return this.http.patch<void>(`/api/volumes/${volumeId}/age-rating`, { ageRating });
   }
 
-  delete(id: string) {
-    return this.http.delete<void>(`/api/volumes/${id}`);
+  // deleteFiles supprime aussi le répertoire du volume et tous ses fichiers.
+  // Réponse : null (204) si tout s'est bien passé, { fileWarning } si le volume a été supprimé
+  // en base mais que son répertoire n'a pas pu l'être.
+  delete(id: string, deleteFiles = false) {
+    return this.http.delete<{ fileWarning?: string } | null>(`/api/volumes/${id}`, {
+      params: { deleteFiles }
+    });
   }
 }
