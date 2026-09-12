@@ -137,7 +137,8 @@ avant le recalc de stats : vérifie présence disque + fraîcheur d'analyse CBZ 
 
 Hors job : `PATCH /api/volumes/{id}/status { status: "MONITORED" | "PAUSED" }` (bouton Pause /
 Resume de la page Volume) → `200 VolumeDto`, `400` valeur hors MONITORED/PAUSED, `404`, `409` si le
-volume est `COMPLETED`.
+volume est `COMPLETED`. Version en masse : `PATCH /api/libraries/{id}/volumes/status { status }`
+(« Pause all » / « Resume all » de la page Library) → `200 { updated }`, `COMPLETED` jamais touchés.
 
 Hors job : `DELETE /api/issues/{id}/file` (bouton « Delete file » de la page Issue) supprime le CBZ
 de la librairie, remet l'issue à `MISSING` et purge l'analyse + le suivi de download associés

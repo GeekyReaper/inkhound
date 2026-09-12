@@ -2,7 +2,7 @@ import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, vi
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { auditTime, filter, fromEvent, switchMap, tap } from 'rxjs';
+import { auditTime, filter, finalize, fromEvent, switchMap, tap } from 'rxjs';
 import {
   AlertComponent,
   BadgeComponent,
@@ -90,6 +90,12 @@ export class LibraryComponent {
   error          = signal<string | null>(null);
   syncing        = signal(false);
   syncDone       = signal<string | null>(null);
+
+  // Pause / Resume en masse — boutons "Pause all" (≥1 volume MONITORED) et "Resume all"
+  // (≥1 volume PAUSED). Les COMPLETED ne sont jamais concernés.
+  statusBulkSaving = signal(false);
+  monitoredCount   = computed(() => this.volumes().filter(v => v.status === 'MONITORED').length);
+  pausedCount      = computed(() => this.volumes().filter(v => v.status === 'PAUSED').length);
   volumes        = signal<Volume[]>([]);
   volumesLoading = signal(false);
 
@@ -516,6 +522,27 @@ export class LibraryComponent {
 
   ageRatingLabel(rating: AgeRating): string {
     return AGE_RATINGS.find(r => r.value === rating)?.label ?? rating;
+  }
+
+  setAllVolumesStatus(status: 'MONITORED' | 'PAUSED'): void {
+    const lib = this.library();
+    if (!lib || this.statusBulkSaving()) return;
+
+    this.statusBulkSaving.set(true);
+    this.syncDone.set(null);
+    this.error.set(null);
+
+    this.libraryService.patchVolumesStatus(lib.id, status)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.statusBulkSaving.set(false)))
+      .subscribe({
+        next: res => {
+          this.syncDone.set(status === 'PAUSED'
+            ? `${res.updated} volume(s) paused.`
+            : `${res.updated} volume(s) resumed.`);
+          this.loadVolumes(lib.id);
+        },
+        error: err => this.error.set(err?.error?.message ?? 'Failed to update the volumes status.')
+      });
   }
 
   synchronize(): void {

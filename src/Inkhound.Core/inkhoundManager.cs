@@ -2530,6 +2530,46 @@ public partial class InkhoundManager : BaseServiceManager
         return await ctx.Volumes.FindAsync([volumeId], ct);
     }
 
+    // Bascule en masse des volumes d'une library : PAUSED → tous les MONITORED (incomplets) passent
+    // en pause ; MONITORED → tous les PAUSED reprennent. Les COMPLETED ne sont jamais touchés. Un
+    // volume PAUSED remis en MONITORED est, par construction, incomplet (sa complétion en pause aurait
+    // été ignorée par RecalculateVolumeStatisticsAsync) — on recalcule donc ses stats pour trancher
+    // MONITORED/COMPLETED, comme UpdateVolumeStatusAsync. Retourne le nombre de volumes modifiés, ou
+    // null si la library n'existe pas. Un seul OnDataUpdated(Library) est émis (pas un par volume :
+    // la page Library recharge sa liste à la réponse HTTP).
+    public async Task<int?> UpdateLibraryVolumesStatusAsync(Guid libraryId, VolumeStatus status, CancellationToken ct = default)
+    {
+        if (status is not (VolumeStatus.MONITORED or VolumeStatus.PAUSED))
+            throw new ArgumentException("Status must be MONITORED or PAUSED.", nameof(status));
+
+        var ctx = GetDb();
+        if (!await ctx.Libraries.AnyAsync(l => l.Id == libraryId, ct)) return null;
+
+        var from = status == VolumeStatus.PAUSED ? VolumeStatus.MONITORED : VolumeStatus.PAUSED;
+        var volumeIds = await ctx.Volumes
+            .Where(v => v.LibraryId == libraryId && v.Status == from)
+            .Select(v => v.Id)
+            .ToListAsync(ct);
+
+        if (volumeIds.Count == 0) return 0;
+
+        var now = DateTime.UtcNow;
+        await ctx.Volumes
+            .Where(v => volumeIds.Contains(v.Id))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(v => v.Status, status)
+                .SetProperty(v => v.UpdatedAt, now), ct);
+
+        if (status == VolumeStatus.MONITORED)
+        {
+            foreach (var id in volumeIds)
+                await RecalculateVolumeStatisticsAsync(ctx, id, ct);
+        }
+
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(libraryId));
+        return volumeIds.Count;
+    }
+
     public async Task<bool> UpdateIssueManuallyAsync(
         Guid issueId, string? title, int? year, string? description, IssueStatus status, CancellationToken ct = default)
     {

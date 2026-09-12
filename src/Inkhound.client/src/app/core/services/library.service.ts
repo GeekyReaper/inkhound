@@ -67,6 +67,12 @@ export class LibraryService {
     return this.http.post<{ message: string }>(`/api/libraries/${id}/recalculate-statistics`, null);
   }
 
+  // Bascule en masse : 'PAUSED' met en pause tous les volumes MONITORED (incomplets) de la library,
+  // 'MONITORED' reprend tous les PAUSED. Les COMPLETED ne sont jamais touchés.
+  patchVolumesStatus(libraryId: string, status: 'MONITORED' | 'PAUSED') {
+    return this.http.patch<{ updated: number }>(`/api/libraries/${libraryId}/volumes/status`, { status });
+  }
+
   refresh(libraryId: string, options: RefreshVolumeOptions) {
     return this.http.post<{ jobIds: string[] }>(`/api/libraries/${libraryId}/refresh`, options);
   }

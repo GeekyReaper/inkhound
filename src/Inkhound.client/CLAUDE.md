@@ -431,7 +431,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 |---|---|---|
 | `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
-| `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()` |
+| `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()`, `refresh()`, `patchVolumesStatus(id, 'PAUSED' \| 'MONITORED')` (boutons « Pause all » / « Resume all » de la page Library, affichés selon `monitoredCount()` / `pausedCount()`) |
 | `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `patchStatus(id, 'MONITORED' \| 'PAUSED')` (bouton Pause/Resume de la page Volume, masqué si `COMPLETED`), `delete(id, deleteFiles?)`, `importFromDirectory()` |
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |

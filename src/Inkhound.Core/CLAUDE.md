@@ -458,6 +458,12 @@ Les opérations simples et rapides restent des méthodes `async Task<T>` classiq
   `PAUSED` et tranche seul MONITORED/COMPLETED pour les autres — un volume complété pendant sa
   pause redevient donc `COMPLETED` (et non `MONITORED`) au Resume. Les tâches Auto search / Most
   wanted n'éligibilisent que les `MONITORED`.
+- `UpdateLibraryVolumesStatusAsync(libraryId, PAUSED | MONITORED)` — version en masse pour une
+  library (boutons « Pause all » / « Resume all » de la page Library) : `PAUSED` bascule tous les
+  `MONITORED`, `MONITORED` tous les `PAUSED` (+ recalc de stats par volume repris) ; `COMPLETED`
+  jamais touchés. `ExecuteUpdate` unique, **un seul** `OnDataUpdated(Library)` (pas un par volume —
+  la page Library recharge sa liste à la réponse). Retourne le nombre modifié, `null` si library
+  inconnue.
 - Appel unique à une API externe sans boucle
 - `DeleteIssueFileAsync` — supprime le CBZ de la librairie, remet l'issue à `MISSING`, purge les
   résultats d'analyse + les lignes `IssueDownload` de l'issue (torrent qBittorrent non touché),

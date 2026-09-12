@@ -30,6 +30,22 @@
           <svg cIcon name="cilReload" class="me-1"></svg>
           Refresh
         </button>
+        @if (monitoredCount() > 0) {
+          <button cButton color="secondary" variant="outline" [disabled]="statusBulkSaving()"
+                  (click)="setAllVolumesStatus('PAUSED')"
+                  title="Pause every monitored (incomplete) volume — no automatic search until resumed">
+            <svg cIcon name="cilMediaPause" class="me-1"></svg>
+            Pause all ({{ monitoredCount() }})
+          </button>
+        }
+        @if (pausedCount() > 0) {
+          <button cButton color="secondary" variant="outline" [disabled]="statusBulkSaving()"
+                  (click)="setAllVolumesStatus('MONITORED')"
+                  title="Resume every paused volume">
+            <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+            Resume all ({{ pausedCount() }})
+          </button>
+        }
       </c-col>
     </c-row>
 

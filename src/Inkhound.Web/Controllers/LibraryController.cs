@@ -160,6 +160,21 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         bool SyncNewIssuesOnly = false, bool RegenerateComicInfoNewOnly = false,
         bool CheckFiles = false);
 
+    public record PatchLibraryVolumesStatusRequest(string Status);
+
+    // PATCH /api/libraries/{id}/volumes/status — bascule en masse : "PAUSED" met en pause tous les
+    // volumes MONITORED (incomplets), "MONITORED" reprend tous les PAUSED. COMPLETED jamais touchés.
+    [HttpPatch("{id:guid}/volumes/status")]
+    public async Task<IActionResult> PatchVolumesStatus(Guid id, [FromBody] PatchLibraryVolumesStatusRequest req)
+    {
+        if (!Enum.TryParse<VolumeStatus>(req.Status, out var status)
+            || status is not (VolumeStatus.MONITORED or VolumeStatus.PAUSED))
+            return BadRequest(new { message = "Status must be MONITORED or PAUSED." });
+
+        var updated = await manager.UpdateLibraryVolumesStatusAsync(id, status);
+        return updated is { } count ? Ok(new { updated = count }) : NotFound();
+    }
+
     // POST /api/libraries/{id}/refresh — lance un Job "Refresh" indépendant par volume (pas de job
     // parent unique — cf. LaunchJobsRefreshLibrary) et retourne la liste de leurs JobId.
     [HttpPost("{id:guid}/refresh")]
