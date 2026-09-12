@@ -2503,6 +2503,33 @@ public partial class InkhoundManager : BaseServiceManager
         return true;
     }
 
+    // Bascule manuelle MONITORED ⇄ PAUSED d'un volume incomplet. Refusé (InvalidOperationException →
+    // 409) sur un volume COMPLETED : la pause n'a de sens que pour stopper les recherches d'issues
+    // manquantes, et un volume complet n'en a aucune. Passer à MONITORED repasse par
+    // RecalculateVolumeStatisticsAsync, qui décide seul entre MONITORED et COMPLETED (un volume mis
+    // en pause puis complété à la main serait sinon marqué MONITORED à tort). Retourne null si
+    // le volume n'existe pas.
+    public async Task<Volume?> UpdateVolumeStatusAsync(Guid volumeId, VolumeStatus status, CancellationToken ct = default)
+    {
+        if (status is not (VolumeStatus.MONITORED or VolumeStatus.PAUSED))
+            throw new ArgumentException("Status must be MONITORED or PAUSED.", nameof(status));
+
+        var ctx = GetDb();
+        var volume = await ctx.Volumes.FindAsync([volumeId], ct);
+        if (volume is null) return null;
+        if (volume.Status == VolumeStatus.COMPLETED)
+            throw new InvalidOperationException("A completed volume cannot be paused or monitored.");
+
+        volume.Status = status;
+        volume.UpdatedAt = DateTime.UtcNow;
+        await ctx.SaveChangesAsync(ct);
+
+        // RecalculateVolumeStatisticsAsync ne touche pas au Status d'un volume PAUSED ; il tranche
+        // MONITORED/COMPLETED pour les autres et émet OnDataUpdated.
+        await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
+        return await ctx.Volumes.FindAsync([volumeId], ct);
+    }
+
     public async Task<bool> UpdateIssueManuallyAsync(
         Guid issueId, string? title, int? year, string? description, IssueStatus status, CancellationToken ct = default)
     {

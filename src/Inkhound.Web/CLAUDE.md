@@ -135,6 +135,10 @@ réinjecter le `ComicInfo.xml` que dans les CBZ qui n'en ont pas) et `CheckFiles
 avant le recalc de stats : vérifie présence disque + fraîcheur d'analyse CBZ de chaque issue
 `DOWNLOADED`, fichier absent → `MISSING`). Voir `Inkhound.Core/CLAUDE.md`.
 
+Hors job : `PATCH /api/volumes/{id}/status { status: "MONITORED" | "PAUSED" }` (bouton Pause /
+Resume de la page Volume) → `200 VolumeDto`, `400` valeur hors MONITORED/PAUSED, `404`, `409` si le
+volume est `COMPLETED`.
+
 Hors job : `DELETE /api/issues/{id}/file` (bouton « Delete file » de la page Issue) supprime le CBZ
 de la librairie, remet l'issue à `MISSING` et purge l'analyse + le suivi de download associés
 (`DeleteIssueFileAsync` → `NoContent` ou `BadRequest { message }`).

@@ -452,6 +452,12 @@ public async Task LaunchJobXxx(XxxJobParameters parameters)
 Les opérations simples et rapides restent des méthodes `async Task<T>` classiques sans job :
 - Lecture / écriture d'une seule entité en base
 - Patch d'un champ (ex: `UpdateVolumeAgeRatingAsync`)
+- `UpdateVolumeStatusAsync(id, MONITORED | PAUSED)` — bascule manuelle Pause/Resume d'un volume
+  **incomplet** (bouton de la page Volume). `InvalidOperationException` (→ 409) si le volume est
+  `COMPLETED`. Repasse ensuite par `RecalculateVolumeStatisticsAsync`, qui ne touche jamais un
+  `PAUSED` et tranche seul MONITORED/COMPLETED pour les autres — un volume complété pendant sa
+  pause redevient donc `COMPLETED` (et non `MONITORED`) au Resume. Les tâches Auto search / Most
+  wanted n'éligibilisent que les `MONITORED`.
 - Appel unique à une API externe sans boucle
 - `DeleteIssueFileAsync` — supprime le CBZ de la librairie, remet l'issue à `MISSING`, purge les
   résultats d'analyse + les lignes `IssueDownload` de l'issue (torrent qBittorrent non touché),

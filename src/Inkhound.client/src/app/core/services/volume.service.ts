@@ -252,6 +252,11 @@ export class VolumeService {
     return this.http.patch<void>(`/api/volumes/${volumeId}/age-rating`, { ageRating });
   }
 
+  // Bascule manuelle MONITORED ⇄ PAUSED — 409 si le volume est COMPLETED.
+  patchStatus(volumeId: string, status: 'MONITORED' | 'PAUSED') {
+    return this.http.patch<Volume>(`/api/volumes/${volumeId}/status`, { status });
+  }
+
   // deleteFiles supprime aussi le répertoire du volume et tous ses fichiers.
   // Réponse : null (204) si tout s'est bien passé, { fileWarning } si le volume a été supprimé
   // en base mais que son répertoire n'a pas pu l'être.

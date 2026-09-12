@@ -179,6 +179,13 @@ export class VolumeComponent {
   readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
   savingRating      = signal(false);
 
+  // Bascule MONITORED ⇄ PAUSED — proposée uniquement sur un volume incomplet (un volume COMPLETED
+  // n'a aucune recherche à suspendre ; le backend refuse d'ailleurs en 409).
+  savingStatus      = signal(false);
+  statusError       = signal<string | null>(null);
+  canToggleStatus   = computed(() => this.volume()?.status !== 'COMPLETED');
+  isPaused          = computed(() => this.volume()?.status === 'PAUSED');
+
   constructor() {
     this.route.parent!.params
       .pipe(
@@ -420,6 +427,19 @@ export class VolumeComponent {
     this.volumeService.patchAgeRating(vol.id, value as AgeRating)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({ complete: () => this.savingRating.set(false) });
+  }
+
+  toggleStatus(): void {
+    const vol = this.volume();
+    if (!vol || this.savingStatus() || !this.canToggleStatus()) return;
+    const next = this.isPaused() ? 'MONITORED' : 'PAUSED';
+    this.savingStatus.set(true);
+    this.volumeService.patchStatus(vol.id, next)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.savingStatus.set(false)))
+      .subscribe({
+        next: updated => { this.volume.set(updated); this.statusError.set(null); },
+        error: err => this.statusError.set(err?.error?.message ?? 'Failed to update the volume status.')
+      });
   }
 
   volumeStatusBadgeClass(status: VolumeStatus): string {

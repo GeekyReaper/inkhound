@@ -197,6 +197,28 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         return updated ? NoContent() : NotFound();
     }
 
+    public record PatchVolumeStatusRequest(string Status);
+
+    // PATCH /api/volumes/{volumeId}/status — bascule manuelle MONITORED ⇄ PAUSED (refusé sur un
+    // volume COMPLETED → 409 via InvalidOperationException). Retourne le volume mis à jour.
+    [HttpPatch("/api/volumes/{volumeId:guid}/status")]
+    public async Task<IActionResult> PatchStatus(Guid volumeId, [FromBody] PatchVolumeStatusRequest req)
+    {
+        if (!Enum.TryParse<VolumeStatus>(req.Status, out var status)
+            || status is not (VolumeStatus.MONITORED or VolumeStatus.PAUSED))
+            return BadRequest(new { message = "Status must be MONITORED or PAUSED." });
+
+        try
+        {
+            var updated = await manager.UpdateVolumeStatusAsync(volumeId, status);
+            return updated is not null ? Ok(ToDto(updated)) : NotFound();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+    }
+
     public record RematchFromSourceRequest(string Source, string SourceId);
 
     // POST /api/volumes/{volumeId}/rematch — lance le rematch en Job et retourne son JobId
