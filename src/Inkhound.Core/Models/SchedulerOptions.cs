@@ -5,10 +5,11 @@ using Foundation.Core.Model;
 namespace Inkhound.Core.Models;
 
 /// <summary>
-/// Options du planificateur de jobs récurrents (service <c>Scheduler</c>). Deux tâches
+/// Options du planificateur de jobs récurrents (service <c>Scheduler</c>). Trois tâches
 /// indépendantes, chacune activable et pilotée par une expression cron 5 champs (heure serveur) :
-/// l'import des downloads terminés et le « rolling refresh » qui synchronise, à chaque exécution,
-/// un lot des volumes les moins récemment mis à jour depuis leur source.
+/// l'import des downloads terminés, le « rolling refresh » qui synchronise, à chaque exécution,
+/// un lot des volumes les moins récemment mis à jour depuis leur source, et l'« auto search » qui
+/// recherche et envoie en téléchargement les issues Standard manquantes d'un lot de volumes.
 /// </summary>
 public class SchedulerOptions : IOptionList
 {
@@ -27,6 +28,18 @@ public class SchedulerOptions : IOptionList
     /// <summary>Nombre de volumes traités à chaque exécution du rolling refresh.</summary>
     public int RollingRefreshBatchSize { get; set; } = 10;
 
+    /// <summary>Active l'« auto search » (acquisition automatique des issues manquantes via Prowlarr).</summary>
+    public bool AutoSearchEnabled { get; set; } = false;
+
+    /// <summary>Expression cron (5 champs, heure serveur) pilotant l'auto search.</summary>
+    public string AutoSearchCron { get; set; } = "0 4 * * *";
+
+    /// <summary>Nombre de volumes traités à chaque exécution de l'auto search.</summary>
+    public int AutoSearchBatchSize { get; set; } = 5;
+
+    /// <summary>Score minimum (0-100) qu'un torrent doit atteindre pour être acquis automatiquement.</summary>
+    public int AutoSearchMinScore { get; set; } = 70;
+
     /// <summary>
     /// Valide les expressions cron des tâches activées. Une tâche désactivée n'est pas contrôlée :
     /// une valeur cron invalide n'a alors aucun effet et ne doit pas passer le service en INVALID.
@@ -44,6 +57,15 @@ public class SchedulerOptions : IOptionList
         if (RollingRefreshEnabled && RollingRefreshBatchSize < 1)
             errors.Add($"{nameof(RollingRefreshBatchSize)} must be at least 1.");
 
+        if (AutoSearchEnabled && !CronExpression.TryParse(AutoSearchCron, out _))
+            errors.Add($"{nameof(AutoSearchCron)} is not a valid 5-field cron expression.");
+
+        if (AutoSearchEnabled && AutoSearchBatchSize < 1)
+            errors.Add($"{nameof(AutoSearchBatchSize)} must be at least 1.");
+
+        if (AutoSearchEnabled && AutoSearchMinScore is < 0 or > 100)
+            errors.Add($"{nameof(AutoSearchMinScore)} must be between 0 and 100.");
+
         return errors.Count == 0;
     }
 
@@ -55,7 +77,11 @@ public class SchedulerOptions : IOptionList
             new() { Name = nameof(ProcessDownloadsCron), Section = "Import downloads", SortOrder = 10, Value = ProcessDownloadsCron, ValueType = EValueType.STRING, DefaultValue = "*/15 * * * *", Description = "5-field cron expression (server time) — e.g. \"*/15 * * * *\" every 15 minutes.", Mandatory = false },
             new() { Name = nameof(RollingRefreshEnabled), Section = "Rolling refresh", SortOrder = 20, Value = RollingRefreshEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Automatically run a \"NEW issues only\" refresh on a batch of the least-recently-refreshed volumes on a schedule.", Mandatory = false },
             new() { Name = nameof(RollingRefreshCron), Section = "Rolling refresh", SortOrder = 30, Value = RollingRefreshCron, ValueType = EValueType.STRING, DefaultValue = "0 3 * * *", Description = "5-field cron expression (server time) — e.g. \"0 3 * * *\" every day at 03:00.", Mandatory = false },
-            new() { Name = nameof(RollingRefreshBatchSize), Section = "Rolling refresh", SortOrder = 40, Value = RollingRefreshBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "10", Description = "Number of volumes refreshed per run (least-recently-refreshed first).", Mandatory = false }
+            new() { Name = nameof(RollingRefreshBatchSize), Section = "Rolling refresh", SortOrder = 40, Value = RollingRefreshBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "10", Description = "Number of volumes refreshed per run (least-recently-refreshed first).", Mandatory = false },
+            new() { Name = nameof(AutoSearchEnabled), Section = "Auto search", SortOrder = 50, Value = AutoSearchEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Automatically search Prowlarr and send the best torrents to qBittorrent for the missing Standard issues of a batch of monitored volumes.", Mandatory = false },
+            new() { Name = nameof(AutoSearchCron), Section = "Auto search", SortOrder = 60, Value = AutoSearchCron, ValueType = EValueType.STRING, DefaultValue = "0 4 * * *", Description = "5-field cron expression (server time) — e.g. \"0 4 * * *\" every day at 04:00.", Mandatory = false },
+            new() { Name = nameof(AutoSearchBatchSize), Section = "Auto search", SortOrder = 70, Value = AutoSearchBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "5", Description = "Number of volumes searched per run (least-recently-searched first).", Mandatory = false },
+            new() { Name = nameof(AutoSearchMinScore), Section = "Auto search", SortOrder = 80, Value = AutoSearchMinScore.ToString(), ValueType = EValueType.INT, DefaultValue = "70", Description = "Minimum score (0-100) a torrent must reach to be grabbed automatically.", Mandatory = false }
         };
     }
 
@@ -72,6 +98,10 @@ public class SchedulerOptions : IOptionList
                 case nameof(RollingRefreshEnabled): RollingRefreshEnabled = option.GetBool(); break;
                 case nameof(RollingRefreshCron): RollingRefreshCron = option.Value; break;
                 case nameof(RollingRefreshBatchSize): RollingRefreshBatchSize = option.GetInt(); break;
+                case nameof(AutoSearchEnabled): AutoSearchEnabled = option.GetBool(); break;
+                case nameof(AutoSearchCron): AutoSearchCron = option.Value; break;
+                case nameof(AutoSearchBatchSize): AutoSearchBatchSize = option.GetInt(); break;
+                case nameof(AutoSearchMinScore): AutoSearchMinScore = option.GetInt(); break;
             }
         }
 

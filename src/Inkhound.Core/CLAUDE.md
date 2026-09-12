@@ -17,7 +17,8 @@ Inkhound.Core/
 │   ├── User.cs          # Compte utilisateur (auth) — un seul rôle "admin", pas de propriété Role
 │   ├── ArchiveJobParameters.cs
 │   ├── SynchronizeLibraryJobParameters.cs
-│   └── RegenerateComicInfoJobParameters.cs
+│   ├── RegenerateComicInfoJobParameters.cs
+│   └── AutoSearchVolumeJobParameters.cs  # job Auto search (VolumeId + MinScore)
 ├── Security/            # PasswordHasher.cs — PBKDF2/SHA-256, 100 000 itérations
 ├── ComicVine/           # Intégration API ComicVine
 │   ├── ComicVineSourceService.cs
@@ -45,7 +46,9 @@ Inkhound.Core/
 ├── Blob/                # Gestion fichiers binaires (non utilisé)
 │   └── BlobService.cs
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
-└── inkhoundManager.cs   # Orchestrateur principal des jobs
+├── inkhoundManager.cs   # Orchestrateur principal des jobs
+├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
+└── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
 ```
 
 ## Modèles domaine
@@ -69,7 +72,7 @@ Status (MONITORED | COMPLETED | PAUSED),
 AgeRating (enum AgeRating, stocké en string),
 CountOfIssues, CountOfDownloadedIssues,
 Issues (JSON [string]?),
-CreatedAt, UpdatedAt, DateAdded, LastRefreshedAt (DateTime?)
+CreatedAt, UpdatedAt, DateAdded, LastRefreshedAt (DateTime?), LastAutoSearchAt (DateTime?)
 ```
 - `SourceType` — `"ComicVine"`, `"bedetheque"` ou `"manual"` (valeur libre, non typée — voir `ISourceService.SourceKey` pour la clé canonique de chaque source)
 - `AgeRating` — valeur de l'enum `AgeRating` ; écrire dans ComicInfo.xml via `ToKavitaString()` (jamais `.ToString()`)
@@ -84,6 +87,7 @@ CreatedAt, UpdatedAt, DateAdded, LastRefreshedAt (DateTime?)
     bibliothèque (`Volume`/`Issue` n'ayant aucune navigation EF, les jointures sont explicites).
 - `DateAdded` — sert uniquement au tri "Recently added" du Dashboard (`GetDashboardStatsAsync`, `OrderByDescending(v => v.DateAdded)`), aucun autre effet visible. **Tout chemin de création d'un `Volume` doit le renseigner** (avec `CreatedAt`/`UpdatedAt`) — un oubli ne casse rien à la compilation ni aux tests fonctionnels courants, il se traduit juste par un dashboard qui semble figé (bug historique corrigé en septembre 2026 sur ComicVine/Bedetheque/sync filesystem, voir `DbStorageService.ApplyPendingMigrationsAsync` pour le backfill des volumes déjà en base).
 - `LastRefreshedAt` — `DateTime?`, `null` = jamais synchronisé depuis l'ajout. Estampillé à chaque synchro source réussie (`RunRematchVolumeJobAsync` → `StampVolumeLastRefreshedAsync`, refresh manuel comme job de roulement). Sert au tri du « rolling refresh » du scheduler (voir section Scheduler) et est affiché sur la page Volume (« Last refreshed », `VolumeDto.LastRefreshedAt`) ; distinct de `UpdatedAt` qui bouge aussi au recalcul de stats / à l'édition.
+- `LastAutoSearchAt` — `DateTime?`, `null` = jamais traité par la tâche **Auto search** du scheduler (voir section Scheduler). Estampillé **avant** le lancement du job, uniquement par `RunScheduledAutoSearchAsync` (une recherche Prowlarr manuelle ne le touche pas). Sert au tri de rotation de cette tâche ; affiché sur la page Volume (« Last auto search », `VolumeDto.LastAutoSearchAt`).
 
 ### Issue
 Numéro individuel, toujours associé à un Volume.
@@ -482,13 +486,14 @@ dossier qui vient d'être supprimé.
 
 `SchedulerService` / `SchedulerOptions` (`Models/SchedulerOptions.cs`) — service à options
 (persisté dans la table `Options`, service `"Scheduler"`, aucune migration d'options : créé par le
-merge de `AutomaticLoadServices`). Deux tâches indépendantes, chacune `Enabled` + expression
+merge de `AutomaticLoadServices`). Trois tâches indépendantes, chacune `Enabled` + expression
 **cron 5 champs** (parsing via le package **`Cronos`**, heure serveur `TimeZoneInfo.Local`) :
 
 | Tâche (clé) | Options | Action |
 |---|---|---|
 | `ProcessDownloads` | `ProcessDownloadsEnabled`, `ProcessDownloadsCron` | `LaunchJobProcessDownloads(new())` |
 | `RollingRefresh` | `RollingRefreshEnabled`, `RollingRefreshCron`, `RollingRefreshBatchSize` (int, défaut 10) | `RunScheduledRollingRefreshAsync` — voir ci-dessous |
+| `AutoSearch` | `AutoSearchEnabled`, `AutoSearchCron` (défaut `0 4 * * *`), `AutoSearchBatchSize` (int, défaut 5), `AutoSearchMinScore` (int 0-100, défaut 70) | `RunScheduledAutoSearchAsync` — voir « Auto search » ci-dessous |
 
 **Rolling refresh** (`RunScheduledRollingRefreshAsync`) : au lieu de rafraîchir tout le catalogue
 d'un coup (charge source trop forte), chaque exécution prend les **N volumes les moins récemment
@@ -500,8 +505,41 @@ lancement → rotation garantie même en cas d'échec / redémarrage), puis lanc
 estampillé par **`RunRematchVolumeJobAsync`** après toute synchro source réussie (`StampVolumeLastRefreshedAsync`,
 contexte neuf, un seul champ) — un refresh manuel repousse donc le volume en fin de file.
 
-`SchedulerOptions.IsValid` ne contrôle cron + `RollingRefreshBatchSize >= 1` que si la tâche est
-activée (sinon service `INVALID` pour une valeur inerte).
+**Auto search** (`RunScheduledAutoSearchAsync` + partial `inkhoundManager.AutoSearch.cs`) :
+acquisition automatique des issues **`Category == Standard`** encore `MISSING`. Chaque exécution
+prend les **N volumes `MONITORED`** ayant ≥1 issue Standard MISSING, les moins récemment traités
+d'abord (`OrderBy(LastAutoSearchAt)`, NULL en premier), estampille `LastAutoSearchAt = now`
+**avant** lancement, puis lance **séquentiellement** (`await`, pas fire-and-forget — on ne martèle
+pas Prowlarr/qBittorrent) un job `LaunchJobAutoSearchVolume(AutoSearchVolumeJobParameters
+{ VolumeId, MinScore })` par volume ("Auto search — {titre}"). Run refusé (trace ERROR, aucun
+estampillage) si Prowlarr ou qBittorrent n'est pas `OK`.
+
+Algorithme par volume (`RunAutoSearchVolumeJobAsync`) :
+1. **Phase A — volume** : cascade `BuildSearchQueries(volume)` → `ScoringVolumePack.ScoreAndSort`.
+2. **Phase B — par issue restante** : cascade `BuildSearchQueries(volume, issue)` →
+   `ScoringTorrent.ScoreAndSort` ; on s'arrête dès que l'issue est acquise.
+3. Candidat **éligible** = `Protocol == "torrent"` (usenet/NZB ignoré : non suivi par qBittorrent),
+   `DownloadUrl` non vide, `Score >= MinScore`, URL absente de `IssueDownloads.DownloadUrl` (déjà
+   suivi) et non rejetée dans ce job. Parcours par score décroissant.
+4. **SINGLE `#n`** avec `n` manquant → `GrabToQBittorrentAsync` pour cette issue. `SINGLE/?` et
+   `UNKNOWN` ne sont jamais grabés à l'aveugle.
+5. **PACK** → `GrabPackSelectiveAsync` (ajout en pause + fichiers ; si métadonnées absentes, polling
+   `GetPackFetchStatusAsync` ≤ 30 s), puis `MatchPackFilesToMissingIssues(files, missing)` (pure,
+   `internal static`, testée par `PackFileMatcherTests` : fichiers `IsArchiveFile` +
+   `TorrentTypeAnalyzer.ExtractIssueNumber`, un fichier par issue). **Aucun fichier utile →
+   `AbortPackSelectionAsync` (torrent + fichiers supprimés) et candidat suivant.** Sinon
+   `ApplyPackSelectionAsync(volumeId, indices appariés)` — les issues déjà grabées en SINGLE sont
+   `DOWNLOADING`, donc jamais ré-appariées.
+6. Les exceptions par candidat sont absorbées (trace WARNING) ; le job continue.
+
+Le cache `queryCache` de `SearchProwlarrCascadeAsync` (partagé par les cascades A et B d'un même
+job) évite de réinterroger Prowlarr pour une requête commune (ex. `"{titre}"` seul). Les jobs de
+recherche manuels (`RunSearchMissingIssueJobAsync`, `RunSearchMissingVolumeJobAsync`) reposent sur
+les mêmes helpers `ResolveIndexersAsync` / `SearchProwlarrCascadeAsync`.
+
+`SchedulerOptions.IsValid` ne contrôle cron + `RollingRefreshBatchSize >= 1` (resp.
+`AutoSearchBatchSize >= 1`, `AutoSearchMinScore` ∈ [0,100]) que si la tâche est activée (sinon
+service `INVALID` pour une valeur inerte).
 
 **Boucle** — `inkhoundManager.Scheduler.cs` (partial de `InkhoundManager`). `StartScheduler()` est
 appelé en fin de `AutomaticLoadServices()` (idempotent) et lance un `PeriodicTimer` 60 s. À chaque
@@ -512,7 +550,7 @@ au démarrage (`lastCheckUtc` initialisé à `DateTime.UtcNow`). `_schedulerLast
 déclenchement) est **en mémoire** — repart à vide après redémarrage.
 
 `GetSchedulerStatus()` → `SchedulerStatus` (enabled / cron / lastRunUtc / nextRunUtc / running par
-tâche + `RollingRefreshBatchSize`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
+tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
 « Run now »), `ArgumentException` si clé inconnue. Exposés par `SchedulerController` (`Inkhound.Web`).
 
 ---

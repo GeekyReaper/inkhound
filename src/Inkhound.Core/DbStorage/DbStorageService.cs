@@ -278,6 +278,10 @@ public class DbStorageService : BaseService<DbStorageOption>
         // Nullable (NULL = jamais synchronisé) → pas de DEFAULT.
         await AddColumnIfMissingAsync(db, "Volumes", "LastRefreshedAt", "TEXT NULL");
 
+        // Volumes.LastAutoSearchAt ajouté en septembre 2026 — horodatage du dernier passage de la
+        // tâche "auto search" du scheduler (acquisition automatique via Prowlarr). Nullable.
+        await AddColumnIfMissingAsync(db, "Volumes", "LastAutoSearchAt", "TEXT NULL");
+
         await AddColumnIfMissingAsync(db, "Issues", "Ean", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "Collection", "TEXT NULL");
         await AddColumnIfMissingAsync(db, "Issues", "Publisher", "TEXT NULL");

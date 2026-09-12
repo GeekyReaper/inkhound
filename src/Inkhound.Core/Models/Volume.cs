@@ -58,4 +58,10 @@ public class Volume
     // de stats / à l'édition.
     public DateTime? LastRefreshedAt { get; set; }
 
+    // Dernier passage du job "auto search" du scheduler (recherche/acquisition automatique des
+    // issues Standard manquantes via Prowlarr). null = jamais traité. Estampillé AVANT le lancement
+    // du job (rotation garantie) — sert au tri de la tâche AutoSearch (les volumes les moins
+    // récemment traités d'abord). DISTINCT de LastRefreshedAt (synchro des métadonnées).
+    public DateTime? LastAutoSearchAt { get; set; }
+
 }

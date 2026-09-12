@@ -49,7 +49,11 @@ export class SchedulerSettingsComponent implements OnInit {
     processDownloadsCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
     rollingRefreshEnabled: new FormControl(false, { nonNullable: true }),
     rollingRefreshCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
-    rollingRefreshBatchSize: new FormControl(10, { nonNullable: true, validators: [Validators.required, Validators.min(1)] })
+    rollingRefreshBatchSize: new FormControl(10, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
+    autoSearchEnabled: new FormControl(false, { nonNullable: true }),
+    autoSearchCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
+    autoSearchBatchSize: new FormControl(5, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
+    autoSearchMinScore: new FormControl(70, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(100)] })
   });
 
   ngOnInit(): void {
@@ -110,7 +114,11 @@ export class SchedulerSettingsComponent implements OnInit {
       processDownloadsCron: s.processDownloads.cron,
       rollingRefreshEnabled: s.rollingRefresh.enabled,
       rollingRefreshCron: s.rollingRefresh.cron,
-      rollingRefreshBatchSize: s.rollingRefreshBatchSize
+      rollingRefreshBatchSize: s.rollingRefreshBatchSize,
+      autoSearchEnabled: s.autoSearch.enabled,
+      autoSearchCron: s.autoSearch.cron,
+      autoSearchBatchSize: s.autoSearchBatchSize,
+      autoSearchMinScore: s.autoSearchMinScore
     });
   }
 }

@@ -71,6 +71,7 @@ export interface Volume {
   // Dernière synchro des métadonnées depuis la source ; null = jamais (volume manuel, ou pas encore
   // rafraîchi). Renseigné par tout refresh source réussi et par le "rolling refresh" du scheduler.
   lastRefreshedAt:          string | null;
+  lastAutoSearchAt:         string | null;
 }
 
 // Options de la popup "Refresh" — mêmes noms que RefreshVolumeRequest côté backend.

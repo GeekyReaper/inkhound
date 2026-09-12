@@ -2953,6 +2953,79 @@ public partial class InkhoundManager : BaseServiceManager
     // Résultats de recherche Prowlarr en attente de récupération par le contrôleur, indexés par
     // JobId — même raison que _searchResults (recherche multi-source) : un Job ne peut pas
     // porter de valeur de retour vers l'appelant HTTP d'origine (fire-and-forget).
+    // Indexers à interroger : paramètre explicite s'il est fourni, sinon la sélection persistée pour
+    // la library du volume (null = tous les indexers). Retourne aussi la sélection persistée, dont
+    // les catégories servent à ComputeCategories.
+    private static async Task<(int[]? IndexerIds, List<SelectedIndexer> Saved)> ResolveIndexersAsync(
+        DbStorageContext ctx, Volume volume, int[]? explicitIds)
+    {
+        var saved = await ctx.SelectedIndexers.Where(si => si.LibraryId == volume.LibraryId).ToListAsync();
+        var indexerIds = explicitIds;
+        if (indexerIds is null or { Length: 0 })
+            indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
+        return (indexerIds, saved);
+    }
+
+    // Exécute une cascade de requêtes Prowlarr et fusionne les résultats. Toutes les requêtes sont
+    // tentées, sans condition d'arrêt anticipé : les requêtes précises ne garantissent pas des
+    // résultats pertinents (matching plein texte assez large côté indexers), donc même si une requête
+    // ramène déjà des résultats, les niveaux suivants (jusqu'au titre du volume seul, qui remonte le
+    // mieux les candidats PACK/omnibus) sont toujours tentés. Un même indexer peut renvoyer plusieurs
+    // fois le même torrent d'une requête à l'autre — le Guid Prowlarr n'étant pas garanti stable d'un
+    // appel à l'autre pour une même release, la déduplication se fait sur une empreinte de contenu
+    // (indexeur + titre + taille) plutôt que sur le Guid.
+    // queryCache (optionnel) : mémoire par job des réponses brutes par requête — évite de réinterroger
+    // Prowlarr quand plusieurs cascades du même job partagent une requête (ex. "{titre}" seul,
+    // commun à la cascade volume et à chaque cascade issue de l'auto search).
+    // Chaque requête incrémente la progression du job (le total doit avoir été déclaré par l'appelant).
+    private async Task<List<ProwlarrSearchResult>> SearchProwlarrCascadeAsync(
+        JobContext job,
+        ProwlarrService prowlarr,
+        List<string> queries,
+        int[]? indexerIds,
+        List<SelectedIndexer> saved,
+        Dictionary<string, List<ProwlarrSearchResult>>? queryCache = null)
+    {
+        var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
+        List<ProwlarrSearchResult> merged = [];
+
+        foreach (var query in queries)
+        {
+            List<ProwlarrSearchResult> raw;
+            if (queryCache is not null && queryCache.TryGetValue(query, out var cached))
+            {
+                JobSendTrace($"[Prowlarr] Reusing results of: {query}");
+                raw = cached;
+            }
+            else
+            {
+                JobSendTrace($"[Prowlarr] Searching: {query}");
+                raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
+                queryCache?.Add(query, raw);
+            }
+
+            job.Progress.Increment(true);
+            job.CallbackHandler.Callback(job.Progress);
+
+            var added = 0;
+            foreach (var r in raw)
+            {
+                var key = (r.IndexerId, r.Title.Trim().ToLowerInvariant(), r.Size);
+                if (seen.Add(key))
+                {
+                    merged.Add(r);
+                    added++;
+                }
+            }
+
+            JobSendTrace(added > 0
+                ? $"[Prowlarr] {added} new result(s) with \"{query}\" ({merged.Count} total)"
+                : $"[Prowlarr] No new results with \"{query}\"");
+        }
+
+        return merged;
+    }
+
     private readonly ConcurrentDictionary<Guid, List<ScoredSearchResultTorrent>> _prowlarrResults = new();
 
     public List<ScoredSearchResultTorrent>? GetProwlarrSearchJobResult(Guid jobId)
@@ -3006,49 +3079,14 @@ public partial class InkhoundManager : BaseServiceManager
                 return;
             }
 
-            // Indexers : paramètre explicite ou sélection persistée pour la library du volume
-            int[]? indexerIds = parameters.IndexerIds;
-            var saved = await ctx.SelectedIndexers.Where(si => si.LibraryId == volume.LibraryId).ToListAsync();
-            if (indexerIds is null or { Length: 0 })
-                indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
+            var (indexerIds, saved) = await ResolveIndexersAsync(ctx, volume, parameters.IndexerIds);
 
             var queries = BuildSearchQueries(volume, issue);
             job.CallbackHandler.UpdateTotal(queries.Count);
 
             JobSendTrace($"[Prowlarr] {queries.Count} search quer{(queries.Count == 1 ? "y" : "ies")} planned for \"{volume.Title} #{issue.IssueNumber}\": {string.Join(" | ", queries)}");
 
-            // Toutes les requêtes de la cascade sont tentées, sans condition d'arrêt anticipé : les requêtes
-            // précises ne garantissent pas des résultats pertinents (matching plein texte assez large côté
-            // indexers), donc même si une requête ramène déjà des résultats, les niveaux suivants (jusqu'au
-            // titre du volume seul, qui remonte le mieux les candidats PACK/omnibus) sont toujours tentés.
-            // Un même indexer peut renvoyer plusieurs fois le même torrent d'une requête à l'autre — le Guid
-            // Prowlarr n'étant pas garanti stable d'un appel à l'autre pour une même release, la déduplication
-            // se fait sur une empreinte de contenu (indexeur + titre + taille) plutôt que sur le Guid.
-            var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
-            List<ProwlarrSearchResult> merged = [];
-
-            foreach (var query in queries)
-            {
-                JobSendTrace($"[Prowlarr] Searching: {query}");
-                var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
-                job.Progress.Increment(true);
-                job.CallbackHandler.Callback(job.Progress);
-
-                var added = 0;
-                foreach (var r in raw)
-                {
-                    var key = (r.IndexerId, r.Title.Trim().ToLowerInvariant(), r.Size);
-                    if (seen.Add(key))
-                    {
-                        merged.Add(r);
-                        added++;
-                    }
-                }
-
-                JobSendTrace(added > 0
-                    ? $"[Prowlarr] {added} new result(s) with \"{query}\" ({merged.Count} total)"
-                    : $"[Prowlarr] No new results with \"{query}\"");
-            }
+            var merged = await SearchProwlarrCascadeAsync(job, prowlarr, queries, indexerIds, saved);
 
             var results = ScoringTorrent.ScoreAndSort(volume, issue, merged);
 
@@ -3124,41 +3162,14 @@ public partial class InkhoundManager : BaseServiceManager
                 return;
             }
 
-            int[]? indexerIds = parameters.IndexerIds;
-            var saved = await ctx.SelectedIndexers.Where(si => si.LibraryId == volume.LibraryId).ToListAsync();
-            if (indexerIds is null or { Length: 0 })
-                indexerIds = saved.Count > 0 ? [.. saved.Select(s => s.IndexerId)] : null;
+            var (indexerIds, saved) = await ResolveIndexersAsync(ctx, volume, parameters.IndexerIds);
 
             var queries = BuildSearchQueries(volume);
             job.CallbackHandler.UpdateTotal(queries.Count);
 
             JobSendTrace($"[Prowlarr] {queries.Count} search quer{(queries.Count == 1 ? "y" : "ies")} planned for \"{volume.Title}\" ({missingIssues.Count} missing issue(s)): {string.Join(" | ", queries)}");
 
-            var seen = new HashSet<(int IndexerId, string TitleKey, long Size)>();
-            List<ProwlarrSearchResult> merged = [];
-
-            foreach (var query in queries)
-            {
-                JobSendTrace($"[Prowlarr] Searching: {query}");
-                var raw = await prowlarr.SearchAsync(query, indexerIds, ComputeCategories(saved, indexerIds), default);
-                job.Progress.Increment(true);
-                job.CallbackHandler.Callback(job.Progress);
-
-                var added = 0;
-                foreach (var r in raw)
-                {
-                    var key = (r.IndexerId, r.Title.Trim().ToLowerInvariant(), r.Size);
-                    if (seen.Add(key))
-                    {
-                        merged.Add(r);
-                        added++;
-                    }
-                }
-
-                JobSendTrace(added > 0
-                    ? $"[Prowlarr] {added} new result(s) with \"{query}\" ({merged.Count} total)"
-                    : $"[Prowlarr] No new results with \"{query}\"");
-            }
+            var merged = await SearchProwlarrCascadeAsync(job, prowlarr, queries, indexerIds, saved);
 
             var results = ScoringVolumePack.ScoreAndSort(volume, missingIssues, merged);
 
@@ -4035,7 +4046,7 @@ public partial class InkhoundManager : BaseServiceManager
         }
     }
 
-    private static bool IsArchiveFile(string fileName)
+    internal static bool IsArchiveFile(string fileName)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         return ext is ".cbz" or ".cbr" or ".pdf";

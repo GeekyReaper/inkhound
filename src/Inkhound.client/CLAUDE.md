@@ -190,7 +190,8 @@ src/
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
-│   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler)
+│   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler —
+│   │   │                        #   3 cartes : Import downloads / Rolling refresh / Auto search)
 │   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
 │   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
 │   │   └── pages/               # login, 404, 500
@@ -213,7 +214,7 @@ src/
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service |
-| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) |
+| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
 
@@ -319,6 +320,7 @@ interface Volume {
   genres: string[]; authors: VolumeAuthor[]; image: VolumeImage | null;
   countOfIssues: number; countOfDownloadedIssues: number;
   createdAt: string; updatedAt: string; lastRefreshedAt: string | null;
+  lastAutoSearchAt: string | null;   // dernier passage de la tâche Auto search du scheduler
 }
 // ⚠️ countOfIssues / countOfDownloadedIssues ne comptent que les issues de catégorie `Standard` —
 // ils mesurent la complétion de la série (barre de progression, statut COMPLETED). Ne JAMAIS s'en
@@ -434,7 +436,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
-| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) |
+| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch'` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |

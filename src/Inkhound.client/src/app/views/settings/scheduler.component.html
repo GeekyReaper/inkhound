@@ -132,6 +132,88 @@
         </c-card-body>
       </c-card>
 
+      <!-- Auto search -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>Auto search</strong>
+          @if (status()?.autoSearch?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Each run picks the least-recently-searched monitored volumes that still have missing
+            Standard issues, searches Prowlarr for them and sends the best torrents to qBittorrent —
+            only results scoring at or above the minimum score are considered, highest first.
+            A SINGLE torrent is grabbed for the issue it targets; a PACK is added paused, its files are
+            matched by issue number, and it is removed again if it contains none of the missing issues.
+            Usenet results are ignored. Only Standard issues are fetched — specials and omnibus are never
+            acquired automatically.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="autoSearchEnabled"
+                   formControlName="autoSearchEnabled" />
+            <label cFormCheckLabel for="autoSearchEnabled">Enabled</label>
+          </c-form-check>
+
+          <c-row>
+            <c-col md="6">
+              <div class="mb-3">
+                <label cLabel for="autoSearchCron">Cron expression</label>
+                <input cFormControl id="autoSearchCron" formControlName="autoSearchCron"
+                       type="text" placeholder="0 4 * * *"
+                       [class.is-invalid]="form.get('autoSearchCron')?.invalid && form.get('autoSearchCron')?.touched" />
+                <div class="form-text text-body-secondary">Example: <code>0 4 * * *</code> — every day at 04:00.</div>
+                @if (form.get('autoSearchCron')?.invalid && form.get('autoSearchCron')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+            <c-col md="3">
+              <div class="mb-3">
+                <label cLabel for="autoSearchBatchSize">Volumes per run</label>
+                <input cFormControl id="autoSearchBatchSize" formControlName="autoSearchBatchSize"
+                       type="number" min="1" step="1"
+                       [class.is-invalid]="form.get('autoSearchBatchSize')?.invalid && form.get('autoSearchBatchSize')?.touched" />
+                <div class="form-text text-body-secondary">Least-recently-searched first.</div>
+                @if (form.get('autoSearchBatchSize')?.invalid && form.get('autoSearchBatchSize')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a number of at least 1.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+            <c-col md="3">
+              <div class="mb-3">
+                <label cLabel for="autoSearchMinScore">Minimum score</label>
+                <input cFormControl id="autoSearchMinScore" formControlName="autoSearchMinScore"
+                       type="number" min="0" max="100" step="1"
+                       [class.is-invalid]="form.get('autoSearchMinScore')?.invalid && form.get('autoSearchMinScore')?.touched" />
+                <div class="form-text text-body-secondary">0–100, same scale as the search page.</div>
+                @if (form.get('autoSearchMinScore')?.invalid && form.get('autoSearchMinScore')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a score between 0 and 100.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('AutoSearch')" (click)="runNow('AutoSearch')">
+              @if (runningNow().has('AutoSearch')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.autoSearch?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.autoSearch?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
       <div class="d-flex align-items-center gap-3">
         <button cButton color="primary" type="submit" [disabled]="saving() || form.invalid">
           @if (saving()) {

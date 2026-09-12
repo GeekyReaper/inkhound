@@ -27,4 +27,16 @@ public class SchedulerService : BaseService<SchedulerOptions>
 
     /// <summary>Nombre de volumes traités à chaque exécution du rolling refresh.</summary>
     public int RollingRefreshBatchSize => Options.RollingRefreshBatchSize;
+
+    /// <summary>Auto search (acquisition automatique via Prowlarr) activé.</summary>
+    public bool AutoSearchEnabled => Options.AutoSearchEnabled;
+
+    /// <summary>Expression cron (heure serveur) de l'auto search.</summary>
+    public string AutoSearchCron => Options.AutoSearchCron;
+
+    /// <summary>Nombre de volumes traités à chaque exécution de l'auto search.</summary>
+    public int AutoSearchBatchSize => Options.AutoSearchBatchSize;
+
+    /// <summary>Score minimum (0-100) qu'un torrent doit atteindre pour être acquis automatiquement.</summary>
+    public int AutoSearchMinScore => Options.AutoSearchMinScore;
 }

@@ -63,6 +63,50 @@ public class SchedulerOptionsTests
         Assert.Contains(errors, e => e.Contains(nameof(SchedulerOptions.RollingRefreshBatchSize)));
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void IsValid_MinScoreHorsPlageEtAutoSearchActive_RetourneUneErreur(int minScore)
+    {
+        var options = new SchedulerOptions
+        {
+            AutoSearchEnabled = true, AutoSearchCron = "0 4 * * *", AutoSearchBatchSize = 5, AutoSearchMinScore = minScore
+        };
+
+        var valid = options.IsValid(out var errors);
+
+        Assert.False(valid);
+        Assert.Contains(errors, e => e.Contains(nameof(SchedulerOptions.AutoSearchMinScore)));
+    }
+
+    [Fact]
+    public void IsValid_BatchSizeInvalideEtAutoSearchActive_RetourneUneErreur()
+    {
+        var options = new SchedulerOptions
+        {
+            AutoSearchEnabled = true, AutoSearchCron = "0 4 * * *", AutoSearchBatchSize = 0
+        };
+
+        var valid = options.IsValid(out var errors);
+
+        Assert.False(valid);
+        Assert.Contains(errors, e => e.Contains(nameof(SchedulerOptions.AutoSearchBatchSize)));
+    }
+
+    [Fact]
+    public void IsValid_ValeursAutoSearchInvalidesMaisTacheDesactivee_RetourneVrai()
+    {
+        var options = new SchedulerOptions
+        {
+            AutoSearchEnabled = false, AutoSearchCron = "nope", AutoSearchBatchSize = 0, AutoSearchMinScore = 500
+        };
+
+        var valid = options.IsValid(out var errors);
+
+        Assert.True(valid);
+        Assert.Empty(errors);
+    }
+
     [Fact]
     public void LoadOptions_AppliqueLesValeursDepuisLesDefinitions()
     {
@@ -70,7 +114,8 @@ public class SchedulerOptionsTests
         var definitions = new SchedulerOptions
         {
             ProcessDownloadsEnabled = true, ProcessDownloadsCron = "5 4 * * *",
-            RollingRefreshEnabled = true, RollingRefreshCron = "0 0 * * 1", RollingRefreshBatchSize = 25
+            RollingRefreshEnabled = true, RollingRefreshCron = "0 0 * * 1", RollingRefreshBatchSize = 25,
+            AutoSearchEnabled = true, AutoSearchCron = "30 5 * * *", AutoSearchBatchSize = 3, AutoSearchMinScore = 85
         }.GetOptions();
 
         options.LoadOptions(definitions, out _);
@@ -80,5 +125,9 @@ public class SchedulerOptionsTests
         Assert.True(options.RollingRefreshEnabled);
         Assert.Equal("0 0 * * 1", options.RollingRefreshCron);
         Assert.Equal(25, options.RollingRefreshBatchSize);
+        Assert.True(options.AutoSearchEnabled);
+        Assert.Equal("30 5 * * *", options.AutoSearchCron);
+        Assert.Equal(3, options.AutoSearchBatchSize);
+        Assert.Equal(85, options.AutoSearchMinScore);
     }
 }

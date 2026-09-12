@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using Cronos;
 using Foundation.Core.Model;
 using Inkhound.Core.Models;
+using Inkhound.Core.Prowlarr;
+using Inkhound.Core.QBittorrent;
 using Microsoft.EntityFrameworkCore;
 
 namespace Inkhound.Core;
@@ -27,14 +29,21 @@ public partial class InkhoundManager
     /// <param name="ProcessDownloads">Tâche d'import des downloads.</param>
     /// <param name="RollingRefresh">Tâche de rolling refresh des volumes.</param>
     /// <param name="RollingRefreshBatchSize">Nombre de volumes traités par exécution du rolling refresh.</param>
+    /// <param name="AutoSearch">Tâche d'acquisition automatique via Prowlarr.</param>
+    /// <param name="AutoSearchBatchSize">Nombre de volumes traités par exécution de l'auto search.</param>
+    /// <param name="AutoSearchMinScore">Score minimum (0-100) pour qu'un torrent soit acquis automatiquement.</param>
     public record SchedulerStatus(
-        SchedulerTaskStatus ProcessDownloads, SchedulerTaskStatus RollingRefresh, int RollingRefreshBatchSize);
+        SchedulerTaskStatus ProcessDownloads, SchedulerTaskStatus RollingRefresh, int RollingRefreshBatchSize,
+        SchedulerTaskStatus AutoSearch, int AutoSearchBatchSize, int AutoSearchMinScore);
 
     /// <summary>Clé de la tâche « import des downloads ».</summary>
     public const string SchedulerTaskProcessDownloads = "ProcessDownloads";
 
     /// <summary>Clé de la tâche « rolling refresh des volumes ».</summary>
     public const string SchedulerTaskRollingRefresh = "RollingRefresh";
+
+    /// <summary>Clé de la tâche « auto search » (acquisition automatique via Prowlarr).</summary>
+    public const string SchedulerTaskAutoSearch = "AutoSearch";
 
     /// <summary>Indique si <paramref name="cron"/> est une expression cron 5 champs valide (parsing Cronos).</summary>
     public static bool IsValidCronExpression(string? cron)
@@ -88,6 +97,11 @@ public partial class InkhoundManager
                     SchedulerTaskRollingRefresh,
                     scheduler.RollingRefreshEnabled, scheduler.RollingRefreshCron,
                     lastCheckUtc, nowUtc, RunScheduledRollingRefreshAsync);
+
+                EvaluateScheduledTask(
+                    SchedulerTaskAutoSearch,
+                    scheduler.AutoSearchEnabled, scheduler.AutoSearchCron,
+                    lastCheckUtc, nowUtc, RunScheduledAutoSearchAsync);
             }
             catch (Exception ex)
             {
@@ -215,9 +229,73 @@ public partial class InkhoundManager
             .ExecuteUpdateAsync(s => s.SetProperty(v => v.LastRefreshedAt, now));
     }
 
+    // Auto search : prend un lot des volumes MONITORED ayant au moins une issue Standard MISSING,
+    // les moins récemment traités d'abord (LastAutoSearchAt asc, NULL en premier), estampille
+    // LastAutoSearchAt AVANT le lancement (rotation garantie), puis lance SÉQUENTIELLEMENT un job
+    // "Auto search — {titre}" par volume (await, pas fire-and-forget : on évite de marteler Prowlarr
+    // et qBittorrent en parallèle). Voir inkhoundManager.AutoSearch.cs.
+    private async Task RunScheduledAutoSearchAsync()
+    {
+        var scheduler = GetService<SchedulerService, SchedulerOptions>();
+        var batchSize = scheduler.AutoSearchBatchSize;
+        if (batchSize < 1)
+        {
+            JobSendTrace("[Scheduler] Auto search batch size < 1 — nothing to do", ETraceLevel.WARNING);
+            return;
+        }
+
+        if (GetService<ProwlarrService, ProwlarrOptions>().CurrentState.State != EState.OK)
+        {
+            JobSendTrace("[Scheduler] Auto search — Prowlarr service unavailable, run skipped", ETraceLevel.ERROR);
+            return;
+        }
+
+        if (GetService<QBittorrentService, QBittorrentOptions>().CurrentState.State != EState.OK)
+        {
+            JobSendTrace("[Scheduler] Auto search — QBittorrent service unavailable, run skipped", ETraceLevel.ERROR);
+            return;
+        }
+
+        var ctx = GetDb();
+        var volumes = await ctx.Volumes
+            .Where(v => v.Status == VolumeStatus.MONITORED
+                && ctx.Issues.Any(i => i.VolumeId == v.Id
+                    && i.Category == IssueCategory.Standard
+                    && i.Status == IssueStatus.MISSING))
+            .OrderBy(v => v.LastAutoSearchAt)
+            .ThenBy(v => v.CreatedAt)
+            .Take(batchSize)
+            .ToListAsync();
+
+        if (volumes.Count == 0)
+        {
+            JobSendTrace("[Scheduler] Auto search — no eligible volume");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var volumeIds = volumes.Select(v => v.Id).ToList();
+        await ctx.Volumes
+            .Where(v => volumeIds.Contains(v.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.LastAutoSearchAt, now));
+
+        JobSendTrace($"[Scheduler] Auto search — {volumes.Count} volume(s): "
+            + string.Join(", ", volumes.Select(v => v.Title)));
+
+        foreach (var volume in volumes)
+        {
+            await LaunchJobAutoSearchVolume(new AutoSearchVolumeJobParameters
+            {
+                VolumeId = volume.Id,
+                MinScore = scheduler.AutoSearchMinScore
+            });
+        }
+    }
+
     /// <summary>
     /// Déclenche immédiatement une tâche planifiée (bouton « Run now »). <paramref name="key"/> doit
-    /// valoir <see cref="SchedulerTaskProcessDownloads"/> ou <see cref="SchedulerTaskRollingRefresh"/>.
+    /// valoir <see cref="SchedulerTaskProcessDownloads"/>, <see cref="SchedulerTaskRollingRefresh"/>
+    /// ou <see cref="SchedulerTaskAutoSearch"/>.
     /// </summary>
     /// <exception cref="ArgumentException">Clé de tâche inconnue.</exception>
     public void RunSchedulerTaskNow(string key)
@@ -226,20 +304,24 @@ public partial class InkhoundManager
         {
             SchedulerTaskProcessDownloads => RunScheduledProcessDownloadsAsync,
             SchedulerTaskRollingRefresh => RunScheduledRollingRefreshAsync,
+            SchedulerTaskAutoSearch => RunScheduledAutoSearchAsync,
             _ => throw new ArgumentException($"Unknown scheduler task '{key}'.", nameof(key))
         };
 
         FireScheduledTask(key, action);
     }
 
-    /// <summary>État courant des deux tâches planifiées (config + dernier / prochain déclenchement).</summary>
+    /// <summary>État courant des trois tâches planifiées (config + dernier / prochain déclenchement).</summary>
     public SchedulerStatus GetSchedulerStatus()
     {
         var scheduler = GetService<SchedulerService, SchedulerOptions>();
         return new SchedulerStatus(
             BuildTaskStatus(SchedulerTaskProcessDownloads, scheduler.ProcessDownloadsEnabled, scheduler.ProcessDownloadsCron),
             BuildTaskStatus(SchedulerTaskRollingRefresh, scheduler.RollingRefreshEnabled, scheduler.RollingRefreshCron),
-            scheduler.RollingRefreshBatchSize);
+            scheduler.RollingRefreshBatchSize,
+            BuildTaskStatus(SchedulerTaskAutoSearch, scheduler.AutoSearchEnabled, scheduler.AutoSearchCron),
+            scheduler.AutoSearchBatchSize,
+            scheduler.AutoSearchMinScore);
     }
 
     private SchedulerTaskStatus BuildTaskStatus(string key, bool enabled, string cron)

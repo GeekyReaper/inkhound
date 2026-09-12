@@ -63,6 +63,14 @@
               }
             </dd>
           }
+          <dt class="col-sm-3 col-lg-2">Last auto search</dt>
+          <dd class="col-sm-9 col-lg-10">
+            @if (volume()!.lastAutoSearchAt) {
+              {{ volume()!.lastAutoSearchAt | date:'medium' }}
+            } @else {
+              <span class="text-body-secondary">Never</span>
+            }
+          </dd>
           @if (volume()!.year) {
             <dt class="col-sm-3 col-lg-2">Year</dt>
             <dd class="col-sm-9 col-lg-10">{{ volume()!.year }}</dd>

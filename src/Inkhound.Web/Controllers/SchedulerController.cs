@@ -14,10 +14,11 @@ namespace Inkhound.Web.Controllers;
 [Authorize(Roles = "admin")]
 public class SchedulerController(InkhoundManager manager) : ControllerBase
 {
-    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des deux tâches.</summary>
+    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des trois tâches.</summary>
     public record SchedulerConfigRequest(
         bool ProcessDownloadsEnabled, string ProcessDownloadsCron,
-        bool RollingRefreshEnabled, string RollingRefreshCron, int RollingRefreshBatchSize);
+        bool RollingRefreshEnabled, string RollingRefreshCron, int RollingRefreshBatchSize,
+        bool AutoSearchEnabled, string AutoSearchCron, int AutoSearchBatchSize, int AutoSearchMinScore);
 
     // GET /api/scheduler — état courant (config + dernier / prochain déclenchement).
     [HttpGet]
@@ -29,6 +30,7 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
     {
         var processCron = (request.ProcessDownloadsCron ?? string.Empty).Trim();
         var rollingCron = (request.RollingRefreshCron ?? string.Empty).Trim();
+        var autoSearchCron = (request.AutoSearchCron ?? string.Empty).Trim();
 
         if (request.ProcessDownloadsEnabled && !InkhoundManager.IsValidCronExpression(processCron))
             return BadRequest(new { message = "Import downloads: invalid 5-field cron expression." });
@@ -39,13 +41,26 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
         if (request.RollingRefreshEnabled && request.RollingRefreshBatchSize < 1)
             return BadRequest(new { message = "Rolling refresh: batch size must be at least 1." });
 
+        if (request.AutoSearchEnabled && !InkhoundManager.IsValidCronExpression(autoSearchCron))
+            return BadRequest(new { message = "Auto search: invalid 5-field cron expression." });
+
+        if (request.AutoSearchEnabled && request.AutoSearchBatchSize < 1)
+            return BadRequest(new { message = "Auto search: batch size must be at least 1." });
+
+        if (request.AutoSearchMinScore is < 0 or > 100)
+            return BadRequest(new { message = "Auto search: minimum score must be between 0 and 100." });
+
         var updates = new Dictionary<string, string>
         {
             ["ProcessDownloadsEnabled"]    = request.ProcessDownloadsEnabled.ToString().ToLowerInvariant(),
             ["ProcessDownloadsCron"]       = processCron,
             ["RollingRefreshEnabled"]      = request.RollingRefreshEnabled.ToString().ToLowerInvariant(),
             ["RollingRefreshCron"]         = rollingCron,
-            ["RollingRefreshBatchSize"]    = request.RollingRefreshBatchSize.ToString()
+            ["RollingRefreshBatchSize"]    = request.RollingRefreshBatchSize.ToString(),
+            ["AutoSearchEnabled"]          = request.AutoSearchEnabled.ToString().ToLowerInvariant(),
+            ["AutoSearchCron"]             = autoSearchCron,
+            ["AutoSearchBatchSize"]        = request.AutoSearchBatchSize.ToString(),
+            ["AutoSearchMinScore"]         = request.AutoSearchMinScore.ToString()
         };
 
         var success = await manager.UpdateOptionsForService("Scheduler", updates);
