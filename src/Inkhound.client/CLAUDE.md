@@ -536,7 +536,8 @@ page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`)
 ## Composant réutilisable : FileIssueMatcherComponent
 
 `app-file-issue-matcher` (`views/file-issue-matcher/`) — tableau générique d'appariement
-**fichiers ↔ issues d'un volume** : auto-appariement par numéro détecté (issues `MISSING`),
+**fichiers ↔ issues d'un volume** : auto-appariement par numéro détecté (issues `MISSING` de
+catégorie `Standard` uniquement — les hors-séries/omnibus ne s'assignent qu'à la main),
 `<select>` manuel par ligne (toutes les issues, `DOWNLOADING` désactivées, une issue prise ailleurs
 disparaît des autres listes), coché ⟺ une issue est assignée.
 

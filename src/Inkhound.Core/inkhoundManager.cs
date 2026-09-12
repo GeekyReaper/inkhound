@@ -2673,9 +2673,11 @@ public partial class InkhoundManager : BaseServiceManager
                 }
                 else
                 {
+                    // Auto-appariement par numéro : réservé aux issues Standard (un "#3" dans un nom de
+                    // fichier désigne le tome 3, jamais un hors-série / omnibus portant le même numéro).
                     var number = SourceAnalyzer.ParseIssueNumber(file.Name);
                     if (number is null) continue;
-                    issue = issues.FirstOrDefault(i => i.IssueNumber == number);
+                    issue = issues.FirstOrDefault(i => i.Category == IssueCategory.Standard && i.IssueNumber == number);
                     if (issue is null) continue;
                     if (issue.Status == IssueStatus.DOWNLOADED && !parameters.OverrideExisting)
                     {
@@ -3518,7 +3520,7 @@ public partial class InkhoundManager : BaseServiceManager
         {
             // Toutes les issues du volume : un override manuel peut cibler une issue déjà DOWNLOADED
             // (re-acquisition demandée). L'auto-appariement par numéro de tome, lui, reste réservé
-            // aux issues MISSING.
+            // aux issues MISSING de catégorie Standard.
             var volumeIssues = await ctx.Issues
                 .Where(i => i.VolumeId == targetVolumeId)
                 .ToListAsync(ct);
@@ -3538,7 +3540,8 @@ public partial class InkhoundManager : BaseServiceManager
                 {
                     matched = TorrentTypeAnalyzer.ExtractIssueNumber(file.Name) is { } number
                         ? volumeIssues.FirstOrDefault(i =>
-                            i.IssueNumber == number && i.Status == IssueStatus.MISSING && !matchedIds.Contains(i.Id))
+                            i.Category == IssueCategory.Standard && i.IssueNumber == number
+                            && i.Status == IssueStatus.MISSING && !matchedIds.Contains(i.Id))
                         : null;
                 }
 

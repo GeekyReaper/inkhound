@@ -74,7 +74,8 @@ export class FileIssueMatcherComponent {
     });
   }
 
-  // Auto-appariement des fichiers non encore assignés aux issues MISSING, par numéro détecté.
+  // Auto-appariement des fichiers non encore assignés aux issues MISSING Standard, par numéro détecté
+  // (les hors-séries / omnibus ne sont jamais auto-assignés — uniquement à la main).
   // Additif — n'écrase jamais une assignation existante ni une issue déjà prise.
   private applyAutoAssignments(files: MatchableFile[]): void {
     this.fileAssignments.update(current => {
@@ -83,7 +84,7 @@ export class FileIssueMatcherComponent {
       files.forEach((file, i) => {
         if (next.has(i) || file.detectedIssueNumber === null) return;
         const issue = this.missingIssues().find(
-          x => x.issueNumber === file.detectedIssueNumber && !takenIssueIds.has(x.id));
+          x => x.category === 'Standard' && x.issueNumber === file.detectedIssueNumber && !takenIssueIds.has(x.id));
         if (issue) {
           next.set(i, issue.id);
           takenIssueIds.add(issue.id);

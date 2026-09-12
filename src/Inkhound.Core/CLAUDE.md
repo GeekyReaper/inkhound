@@ -381,7 +381,9 @@ Exemples existants :
 - `LaunchJobRegenerateComicInfo(RegenerateComicInfoJobParameters parameters)`
 - `LaunchJobImportDirectory(ImportDirectoryJobParameters parameters)` — import des archives d'un
   dossier vers un volume ; `FileIssueMap` (nom de fichier → IssueId, issu de la popup de revue) ou
-  appariement auto par numéro. Retourne le `JobContext` (le controller renvoie le `jobId`).
+  appariement auto par numéro — **réservé aux issues `Category == Standard`** (même règle côté
+  torrent dans `GrabPackSelectiveAsync` : seul un override manuel peut cibler un hors-série/omnibus).
+  Retourne le `JobContext` (le controller renvoie le `jobId`).
 - `LaunchJobImportIssueFile(ImportIssueFileJobParameters parameters)` — import d'un fichier local
   unique comme CBZ d'une issue précise (bouton « Import » de la page Issue). Retourne le `JobContext`.
 
