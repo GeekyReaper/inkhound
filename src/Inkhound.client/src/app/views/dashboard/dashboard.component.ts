@@ -21,7 +21,7 @@ import {
   WidgetStatCComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { DashboardService, DashboardStats, DashboardMostWantedIssue } from '../../core/services/dashboard.service';
+import { DashboardService, DashboardStats, DashboardMostWantedIssue, DashboardLibraryStats } from '../../core/services/dashboard.service';
 import { HubService } from '../../core/services/hub.service';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 import { VolumeStatus } from '../../core/services/volume.service';
@@ -83,9 +83,28 @@ export class DashboardComponent {
       });
   }
 
-  libraryProgressPercent(lib: { issuesCount: number; downloadedIssuesCount: number }): number {
-    if (!lib.issuesCount) return 0;
-    return Math.round((lib.downloadedIssuesCount / lib.issuesCount) * 100);
+  // Segments de la barre d'une bibliothèque : un par statut d'issue. Missing est volontairement en
+  // gris neutre plutôt que dans le rouge du badge Missing (cf. IssueCardComponent) : il domine la
+  // barre sur une bibliothèque encore incomplète, et un aplat rouge s'y lirait comme une alerte.
+  // Les statuts absents sont retirés pour ne pas produire de segment de largeur nulle. Les
+  // pourcentages ne sont pas arrondis : trois arrondis indépendants dépasseraient les 100 % et
+  // décaleraient la barre.
+  librarySegments(lib: DashboardLibraryStats): { label: string; count: number; color: string; percent: number }[] {
+    const total = lib.issuesCount;
+    if (!total) return [];
+
+    return [
+      { label: 'Downloaded',  count: lib.downloadedIssuesCount,  color: 'success' },
+      { label: 'Downloading', count: lib.downloadingIssuesCount, color: 'info' },
+      { label: 'Missing',     count: lib.missingIssuesCount,     color: 'secondary' }
+    ]
+      .filter(segment => segment.count > 0)
+      .map(segment => ({ ...segment, percent: (segment.count / total) * 100 }));
+  }
+
+  libraryTooltip(lib: DashboardLibraryStats): string {
+    return `${lib.downloadedIssuesCount} downloaded / ${lib.downloadingIssuesCount} downloading `
+         + `/ ${lib.missingIssuesCount} missing — ${lib.issuesCount} total`;
   }
 
   mostWantedCover(item: DashboardMostWantedIssue): string | null {

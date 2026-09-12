@@ -2,12 +2,16 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { VolumeImage } from './volume.service';
 
+// Compteurs établis sur les issues réelles, toutes catégories confondues (et non sur les
+// compteurs du Volume, qui ne retiennent que les issues Standard).
 export interface DashboardLibraryStats {
   id:                      string;
   name:                    string;
   volumesCount:            number;
   issuesCount:             number;
   downloadedIssuesCount:   number;
+  downloadingIssuesCount:  number;
+  missingIssuesCount:      number;
 }
 
 export interface DashboardRecentVolume {

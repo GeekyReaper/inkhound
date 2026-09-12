@@ -123,11 +123,12 @@
                     <span class="text-truncate">{{ lib.name }}</span>
                     <span class="text-body-secondary small ms-2">{{ lib.volumesCount }} volumes</span>
                   </div>
-                  <div [cTooltip]="lib.downloadedIssuesCount + ' / ' + lib.issuesCount"
-                       cTooltipPlacement="top">
-                    <c-progress style="height: 8px;">
-                      <c-progress-bar [value]="libraryProgressPercent(lib)" color="success"></c-progress-bar>
-                    </c-progress>
+                  <div [cTooltip]="libraryTooltip(lib)" cTooltipPlacement="top">
+                    <c-progress-stacked style="height: 8px;">
+                      @for (segment of librarySegments(lib); track segment.label) {
+                        <c-progress [value]="segment.percent" [height]="8" [color]="segment.color"></c-progress>
+                      }
+                    </c-progress-stacked>
                   </div>
                 </div>
               }
@@ -167,7 +168,7 @@
     </c-row>
 
     <!-- 5. Derniers volumes ajoutés -->
-    <c-row class="mt-1">
+    <c-row class="mt-4">
       <c-col xs="12">
         <c-card>
           <c-card-body>

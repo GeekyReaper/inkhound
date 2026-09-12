@@ -204,7 +204,13 @@ public partial class InkhoundManager : BaseServiceManager
         return await GetDb().Libraries.FindAsync(id);
     }
 
-    public record DashboardLibraryStats(Guid Id, string Name, int VolumesCount, int IssuesCount, int DownloadedIssuesCount);
+    // Les compteurs d'issues sont établis sur les issues réelles, toutes catégories confondues —
+    // et non sur Volume.CountOfIssues/CountOfDownloadedIssues, qui ne retiennent que les issues
+    // Standard (ils mesurent la complétion d'une série). L'encart Libraries du Dashboard s'aligne
+    // ainsi sur la carte « Issues » du haut, qui compte elle aussi toutes les issues.
+    public record DashboardLibraryStats(
+        Guid Id, string Name, int VolumesCount,
+        int IssuesCount, int DownloadedIssuesCount, int DownloadingIssuesCount, int MissingIssuesCount);
 
     // Une issue MISSING (catégorie Standard) dont l'acquisition ferait passer son Volume à 100 %
     // de complétude, ou très proche. Alimente la section « Most wanted » du Dashboard.
@@ -255,15 +261,36 @@ public partial class InkhoundManager : BaseServiceManager
             .SumAsync(i => (long)i.FileSizeBytes, ct);
 
         var libraries = await ctx.Libraries.ToListAsync(ct);
-        var libraryStats = new List<DashboardLibraryStats>();
-        foreach (var lib in libraries)
+
+        // Deux requêtes groupées plutôt qu'un aller-retour par bibliothèque : Volume/Issue n'ont
+        // aucune navigation EF déclarée (FK scalaires), d'où les jointures explicites.
+        var volumeCountByLibrary = (await ctx.Volumes
+                .GroupBy(v => v.LibraryId)
+                .Select(g => new { LibraryId = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.LibraryId, x => x.Count);
+
+        var issueCounts = await (from i in ctx.Issues
+                                 join v in ctx.Volumes on i.VolumeId equals v.Id
+                                 group i by new { v.LibraryId, i.Status } into g
+                                 select new { g.Key.LibraryId, g.Key.Status, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var libraryStats = libraries.Select(lib =>
         {
-            var volumes = await ctx.Volumes.Where(v => v.LibraryId == lib.Id).ToListAsync(ct);
-            libraryStats.Add(new DashboardLibraryStats(
-                lib.Id, lib.Name, volumes.Count,
-                volumes.Sum(v => v.CountOfIssues),
-                volumes.Sum(v => v.CountOfDownloadedIssues)));
-        }
+            int CountFor(IssueStatus status) => issueCounts
+                .FirstOrDefault(c => c.LibraryId == lib.Id && c.Status == status)?.Count ?? 0;
+
+            var downloaded  = CountFor(IssueStatus.DOWNLOADED);
+            var downloading = CountFor(IssueStatus.DOWNLOADING);
+            var missing     = CountFor(IssueStatus.MISSING);
+
+            return new DashboardLibraryStats(
+                lib.Id, lib.Name,
+                volumeCountByLibrary.GetValueOrDefault(lib.Id),
+                downloaded + downloading + missing,
+                downloaded, downloading, missing);
+        }).ToList();
 
         var recentVolumes = await ctx.Volumes
             .OrderByDescending(v => v.DateAdded)

@@ -10,7 +10,9 @@ namespace Inkhound.Web.Controllers;
 [Authorize]
 public class DashboardController(InkhoundManager manager) : ControllerBase
 {
-    private record LibraryStatsDto(Guid Id, string Name, int VolumesCount, int IssuesCount, int DownloadedIssuesCount);
+    private record LibraryStatsDto(
+        Guid Id, string Name, int VolumesCount,
+        int IssuesCount, int DownloadedIssuesCount, int DownloadingIssuesCount, int MissingIssuesCount);
 
     private record RecentVolumeDto(Guid Id, Guid LibraryId, string Title, VolumeImage? Image, DateTime DateAdded);
 
@@ -40,7 +42,9 @@ public class DashboardController(InkhoundManager manager) : ControllerBase
             stats.VolumesCount, stats.VolumesMonitored, stats.VolumesCompleted, stats.VolumesPaused,
             stats.IssuesCount, stats.IssuesDownloaded, stats.IssuesDownloading, stats.IssuesMissing,
             stats.TotalDownloadedBytes,
-            stats.Libraries.Select(l => new LibraryStatsDto(l.Id, l.Name, l.VolumesCount, l.IssuesCount, l.DownloadedIssuesCount)),
+            stats.Libraries.Select(l => new LibraryStatsDto(
+                l.Id, l.Name, l.VolumesCount,
+                l.IssuesCount, l.DownloadedIssuesCount, l.DownloadingIssuesCount, l.MissingIssuesCount)),
             stats.RecentVolumes.Select(v => new RecentVolumeDto(v.Id, v.LibraryId, v.Title, v.Image, v.DateAdded)),
             stats.MostWanted.Select(m => new MostWantedIssueDto(
                 m.IssueId, m.VolumeId, m.LibraryId, m.VolumeTitle, m.Image,
