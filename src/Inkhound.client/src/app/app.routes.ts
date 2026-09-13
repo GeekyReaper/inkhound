@@ -92,6 +92,11 @@ export const routes: Routes = [
             loadComponent: () => import('./views/library/library.component').then(m => m.LibraryComponent)
           },
           {
+            path: 'edit',
+            data: { title: 'Edit' },
+            loadComponent: () => import('./views/library/library-edit/library-edit.component').then(m => m.LibraryEditComponent)
+          },
+          {
             path: 'volume/:volumeId',
             resolve: { title: volumeTitleResolver },
             children: [

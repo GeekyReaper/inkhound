@@ -1,5 +1,4 @@
 import { Component, computed, DestroyRef, effect, ElementRef, inject, signal, viewChild } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { auditTime, filter, finalize, fromEvent, switchMap, tap } from 'rxjs';
@@ -27,12 +26,14 @@ import {
   PaginationComponent,
   ProgressBarComponent,
   ProgressComponent,
+  ProgressStackedComponent,
   RowComponent,
   SpinnerComponent,
   TooltipDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { Library, LibraryService, libraryPageKey } from '../../core/services/library.service';
+import { Library, LibraryService, LibraryStats, libraryPageKey } from '../../core/services/library.service';
+import { formatSize } from '../../core/util/format-size';
 import { EMPTY_LIBRARY_VIEW_STATE, LibraryViewStateService } from '../../core/services/library-view-state.service';
 import { NavigationTrackerService } from '../../core/services/navigation-tracker.service';
 import { KavitaService } from '../../core/services/kavita.service';
@@ -41,6 +42,7 @@ import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { JobContext, UpdatedData } from '../../core/models/hub.models';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 @Component({
   selector: 'app-library',
@@ -49,8 +51,8 @@ import { JobContext, UpdatedData } from '../../core/models/hub.models';
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
-    SpinnerComponent, AlertComponent, ButtonDirective, DatePipe, RouterLink,
-    BadgeComponent, ProgressComponent, ProgressBarComponent, TooltipDirective,
+    SpinnerComponent, AlertComponent, ButtonDirective, SmartDatePipe, RouterLink,
+    BadgeComponent, ProgressComponent, ProgressBarComponent, ProgressStackedComponent, TooltipDirective,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
     ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
@@ -90,6 +92,26 @@ export class LibraryComponent {
   error          = signal<string | null>(null);
   syncing        = signal(false);
   syncDone       = signal<string | null>(null);
+
+  // Encart de description : stats serveur (GET /api/libraries/{id}/stats), rechargées en même
+  // temps que la liste des volumes (même déclencheur : chargement initial + événements Volume).
+  stats          = signal<LibraryStats | null>(null);
+  readonly formatSize = formatSize;
+  completionPercent = computed(() => {
+    const s = this.stats();
+    return s && s.issuesCount > 0 ? Math.round((s.issuesDownloaded / s.issuesCount) * 100) : 0;
+  });
+  volumesBySource = computed(() => {
+    const by = this.stats()?.volumesBySource ?? {};
+    const label = (k: string) => k === 'comicvine' ? 'ComicVine' : k === 'bedetheque' ? 'Bedetheque' : k === 'manual' ? 'Manual' : k;
+    return Object.entries(by).map(([key, count]) => ({ key, label: label(key), count }))
+      .sort((a, b) => b.count - a.count);
+  });
+  kavitaLastScanned = computed(() => {
+    const lib = this.library();
+    if (!lib || lib.kavitaLibraryId <= 0) return null;
+    return this.kavitaService.libraries().find(l => l.id === lib.kavitaLibraryId)?.lastScanned ?? null;
+  });
 
   // Pause / Resume en masse — boutons "Pause all" (≥1 volume MONITORED) et "Resume all"
   // (≥1 volume PAUSED). Les COMPLETED ne sont jamais concernés.
@@ -369,6 +391,7 @@ export class LibraryComponent {
       .subscribe({
         next: lib => {
           this.library.set(lib);
+          this.stats.set(null);   // composant réutilisé d'une library à l'autre
           this.loading.set(false);
           this.restoreViewState(lib.id);
           this.loadVolumes(lib.id);
@@ -408,6 +431,16 @@ export class LibraryComponent {
       .subscribe({
         next:  volumes => { this.volumes.set(volumes); this.volumesLoading.set(false); },
         error: ()      => { this.volumesLoading.set(false); }
+      });
+    this.loadStats(libraryId);
+  }
+
+  private loadStats(libraryId: string): void {
+    this.libraryService.getStats(libraryId)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  stats => { if (this.library()?.id === libraryId) this.stats.set(stats); },
+        error: ()    => { /* encart sans stats — pas bloquant */ }
       });
   }
 

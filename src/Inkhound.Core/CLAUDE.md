@@ -60,6 +60,7 @@ Id, Name, Path, KavitaLibraryId, KavitaPath, CreatedAt, UpdatedAt
 ```
 - `Path` — chemin tel que vu par Inkhound (ex: `Z:\BandeDessinee`)
 - `KavitaLibraryId` — identifiant de la library dans Kavita (pour les scans)
+- Suppression (`DeleteLibraryAsync(id, deleteFiles)`) : cascade en base (volumes, issues, downloads, `SelectedIndexers`) ; avec `deleteFiles`, chaque répertoire de volume est supprimé via `DeleteVolumeDirectory` (garde-fou `TryGetVolumeDirectory`) — jamais `Library.Path` lui-même. Échecs disque cumulés dans `FileWarning`, scan Kavita complet ensuite si liée.
 - `KavitaPath` — chemin racine tel que vu par Kavita (ex: `/data/BandeDessinee`) ; peut différer de `Path` si les points de montage Docker diffèrent ; utilisé pour construire le chemin exact lors d'un scan ciblé sur le dossier d'un volume
 
 ### Volume (= "Comic" dans le brief produit)
@@ -85,6 +86,12 @@ CreatedAt, UpdatedAt, DateAdded, LastRefreshedAt (DateTime?), LastAutoSearchAt (
     qui aligne l'encart Libraries sur la carte « Issues » globale, et ce qui permet à la barre du
     Dashboard d'avoir un segment par statut. Deux requêtes groupées, pas un aller-retour par
     bibliothèque (`Volume`/`Issue` n'ayant aucune navigation EF, les jointures sont explicites).
+  - **Stats d'une library** (`GetLibraryStatsAsync` → `LibraryStats`, `GET /api/libraries/{id}/stats`,
+    encart de la page Library) : même logique de comptage scopée à une library — volumes par
+    `VolumeStatus`, `VolumesBySource` (clé = `SourceType` en minuscules), issues par `Status`
+    (toutes catégories), `TotalDownloadedBytes` (cast `long` avant `SUM`), et `Max` de
+    `DateAdded` / `LastRefreshedAt` / `LastAutoSearchAt` (null si aucun volume). `null` si la
+    library n'existe pas. Lecture pure.
 - `DateAdded` — sert uniquement au tri "Recently added" du Dashboard (`GetDashboardStatsAsync`, `OrderByDescending(v => v.DateAdded)`), aucun autre effet visible. **Tout chemin de création d'un `Volume` doit le renseigner** (avec `CreatedAt`/`UpdatedAt`) — un oubli ne casse rien à la compilation ni aux tests fonctionnels courants, il se traduit juste par un dashboard qui semble figé (bug historique corrigé en septembre 2026 sur ComicVine/Bedetheque/sync filesystem, voir `DbStorageService.ApplyPendingMigrationsAsync` pour le backfill des volumes déjà en base).
 - `LastRefreshedAt` — `DateTime?`, `null` = jamais synchronisé depuis l'ajout. Estampillé à chaque synchro source réussie (`RunRematchVolumeJobAsync` → `StampVolumeLastRefreshedAsync`, refresh manuel comme job de roulement). Sert au tri du « rolling refresh » du scheduler (voir section Scheduler) et est affiché sur la page Volume (« Last refreshed », `VolumeDto.LastRefreshedAt`) ; distinct de `UpdatedAt` qui bouge aussi au recalcul de stats / à l'édition.
 - `LastAutoSearchAt` — `DateTime?`, `null` = jamais traité par la tâche **Auto search** du scheduler (voir section Scheduler). Estampillé **avant** le lancement du job, uniquement par `RunScheduledAutoSearchAsync` (une recherche Prowlarr manuelle ne le touche pas). Sert au tri de rotation de cette tâche ; affiché sur la page Volume (« Last auto search », `VolumeDto.LastAutoSearchAt`).

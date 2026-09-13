@@ -18,7 +18,122 @@
       <c-col>
         <h2 class="mb-0">{{ library()!.name }}</h2>
       </c-col>
-      <c-col xs="auto" class="d-flex gap-2">
+    </c-row>
+
+    @if (syncDone()) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
+            {{ syncDone() }}
+          </c-alert>
+        </c-col>
+      </c-row>
+    }
+
+    <!-- Encart description pleine largeur : configuration / volumes / issues & activité -->
+    <c-row class="mb-3">
+      <c-col>
+        <c-card>
+          <c-card-body>
+            <c-row class="g-4">
+
+              <c-col md="4">
+                <h6 class="text-body-secondary text-uppercase small mb-3">Configuration</h6>
+                <dl class="row mb-0 small">
+                  <dt class="col-5">Path</dt>
+                  <dd class="col-7 text-break"><code>{{ library()!.path }}</code></dd>
+
+                  <dt class="col-5">Kavita library</dt>
+                  <dd class="col-7">
+                    {{ getKavitaLibraryName(library()!.kavitaLibraryId) }}
+                    @if (kavitaLastScanned(); as scanned) {
+                      <div class="text-body-secondary">last scan {{ scanned | smartDate }}</div>
+                    }
+                  </dd>
+
+                  <dt class="col-5">Created</dt>
+                  <dd class="col-7 mb-0">{{ library()!.createdAt | smartDate }}</dd>
+                </dl>
+              </c-col>
+
+              @if (stats(); as s) {
+                <c-col md="4">
+                  <h6 class="text-body-secondary text-uppercase small mb-3">Volumes</h6>
+                  <div class="fs-4 fw-semibold lh-1 mb-2">{{ s.volumesCount }}</div>
+                  <div class="mb-2">
+                    <c-badge color="primary" class="me-1">{{ s.volumesMonitored }} Monitored</c-badge>
+                    <c-badge color="success" class="me-1">{{ s.volumesCompleted }} Completed</c-badge>
+                    <c-badge color="secondary">{{ s.volumesPaused }} Paused</c-badge>
+                  </div>
+                  @if (s.volumesCount > 0) {
+                    <c-progress-stacked style="height: 8px;" class="mb-3">
+                      <c-progress [value]="s.volumesCompleted / s.volumesCount * 100" [height]="8" color="success"></c-progress>
+                      <c-progress [value]="s.volumesMonitored / s.volumesCount * 100" [height]="8" color="primary"></c-progress>
+                      <c-progress [value]="s.volumesPaused / s.volumesCount * 100" [height]="8" color="secondary"></c-progress>
+                    </c-progress-stacked>
+                  }
+                  @if (volumesBySource().length > 0) {
+                    <div class="small text-body-secondary mb-1">By source</div>
+                    <div class="d-flex flex-wrap gap-1">
+                      @for (src of volumesBySource(); track src.key) {
+                        <span class="badge fw-normal"
+                              [class.bg-info]="src.key === 'comicvine'"
+                              [class.bg-warning]="src.key === 'bedetheque'"
+                              [class.text-dark]="src.key === 'bedetheque'"
+                              [class.bg-secondary]="src.key !== 'comicvine' && src.key !== 'bedetheque'">
+                          {{ src.label }} · {{ src.count }}
+                        </span>
+                      }
+                    </div>
+                  }
+                </c-col>
+
+                <c-col md="4">
+                  <h6 class="text-body-secondary text-uppercase small mb-3">Issues &amp; activity</h6>
+                  <div class="d-flex align-items-baseline gap-2 mb-1">
+                    <span class="fs-4 fw-semibold lh-1">{{ s.issuesDownloaded }}</span>
+                    <span class="text-body-secondary small">/ {{ s.issuesCount }} issues · {{ completionPercent() }}%</span>
+                  </div>
+                  <div [cTooltip]="s.issuesDownloaded + ' downloaded / ' + s.issuesDownloading + ' downloading / ' + s.issuesMissing + ' missing'"
+                       cTooltipPlacement="top" class="mb-3">
+                    <c-progress style="height: 8px;">
+                      <c-progress-bar [value]="completionPercent()" color="success"></c-progress-bar>
+                    </c-progress>
+                  </div>
+                  <dl class="row mb-0 small">
+                    <dt class="col-6">Downloading</dt>
+                    <dd class="col-6">{{ s.issuesDownloading }}</dd>
+                    <dt class="col-6">Missing</dt>
+                    <dd class="col-6">{{ s.issuesMissing }}</dd>
+                    <dt class="col-6">Size on disk</dt>
+                    <dd class="col-6">{{ formatSize(s.totalDownloadedBytes) }}</dd>
+                    <dt class="col-6">Last volume added</dt>
+                    <dd class="col-6">{{ s.lastVolumeAddedAt ? (s.lastVolumeAddedAt | smartDate) : 'never' }}</dd>
+                    <dt class="col-6">Last source refresh</dt>
+                    <dd class="col-6">{{ s.lastRefreshedAt ? (s.lastRefreshedAt | smartDate) : 'never' }}</dd>
+                    <dt class="col-6">Last auto search</dt>
+                    <dd class="col-6 mb-0">{{ s.lastAutoSearchAt ? (s.lastAutoSearchAt | smartDate) : 'never' }}</dd>
+                  </dl>
+                </c-col>
+              } @else {
+                <c-col md="8" class="d-flex align-items-center justify-content-center">
+                  <c-spinner size="sm" color="secondary"></c-spinner>
+                </c-col>
+              }
+
+            </c-row>
+          </c-card-body>
+        </c-card>
+      </c-col>
+    </c-row>
+
+    <!-- Actions de la library, entre l'encart et la section Volumes -->
+    <c-row class="mb-4">
+      <c-col class="d-flex flex-wrap gap-2">
+        <button cButton color="secondary" [routerLink]="['/library', library()!.id, 'edit']">
+          <svg cIcon name="cilPencil" class="me-1"></svg>
+          Edit
+        </button>
         <button cButton color="primary" [disabled]="syncing()" (click)="synchronize()">
           @if (syncing()) {
             <c-spinner size="sm" class="me-2"></c-spinner>Synchronizing…
@@ -29,6 +144,10 @@
         <button cButton color="secondary" [disabled]="activeRefreshJobIds().length > 0" (click)="openRefreshModal()">
           <svg cIcon name="cilReload" class="me-1"></svg>
           Refresh
+        </button>
+        <button cButton color="primary" [routerLink]="['/add-volume']" [queryParams]="{ library: library()?.id }" [disabled]="activeJobId() !== null">
+          @if (activeJobId()) { <c-spinner size="sm" class="me-1"></c-spinner> } @else { <svg cIcon name="cilPlus" class="me-1"></svg> }
+          Add
         </button>
         @if (monitoredCount() > 0) {
           <button cButton color="secondary" variant="outline" [disabled]="statusBulkSaving()"
@@ -49,64 +168,19 @@
       </c-col>
     </c-row>
 
-    @if (syncDone()) {
-      <c-row class="mb-3">
-        <c-col>
-          <c-alert color="success" [dismissible]="true" (visibleChange)="syncDone.set(null)">
-            {{ syncDone() }}
-          </c-alert>
-        </c-col>
-      </c-row>
-    }
-
-    <c-row class="mb-4">
-      <c-col md="8" lg="6">
-        <c-card>
-          <c-card-body>
-            <dl class="row mb-0">
-              <dt class="col-sm-4">Path</dt>
-              <dd class="col-sm-8"><code>{{ library()!.path }}</code></dd>
-
-              <dt class="col-sm-4">Kavita Library</dt>
-              <dd class="col-sm-8">{{ getKavitaLibraryName(library()!.kavitaLibraryId) }}</dd>
-
-              <dt class="col-sm-4">Created</dt>
-              <dd class="col-sm-8 mb-0">{{ library()!.createdAt | date:'medium' }}</dd>
-            </dl>
-          </c-card-body>
-        </c-card>
-      </c-col>
-    </c-row>
-
     <!-- Ancre de remontée du viewport (pagination / changement de filtre) — cf. scrollToVolumesTop() -->
     <div #volumesTop class="volumes-top-anchor"></div>
 
     <c-row class="mb-3 align-items-center">
       <c-col>
-        <h5 class="mb-0">
-          Volumes
-          @if (!volumesLoading()) {
-            <span class="text-body-secondary fw-normal fs-6 ms-2">
-              @if (hasActiveFilter()) {
-                ({{ filteredVolumes().length }} / {{ volumes().length }})
-              } @else {
-                ({{ volumes().length }})
-              }
-            </span>
-          }
-        </h5>
-      </c-col>
-      <c-col xs="auto">
-        <button cButton color="primary" size="sm" [routerLink]="['/add-volume']" [queryParams]="{ library: library()?.id }" [disabled]="activeJobId() !== null">
-          @if (activeJobId()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-          + Add
-        </button>
+        <h5 class="mb-0">Volumes</h5>
       </c-col>
     </c-row>
 
+    <!-- Jobs de la library (ajout de volume / refresh) — pleine largeur, sous le titre Volumes -->
     @if (activeJobId()) {
       <c-row class="mb-3">
-        <c-col md="8" lg="6">
+        <c-col>
           <app-job-panel [jobId]="activeJobId()" />
         </c-col>
       </c-row>
@@ -114,7 +188,7 @@
 
     @if (activeRefreshJobIds().length > 0) {
       <c-row class="mb-3">
-        <c-col md="8" lg="6">
+        <c-col>
           <c-card>
             <c-card-body>
               <div class="d-flex justify-content-between align-items-center mb-2">

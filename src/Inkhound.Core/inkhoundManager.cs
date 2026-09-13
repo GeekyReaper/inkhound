@@ -343,6 +343,62 @@ public partial class InkhoundManager : BaseServiceManager
             mostWanted);
     }
 
+    // Statistiques d'UNE library pour l'encart de sa page — même logique de comptage que
+    // GetDashboardStatsAsync (issues réelles toutes catégories, somme des tailles en long), scopée
+    // à la library. VolumesBySource est indexé par SourceType normalisé en minuscules
+    // ("comicvine", "bedetheque", "manual") — SourceType est une valeur libre en base.
+    public record LibraryStats(
+        int VolumesCount, int VolumesMonitored, int VolumesCompleted, int VolumesPaused,
+        Dictionary<string, int> VolumesBySource,
+        int IssuesCount, int IssuesDownloaded, int IssuesDownloading, int IssuesMissing,
+        long TotalDownloadedBytes,
+        DateTime? LastVolumeAddedAt, DateTime? LastRefreshedAt, DateTime? LastAutoSearchAt);
+
+    public async Task<LibraryStats?> GetLibraryStatsAsync(Guid libraryId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        if (!await ctx.Libraries.AnyAsync(l => l.Id == libraryId, ct)) return null;
+
+        var volumes = ctx.Volumes.Where(v => v.LibraryId == libraryId);
+        var issues  = from i in ctx.Issues
+                      join v in ctx.Volumes on i.VolumeId equals v.Id
+                      where v.LibraryId == libraryId
+                      select i;
+
+        var volumesCount     = await volumes.CountAsync(ct);
+        var volumesMonitored = await volumes.CountAsync(v => v.Status == VolumeStatus.MONITORED, ct);
+        var volumesCompleted = await volumes.CountAsync(v => v.Status == VolumeStatus.COMPLETED, ct);
+        var volumesPaused    = await volumes.CountAsync(v => v.Status == VolumeStatus.PAUSED, ct);
+
+        var volumesBySource = (await volumes
+                .GroupBy(v => v.SourceType)
+                .Select(g => new { SourceType = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .GroupBy(x => x.SourceType.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+
+        var issuesDownloaded  = await issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADED, ct);
+        var issuesDownloading = await issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADING, ct);
+        var issuesMissing     = await issues.CountAsync(i => i.Status == IssueStatus.MISSING, ct);
+
+        var totalDownloadedBytes = await issues
+            .Where(i => i.Status == IssueStatus.DOWNLOADED)
+            .SumAsync(i => (long)i.FileSizeBytes, ct);
+
+        // MaxAsync sur un type nullable renvoie null quand la séquence est vide (pas d'exception).
+        var lastVolumeAddedAt = await volumes.Select(v => (DateTime?)v.DateAdded).MaxAsync(ct);
+        var lastRefreshedAt   = await volumes.Select(v => v.LastRefreshedAt).MaxAsync(ct);
+        var lastAutoSearchAt  = await volumes.Select(v => v.LastAutoSearchAt).MaxAsync(ct);
+
+        return new LibraryStats(
+            volumesCount, volumesMonitored, volumesCompleted, volumesPaused,
+            volumesBySource,
+            issuesDownloaded + issuesDownloading + issuesMissing,
+            issuesDownloaded, issuesDownloading, issuesMissing,
+            totalDownloadedBytes,
+            lastVolumeAddedAt, lastRefreshedAt, lastAutoSearchAt);
+    }
+
     // Construit et ordonne les lignes « Most wanted » à partir des issues MISSING Standard
     // candidates et de leur volume parent. Tri : moins d'issues manquantes d'abord (une série
     // à qui il ne manque qu'un tome passe en tête), puis volume au plus grand nombre de tomes
@@ -410,16 +466,47 @@ public partial class InkhoundManager : BaseServiceManager
         return library;
     }
 
-    public async Task<bool> DeleteLibraryAsync(Guid id)
+    /// <summary>
+    /// Supprime une library et tout ce qui en dépend en base (volumes, issues, downloads, indexers
+    /// sélectionnés). Avec <paramref name="deleteFiles"/>, le répertoire de chaque volume est supprimé
+    /// via <see cref="DeleteVolumeDirectory"/> (garde-fou de confinement sous Library.Path — on ne
+    /// supprime jamais Library.Path lui-même, qui peut contenir des dossiers étrangers au pipeline).
+    /// Les échecs disque n'annulent pas la suppression en base : ils sont cumulés dans FileWarning.
+    /// </summary>
+    public async Task<(bool Found, string? FileWarning)> DeleteLibraryAsync(Guid id, bool deleteFiles = false)
     {
         var ctx = GetDb();
         var library = await ctx.Libraries.FindAsync(id);
-        if (library is null) return false;
+        if (library is null) return (false, null);
 
+        var volumes = await ctx.Volumes.Where(v => v.LibraryId == id).ToListAsync();
+
+        List<string> warnings = [];
+        if (deleteFiles)
+        {
+            foreach (var volume in volumes)
+            {
+                var warning = DeleteVolumeDirectory(volume, library);
+                if (warning is not null) warnings.Add($"{volume.Title}: {warning}");
+            }
+        }
+
+        var volumeIds = volumes.Select(v => v.Id).ToList();
+        var issueIds  = await ctx.Issues.Where(i => volumeIds.Contains(i.VolumeId)).Select(i => i.Id).ToListAsync();
+        ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => issueIds.Contains(d.IssueId)));
+        ctx.Issues.RemoveRange(ctx.Issues.Where(i => volumeIds.Contains(i.VolumeId)));
+        ctx.Volumes.RemoveRange(volumes);
+        ctx.SelectedIndexers.RemoveRange(ctx.SelectedIndexers.Where(s => s.LibraryId == id));
         ctx.Libraries.Remove(library);
         await ctx.SaveChangesAsync();
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Library>(id));
-        return true;
+
+        if (deleteFiles && library.KavitaLibraryId > 0)
+        {
+            await ScanKavitaLibraryAsync(library.KavitaLibraryId);
+        }
+
+        return (true, warnings.Count == 0 ? null : string.Join(" ", warnings));
     }
 
     /// <summary>

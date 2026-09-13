@@ -6,9 +6,9 @@ import {
   CardBodyComponent, CardComponent, CardHeaderComponent,
   ColComponent, RowComponent,
   FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
-  ModalBodyComponent, ModalComponent, ModalFooterComponent, ModalHeaderComponent,
   SpinnerComponent
 } from '@coreui/angular';
+import { IconDirective } from '@coreui/icons-angular';
 import {
   IndexerSelection, ProwlarrIndexer, ProwlarrService, SelectedIndexer
 } from '../../core/services/prowlarr.service';
@@ -21,7 +21,7 @@ import {
     CardComponent, CardHeaderComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, BadgeComponent,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
-    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent
+    IconDirective
   ]
 })
 export class LibraryIndexersComponent implements OnInit {
@@ -33,8 +33,9 @@ export class LibraryIndexersComponent implements OnInit {
   indexers           = signal<ProwlarrIndexer[]>([]);
   selectedIds        = signal<Set<number>>(new Set());
   selectedCategories = signal<Map<number, Set<number>>>(new Map());
+  // Indexer dont les catégories sont affichées « en place » dans le bloc (à la place de la liste
+  // des indexers) — pas de modal empilé : le composant vit lui-même dans un modal (page Library).
   activeIndexer      = signal<ProwlarrIndexer | null>(null);
-  modalVisible       = signal(false);
   loading            = signal(true);
   saving             = signal(false);
   saveSuccess        = signal(false);
@@ -86,27 +87,31 @@ export class LibraryIndexersComponent implements OnInit {
     const ids    = new Set(this.selectedIds());
     const catMap = new Map(this.selectedCategories());
 
-    if (ids.has(indexer.id)) {
-      ids.delete(indexer.id);
-      catMap.delete(indexer.id);
-    } else {
+    const enabling = !ids.has(indexer.id);
+    if (enabling) {
       ids.add(indexer.id);
       catMap.set(indexer.id, this.defaultCategories(indexer));
+    } else {
+      ids.delete(indexer.id);
+      catMap.delete(indexer.id);
     }
 
     this.selectedIds.set(ids);
     this.selectedCategories.set(catMap);
     this.saveSuccess.set(false);
+
+    // Activer un indexer enchaîne directement sur le choix de ses catégories.
+    if (enabling) this.openCategories(indexer);
   }
 
-  openCategoriesModal(indexer: ProwlarrIndexer): void {
+  openCategories(indexer: ProwlarrIndexer): void {
     this.activeIndexer.set(indexer);
-    this.modalVisible.set(true);
   }
 
-  closeCategoriesModal(): void {
-    this.modalVisible.set(false);
+  // Retour à la liste des indexers — la sélection courante (indexers + catégories) est persistée.
+  backFromCategories(): void {
     this.activeIndexer.set(null);
+    this.save();
   }
 
   toggleCategory(indexerId: number, categoryId: number): void {

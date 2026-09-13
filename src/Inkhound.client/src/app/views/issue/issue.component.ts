@@ -20,6 +20,7 @@ import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { UpdatedData } from '../../core/models/hub.models';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 @Component({
   selector: 'app-issue',
@@ -31,7 +32,7 @@ import { UpdatedData } from '../../core/models/hub.models';
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective, IconDirective,
     ModalModule,
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
-    DatePipe, SlicePipe,
+    DatePipe, SlicePipe, SmartDatePipe,
     JobPanelComponent,
     ProwlarrSearchComponent,
     SelectPathComponent

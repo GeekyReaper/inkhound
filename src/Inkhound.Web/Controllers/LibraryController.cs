@@ -65,14 +65,17 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 
-    // DELETE /api/libraries/{id}
+    // DELETE /api/libraries/{id}?deleteFiles=true — supprime la library et tout son contenu en
+    // base ; avec deleteFiles, les répertoires des volumes sur disque aussi. 204 si tout s'est bien
+    // passé, 200 { fileWarning } si la base est nettoyée mais qu'un répertoire n'a pas pu l'être.
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id)
+    public async Task<IActionResult> Delete(Guid id, [FromQuery] bool deleteFiles = false)
     {
         try
         {
-            var deleted = await manager.DeleteLibraryAsync(id);
-            return deleted ? NoContent() : NotFound();
+            var (found, fileWarning) = await manager.DeleteLibraryAsync(id, deleteFiles);
+            if (!found) return NotFound();
+            return fileWarning is null ? NoContent() : Ok(new { fileWarning });
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
@@ -138,6 +141,27 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     {
         _ = manager.LaunchJobSynchronizeLibrary(new SynchronizeLibraryJobParameters { LibraryId = id });
         return Accepted(new { message = $"Synchronization of library {id} started." });
+    }
+
+    private record LibraryStatsDto(
+        int VolumesCount, int VolumesMonitored, int VolumesCompleted, int VolumesPaused,
+        Dictionary<string, int> VolumesBySource,
+        int IssuesCount, int IssuesDownloaded, int IssuesDownloading, int IssuesMissing,
+        long TotalDownloadedBytes,
+        DateTime? LastVolumeAddedAt, DateTime? LastRefreshedAt, DateTime? LastAutoSearchAt);
+
+    // GET /api/libraries/{id}/stats — encart de la page Library (volumes/issues/taille/dates)
+    [HttpGet("{id:guid}/stats")]
+    public async Task<IActionResult> GetStats(Guid id, CancellationToken ct)
+    {
+        var s = await manager.GetLibraryStatsAsync(id, ct);
+        if (s is null) return NotFound();
+        return Ok(new LibraryStatsDto(
+            s.VolumesCount, s.VolumesMonitored, s.VolumesCompleted, s.VolumesPaused,
+            s.VolumesBySource,
+            s.IssuesCount, s.IssuesDownloaded, s.IssuesDownloading, s.IssuesMissing,
+            s.TotalDownloadedBytes,
+            s.LastVolumeAddedAt, s.LastRefreshedAt, s.LastAutoSearchAt));
     }
 
     // POST /api/libraries/{id}/recalculate-statistics

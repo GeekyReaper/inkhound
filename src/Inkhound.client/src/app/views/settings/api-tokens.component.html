@@ -47,9 +47,9 @@
                 <tr>
                   <td>{{ token.name }}</td>
                   <td><code>{{ token.prefix }}••••••••</code></td>
-                  <td>{{ token.createdAt | date:'short' }}</td>
-                  <td>{{ token.expiresAt ? (token.expiresAt | date:'short') : 'Never' }}</td>
-                  <td>{{ token.lastUsedAt ? (token.lastUsedAt | date:'short') : 'Never used' }}</td>
+                  <td>{{ token.createdAt | smartDate }}</td>
+                  <td>{{ token.expiresAt ? (token.expiresAt | smartDate) : 'Never' }}</td>
+                  <td>{{ token.lastUsedAt ? (token.lastUsedAt | smartDate) : 'Never used' }}</td>
                   <td>
                     <button cButton color="danger" variant="outline" size="sm" (click)="delete(token)">
                       <svg cIcon name="cilTrash" size="sm"></svg>

@@ -176,6 +176,9 @@ src/
 │   │   ├── interceptors/        # auth, auth-error, connection
 │   │   ├── models/              # hub.models.ts (EState, JobContext, TraceDefinition, etc.)
 │   │   ├── resolvers/           # library-title, volume-title
+│   │   ├── pipes/               # SmartDatePipe (`smartDate`) — date+heure compacte : 24 h sans secondes,
+│   │   │                        #   année omise si égale à l'année courante ("13 Sep, 14:32" / "13 Sep 2025, 14:32").
+│   │   │                        #   À utiliser à la place de date:'medium'/'short' sur tout horodatage métier.
 │   │   └── services/            # AuthService, HubService, LibraryService, LibraryViewStateService,
 │   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
 │   │                            # OptionsService, SchedulerService, FilesystemService, ImageService
@@ -185,8 +188,21 @@ src/
 │   │   │                        #   MISSING proches de compléter leur volume, clic → page détail issue)
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
 │   │   │                        #   filtres côté client : lettre / complétude / source / titre / année / age rating —
-│   │   │                        #   filtres + page + scroll persistés par id via LibraryViewStateService)
-│   │   ├── library-management/  # LibraryManagementComponent (CRUD bibliothèques)
+│   │   │                        #   filtres + page + scroll persistés par id via LibraryViewStateService).
+│   │   │                        #   En-tête : encart pleine largeur en 3 colonnes (Configuration / Volumes /
+│   │   │                        #   Issues & activity — stats via GET /api/libraries/{id}/stats, rechargées avec
+│   │   │                        #   la liste des volumes ; dernier scan Kavita lu depuis KavitaService), puis la
+│   │   │                        #   rangée d'actions (Edit → /library/:id/edit / Synchronize / Refresh / Pause all / Resume all)
+│   │   │                        #   entre l'encart et la section Volumes ; job panels pleine largeur sous le titre.
+│   │   │   └── library-edit/    # LibraryEditComponent — page /library/:id/edit : Name / Path + sélecteur de
+│   │   │                        #   dossier / Kavita library / Kavita path (colonne gauche) + bloc
+│   │   │                        #   app-library-indexers (droite). Save → retour /library/:id + loadLibraries()
+│   │   │                        #   (sidebar). Seule page d'édition d'une library (plus de formulaire dans /libraries).
+│   │   ├── library-indexers/    # LibraryIndexersComponent — sélection des indexers Prowlarr + catégories par
+│   │   │                        #   library. Les catégories s'affichent EN PLACE de la liste (titre = nom de
+│   │   │                        #   l'indexer, pas de modal empilé — le bloc vit dans le modal Edit de la page
+│   │   │                        #   Library) : cocher un indexer ou cliquer « Categories » ouvre la vue, « Back »
+│   │   │                        #   revient à la liste ET persiste la sélection (save()).
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
@@ -214,6 +230,7 @@ src/
 | `/dashboard` | `DashboardComponent` | Tableau de bord |
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
+| `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |
 | `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |

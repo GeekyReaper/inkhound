@@ -26,7 +26,6 @@ import {
   TooltipDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { DatePipe } from '@angular/common';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, ImportScanFile, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueCategory, IssueService } from '../../core/services/issue.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
@@ -38,6 +37,7 @@ import { UpdatedData } from '../../core/models/hub.models';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { Library, LibraryService } from '../../core/services/library.service';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 @Component({
   selector: 'app-volume',
@@ -52,7 +52,7 @@ import { Library, LibraryService } from '../../core/services/library.service';
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent, IssueCardComponent, DatePipe
+    JobPanelComponent, IssueCardComponent, SmartDatePipe
   ]
 })
 export class VolumeComponent {

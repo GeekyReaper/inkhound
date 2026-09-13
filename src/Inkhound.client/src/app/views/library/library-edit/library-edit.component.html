@@ -1,0 +1,150 @@
+<c-container class="py-4">
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (loadError()) {
+    <c-row>
+      <c-col><c-alert color="danger">{{ loadError() }}</c-alert></c-col>
+    </c-row>
+  } @else if (library(); as lib) {
+
+    <c-row class="mb-4 align-items-center">
+      <c-col>
+        <h2 class="mb-0">Edit Library <span class="text-body-secondary fw-normal">— {{ lib.name }}</span></h2>
+      </c-col>
+      <c-col xs="auto">
+        <button cButton color="secondary" variant="outline" [routerLink]="['/library', lib.id]">
+          <svg cIcon name="cilChevronLeft" class="me-1"></svg>
+          Back
+        </button>
+      </c-col>
+    </c-row>
+
+    <c-row class="g-4">
+      <c-col lg="6">
+        <c-card>
+          <c-card-header><strong>Settings</strong></c-card-header>
+          <c-card-body>
+            <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+
+              <!-- Name -->
+              <div class="mb-3">
+                <label cLabel for="editLibName">Name <span class="text-danger">*</span></label>
+                <input
+                  cFormControl
+                  id="editLibName"
+                  formControlName="name"
+                  type="text"
+                  placeholder="My Manga Library"
+                  [class.is-invalid]="form.controls.name.invalid && form.controls.name.touched"
+                />
+              </div>
+
+              <!-- Path -->
+              <div class="mb-3">
+                <label cLabel for="editLibPath">Path <span class="text-danger">*</span></label>
+                <c-input-group>
+                  <input
+                    cFormControl
+                    id="editLibPath"
+                    formControlName="path"
+                    type="text"
+                    placeholder="Select a directory..."
+                    readonly
+                    [class.is-invalid]="pathCtrl.invalid && pathCtrl.touched"
+                  />
+                  <button cButton color="secondary" type="button" (click)="pathPickerVisible.set(true)">
+                    <svg cIcon name="cilFolder"></svg>
+                  </button>
+                </c-input-group>
+              </div>
+
+              <!-- Kavita Library -->
+              <div class="mb-3">
+                <label cLabel for="editLibKavitaId">Kavita Library <span class="text-danger">*</span></label>
+                @if (kavitaServiceOk()) {
+                  @if (kavitaLoading()) {
+                    <c-spinner size="sm"></c-spinner>
+                  } @else {
+                    <select
+                      cSelect
+                      id="editLibKavitaId"
+                      formControlName="kavitaLibraryId"
+                      [valid]="form.controls.kavitaLibraryId.valid || form.controls.kavitaLibraryId.untouched ? undefined : false"
+                    >
+                      <option value="" disabled>Select a Kavita library…</option>
+                      <option value="0">None</option>
+                      @for (klib of kavitaLibraries(); track klib.id) {
+                        <option [value]="klib.id">{{ klib.name }}</option>
+                      }
+                    </select>
+                  }
+                } @else {
+                  <input
+                    cFormControl
+                    id="editLibKavitaId"
+                    formControlName="kavitaLibraryId"
+                    type="number"
+                    placeholder="Kavita library ID…"
+                    [class.is-invalid]="form.controls.kavitaLibraryId.invalid && form.controls.kavitaLibraryId.touched"
+                  />
+                  <small class="text-muted">Kavita service unavailable — enter ID manually.</small>
+                }
+              </div>
+
+              <!-- Kavita Path -->
+              <div class="mb-4">
+                <label cLabel for="editLibKavitaPath">Kavita Path</label>
+                <input
+                  cFormControl
+                  id="editLibKavitaPath"
+                  formControlName="kavitaPath"
+                  type="text"
+                  placeholder="/data/BandeDessinee"
+                />
+                <small class="text-body-secondary">
+                  Path of the library as seen by Kavita (may differ from the Inkhound Path if mount points differ).
+                  Leave empty to use a full-library scan.
+                </small>
+              </div>
+
+              @if (saveError()) {
+                <c-alert color="danger" class="mb-3">{{ saveError() }}</c-alert>
+              }
+
+              <div class="d-flex gap-2">
+                <button cButton color="secondary" type="button" [routerLink]="['/library', lib.id]">Cancel</button>
+                <button cButton color="primary" type="submit" [disabled]="saving()">
+                  @if (saving()) {
+                    <c-spinner size="sm" class="me-2"></c-spinner>Saving…
+                  } @else {
+                    Save Changes
+                  }
+                </button>
+              </div>
+            </form>
+          </c-card-body>
+        </c-card>
+      </c-col>
+
+      <c-col lg="6">
+        <!-- Indexers Prowlarr de la library — composant autonome (sauvegarde indépendante du formulaire) -->
+        <app-library-indexers [libraryId]="lib.id" />
+      </c-col>
+    </c-row>
+
+  }
+
+</c-container>
+
+<!-- Sélecteur de dossier -->
+<app-select-path
+  mode="directory"
+  [(visible)]="pathPickerVisible"
+  [initialPath]="pathCtrl.value"
+  (pathSelected)="onPathSelected($event)"
+/>

@@ -1,21 +1,18 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import {
   AlertComponent,
   ButtonCloseDirective,
   ButtonDirective,
-  CardBodyComponent,
-  CardComponent,
-  CardHeaderComponent,
   ColComponent,
   ContainerComponent,
+  FormCheckComponent,
+  FormCheckInputDirective,
+  FormCheckLabelDirective,
   FormControlDirective,
   FormLabelDirective,
-  FormSelectDirective,
-  InputGroupComponent,
-  InputGroupTextDirective,
   ModalBodyComponent,
   ModalComponent,
   ModalFooterComponent,
@@ -26,72 +23,52 @@ import {
   TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { Library, LibraryService, CreateLibraryRequest, UpdateLibraryRequest } from '../../core/services/library.service';
+import { Library, LibraryService } from '../../core/services/library.service';
 import { KavitaService, KavitaLibrary } from '../../core/services/kavita.service';
-import { HubService } from '../../core/services/hub.service';
-import { SelectPathComponent } from '../select-path/select-path.component';
-import { LibraryIndexersComponent } from '../library-indexers/library-indexers.component';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
-type PageMode = 'list' | 'add' | 'edit';
-
+// Page /libraries : liste seule. « Add » ne demande qu'un nom (popup) puis redirige vers la page
+// d'édition (/library/:id/edit) pour compléter Path / Kavita / indexers ; « Delete » (popup) propose
+// de supprimer aussi les fichiers CBZ (répertoires des volumes) sur disque.
 @Component({
   selector: 'app-library-management',
   templateUrl: './library-management.component.html',
   imports: [
     ContainerComponent, RowComponent, ColComponent,
-    CardComponent, CardHeaderComponent, CardBodyComponent,
-    ReactiveFormsModule, FormControlDirective, FormLabelDirective, FormSelectDirective,
-    InputGroupComponent, InputGroupTextDirective,
+    FormsModule, FormControlDirective, FormLabelDirective,
+    FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ButtonDirective, ButtonCloseDirective, SpinnerComponent, AlertComponent, IconDirective,
-    TableDirective, SelectPathComponent, LibraryIndexersComponent, DatePipe,
+    TableDirective, SmartDatePipe, RouterLink,
     ModalComponent, ModalHeaderComponent, ModalTitleDirective, ModalBodyComponent, ModalFooterComponent
   ]
 })
 export class LibraryManagementComponent implements OnInit {
   private libraryService = inject(LibraryService);
   private kavitaService  = inject(KavitaService);
-  private hubService     = inject(HubService);
-  readonly #destroyRef = inject(DestroyRef);
-
-  kavitaServiceOk = computed(() =>
-    this.hubService.managerState()?.stateServices
-      .find(s => s.serviceName === 'Kavita')?.state === 'OK'
-  );
-  kavitaLibraries = this.kavitaService.libraries;
-  kavitaLoading   = this.kavitaService.loading;
-
-  getKavitaLibrary(id: number): KavitaLibrary | undefined {
-    return this.kavitaService.libraries().find(l => l.id === id);
-  }
-
-  mode = signal<PageMode>('list');
+  private router         = inject(Router);
+  readonly #destroyRef   = inject(DestroyRef);
 
   libraries   = this.libraryService.libraries;
   loadingList = signal(false);
   listError   = signal<string | null>(null);
 
-  pathPickerVisible   = signal(false);
-  kavitaPickerVisible = signal(false);
+  getKavitaLibrary(id: number): KavitaLibrary | undefined {
+    return this.kavitaService.libraries().find(l => l.id === id);
+  }
 
-  saving     = signal(false);
-  saveStatus = signal<'idle' | 'success' | 'error'>('idle');
-  saveError  = signal('');
+  // ── Add (nom seul) ────────────────────────────────────────────────────────
+  addModalVisible = signal(false);
+  newName         = signal('');
+  creating        = signal(false);
+  createError     = signal<string | null>(null);
 
-  editingLibrary       = signal<Library | null>(null);
+  // ── Delete ────────────────────────────────────────────────────────────────
   confirmDeleteVisible = signal(false);
   deleteTarget         = signal<Library | null>(null);
+  deleteFiles          = signal(false);
   deleting             = signal(false);
   deleteError          = signal<string | null>(null);
-
-  form = new FormGroup({
-    name:            new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    path:            new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    kavitaLibraryId: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    kavitaPath:      new FormControl('', { nonNullable: true })
-  });
-
-  get pathCtrl()      { return this.form.controls.path; }
-
+  deleteWarning        = signal<string | null>(null);
 
   ngOnInit() {
     this.loadLibraries();
@@ -109,38 +86,38 @@ export class LibraryManagementComponent implements OnInit {
       });
   }
 
-  onPathSelected(path: string) {
-    if (path) this.pathCtrl.setValue(path);
+  openAdd() {
+    this.newName.set('');
+    this.createError.set(null);
+    this.addModalVisible.set(true);
   }
 
-  showAddForm() {
-    this.editingLibrary.set(null);
-    this.form.reset();
-    this.saveStatus.set('idle');
-    this.kavitaService.loadLibraries();
-    this.mode.set('add');
-  }
+  confirmAdd() {
+    const name = this.newName().trim();
+    if (!name || this.creating()) return;
 
-  showEditForm(lib: Library) {
-    this.editingLibrary.set(lib);
-    this.form.setValue({
-      name:            lib.name,
-      path:            lib.path,
-      kavitaLibraryId: lib.kavitaLibraryId.toString(),
-      kavitaPath:      lib.kavitaPath
-    });
-    this.saveStatus.set('idle');
-    this.kavitaService.loadLibraries();
-    this.mode.set('edit');
-  }
-
-  cancelAdd() {
-    this.editingLibrary.set(null);
-    this.mode.set('list');
+    this.creating.set(true);
+    this.createError.set(null);
+    // Path / Kavita sont renseignés ensuite sur la page d'édition.
+    this.libraryService.create({ name, path: '', kavitaLibraryId: 0, kavitaPath: '' })
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next: lib => {
+          this.creating.set(false);
+          this.addModalVisible.set(false);
+          this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
+          this.router.navigate(['/library', lib.id, 'edit']);
+        },
+        error: err => {
+          this.creating.set(false);
+          this.createError.set(err?.error?.message ?? 'Failed to create library.');
+        }
+      });
   }
 
   requestDelete(lib: Library) {
     this.deleteTarget.set(lib);
+    this.deleteFiles.set(false);
     this.deleteError.set(null);
     this.confirmDeleteVisible.set(true);
   }
@@ -152,70 +129,20 @@ export class LibraryManagementComponent implements OnInit {
     this.deleting.set(true);
     this.deleteError.set(null);
 
-    this.libraryService.delete(lib.id)
+    this.libraryService.delete(lib.id, this.deleteFiles())
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: () => {
+        next: res => {
           this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
           this.deleting.set(false);
           this.confirmDeleteVisible.set(false);
           this.deleteTarget.set(null);
+          this.deleteWarning.set(res?.fileWarning ?? null);
         },
         error: (err) => {
           this.deleteError.set(err?.error?.message ?? 'Failed to delete library.');
           this.deleting.set(false);
         }
       });
-  }
-
-  submit() {
-    if (this.form.invalid) {
-      this.form.markAllAsTouched();
-      return;
-    }
-
-    const request: CreateLibraryRequest = {
-      name:            this.form.controls.name.value,
-      path:            this.form.controls.path.value,
-      kavitaLibraryId: Number(this.form.controls.kavitaLibraryId.value),
-      kavitaPath:      this.form.controls.kavitaPath.value
-    };
-
-    this.saving.set(true);
-    this.saveStatus.set('idle');
-
-    if (this.mode() === 'edit') {
-      const lib = this.editingLibrary()!;
-      this.libraryService.update(lib.id, request as UpdateLibraryRequest)
-        .pipe(takeUntilDestroyed(this.#destroyRef))
-        .subscribe({
-          next: () => {
-            this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
-            this.saving.set(false);
-            this.editingLibrary.set(null);
-            this.mode.set('list');
-          },
-          error: (err) => {
-            this.saving.set(false);
-            this.saveStatus.set('error');
-            this.saveError.set(err?.error?.message ?? 'Failed to update library.');
-          }
-        });
-    } else {
-      this.libraryService.create(request)
-        .pipe(takeUntilDestroyed(this.#destroyRef))
-        .subscribe({
-          next: () => {
-            this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
-            this.saving.set(false);
-            this.mode.set('list');
-          },
-          error: (err) => {
-            this.saving.set(false);
-            this.saveStatus.set('error');
-            this.saveError.set(err?.error?.message ?? 'Failed to create library.');
-          }
-        });
-    }
   }
 }

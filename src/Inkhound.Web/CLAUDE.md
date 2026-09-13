@@ -91,7 +91,8 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | POST | `/api/auth/login` | public | Login, retourne JWT |
 | GET | `/api/auth/me` | auth | Profil courant (fonctionne aussi en mode bootstrap ouvert) |
 | GET/POST/PUT/DELETE | `/api/users` | auth | CRUD utilisateurs (rôle unique, pas de restriction supplémentaire) |
-| GET/POST/PUT/DELETE | `/api/libraries` | admin | CRUD librairies |
+| GET/POST/PUT/DELETE | `/api/libraries` | admin | CRUD librairies — `DELETE ?deleteFiles=true` supprime aussi les répertoires des volumes sur disque (204, ou 200 `{ fileWarning }` si un répertoire n'a pas pu l'être) ; la suppression en base cascade volumes/issues/downloads/indexers (`InkhoundManager.DeleteLibraryAsync`) |
+| GET | `/api/libraries/{id}/stats` | admin | Stats de l'encart de la page Library (volumes par statut/source, issues par statut, taille téléchargée, dernières dates d'activité) — `InkhoundManager.GetLibraryStatsAsync` |
 | GET/POST/PUT/DELETE | `/api/volumes` | auth | CRUD volumes |
 | GET/POST/PUT/DELETE | `/api/issues` | auth | CRUD issues |
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |

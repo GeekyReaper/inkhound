@@ -50,7 +50,7 @@
               @for (user of users(); track user.id) {
                 <tr>
                   <td>{{ user.login }}</td>
-                  <td>{{ user.createdAt | date:'short' }}</td>
+                  <td>{{ user.createdAt | smartDate }}</td>
                   <td class="text-end text-nowrap">
                     <button cButton color="ghost-secondary" size="sm" (click)="showEditForm(user)" title="Edit">
                       <svg cIcon name="cilPencil" size="sm"></svg>

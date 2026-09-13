@@ -1,5 +1,4 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs/operators';
@@ -13,6 +12,7 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { ApiToken, ApiTokenService } from '../../core/services/api-token.service';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 @Component({
   selector: 'app-api-tokens',
@@ -23,7 +23,7 @@ import { ApiToken, ApiTokenService } from '../../core/services/api-token.service
     CardComponent, CardBodyComponent,
     ButtonDirective, SpinnerComponent, AlertComponent, TableDirective,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
-    IconDirective, DatePipe
+    IconDirective, SmartDatePipe
   ],
   templateUrl: './api-tokens.component.html'
 })

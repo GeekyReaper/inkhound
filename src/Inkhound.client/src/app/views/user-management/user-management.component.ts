@@ -1,5 +1,4 @@
 import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -25,6 +24,7 @@ import {
 import { IconDirective } from '@coreui/icons-angular';
 import { User, UserService, CreateUserRequest, UpdateUserRequest } from '../../core/services/user.service';
 import { AuthService } from '../../core/services/auth.service';
+import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 type PageMode = 'list' | 'add' | 'edit';
 
@@ -36,7 +36,7 @@ type PageMode = 'list' | 'add' | 'edit';
     CardComponent, CardBodyComponent,
     ReactiveFormsModule, FormControlDirective, FormLabelDirective,
     ButtonDirective, ButtonCloseDirective, SpinnerComponent, AlertComponent, IconDirective,
-    TableDirective, DatePipe,
+    TableDirective, SmartDatePipe,
     ModalComponent, ModalHeaderComponent, ModalTitleDirective, ModalBodyComponent, ModalFooterComponent
   ]
 })

@@ -21,6 +21,24 @@ export interface CreateLibraryRequest {
 
 export type UpdateLibraryRequest = CreateLibraryRequest;
 
+// GET /api/libraries/{id}/stats — encart de la page Library. volumesBySource indexé par
+// SourceType en minuscules ("comicvine", "bedetheque", "manual").
+export interface LibraryStats {
+  volumesCount:         number;
+  volumesMonitored:     number;
+  volumesCompleted:     number;
+  volumesPaused:        number;
+  volumesBySource:      Record<string, number>;
+  issuesCount:          number;
+  issuesDownloaded:     number;
+  issuesDownloading:    number;
+  issuesMissing:        number;
+  totalDownloadedBytes: number;
+  lastVolumeAddedAt:    string | null;
+  lastRefreshedAt:      string | null;
+  lastAutoSearchAt:     string | null;
+}
+
 // Clé de page pour PageJobService — même format que router.url une fois sur la page Library,
 // utilisée à la fois par LibraryComponent (pour s'y abonner) et par les pages qui y associent un
 // job lancé ailleurs (ex: VolumeAddComponent après un "Add to Library").
@@ -47,6 +65,10 @@ export class LibraryService {
     return this.http.get<Library>(`/api/libraries/${id}`);
   }
 
+  getStats(id: string) {
+    return this.http.get<LibraryStats>(`/api/libraries/${id}/stats`);
+  }
+
   create(request: CreateLibraryRequest) {
     return this.http.post<Library>('/api/libraries', request);
   }
@@ -55,8 +77,9 @@ export class LibraryService {
     return this.http.put<Library>(`/api/libraries/${id}`, request);
   }
 
-  delete(id: string) {
-    return this.http.delete(`/api/libraries/${id}`);
+  // 204, ou 200 { fileWarning } si un répertoire de volume n'a pas pu être supprimé.
+  delete(id: string, deleteFiles = false) {
+    return this.http.delete<{ fileWarning?: string } | null>(`/api/libraries/${id}`, { params: { deleteFiles } });
   }
 
   sync(id: string) {
