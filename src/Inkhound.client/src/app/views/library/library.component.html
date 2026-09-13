@@ -97,7 +97,7 @@
         </h5>
       </c-col>
       <c-col xs="auto">
-        <button cButton color="primary" size="sm" [routerLink]="['add-volume']" [disabled]="activeJobId() !== null">
+        <button cButton color="primary" size="sm" [routerLink]="['/add-volume']" [queryParams]="{ library: library()?.id }" [disabled]="activeJobId() !== null">
           @if (activeJobId()) { <c-spinner size="sm" class="me-1"></c-spinner> }
           + Add
         </button>

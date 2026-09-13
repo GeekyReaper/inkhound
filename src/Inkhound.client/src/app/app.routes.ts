@@ -115,13 +115,16 @@ export const routes: Routes = [
                 loadComponent: () => import('./views/issue/issue.component').then(m => m.IssueComponent)
               }
             ]
-          },
-          {
-            path: 'add-volume',
-            data: { title: 'Add' },
-            loadComponent: () => import('./views/volume/volume-add.component').then(m => m.VolumeAddComponent)
           }
         ]
+      },
+      {
+        // Page dédiée, accessible depuis le menu ; la library cible est optionnelle en query
+        // param (?library=<id>, pré-remplie par le bouton "+ Add" d'une library) et sinon
+        // demandée dans le workflow d'ajout.
+        path: 'add-volume',
+        loadComponent: () => import('./views/volume/volume-add.component').then(m => m.VolumeAddComponent),
+        data: { title: 'Add Volume' }
       }
     ]
   },

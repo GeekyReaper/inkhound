@@ -72,6 +72,7 @@ export class DefaultLayoutComponent {
       url: `/library/${lib.id}`,
       iconComponent: { name: 'cil-library' }
     })),
+    { name: 'Add Volume', url: '/add-volume', iconComponent: { name: 'cil-plus' } },
     ...navItemsBottom.filter(item => item.name !== 'API Tokens' || this.apiTokensEnabled())
   ]);
 }

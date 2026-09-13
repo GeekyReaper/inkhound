@@ -14,13 +14,14 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
     private record VolumeSearchDto(
         string SourceId, string Source, string Title,
         int? Year, int CountOfIssues, string? Description,
-        string? Publisher, string? ImageUrl, string? SiteUrl, double Score);
+        string? Publisher, string? ImageUrl, string? SiteUrl, double Score,
+        string? Language);
 
     private record VolumeSearchPageDto(IEnumerable<VolumeSearchDto> Items, int PageNumber, int PageSize, int TotalItems, int TotalPages, bool HasNext, bool HasPrev);
 
     private static VolumeSearchDto ToSearchDto(SourceVolume v) =>
         new(v.SourceId, v.Source, v.Name, v.StartYear, v.CountOfIssues,
-            v.Description, v.Publisher, v.ImageUrl, v.SiteUrl, v.Score);
+            v.Description, v.Publisher, v.ImageUrl, v.SiteUrl, v.Score, v.Language);
 
     private record SourceSearchStatsDto(string Source, int ResultCount, long ElapsedMs, bool Success, string? ErrorMessage);
 

@@ -109,6 +109,11 @@
                   @if (volume.year) {
                     <span class="position-absolute bottom-0 end-0 m-1 badge bg-dark bg-opacity-75">{{ volume.year }}</span>
                   }
+                  @if (volume.language) {
+                    <span class="position-absolute bottom-0 start-0 m-1 badge bg-dark bg-opacity-75 p-1">
+                      <app-language-flag [language]="volume.language" />
+                    </span>
+                  }
                 </div>
 
                 <c-card-body class="p-2">

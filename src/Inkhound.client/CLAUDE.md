@@ -194,6 +194,11 @@ src/
 │   │   │                        #   3 cartes : Import downloads / Rolling refresh / Auto search)
 │   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
 │   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
+│   │   ├── language-flag/       # LanguageFlagComponent — drapeau CoreUI (cif-*) depuis le libellé langue
+│   │   │                        #   Bedetheque ("Français", "Japonais"…) ; repli texte si non mappé, rien si null.
+│   │   │                        #   Utilisé sur les cartes résultats de VolumeAdd/VolumeMatch (badge bas-gauche,
+│   │   │                        #   champ `language` de VolumeSearchResult, null pour ComicVine). Les icônes
+│   │   │                        #   cif-* utilisées doivent être déclarées dans icons/icon-subset.ts.
 │   │   └── pages/               # login, 404, 500
 │   ├── layout/                  # DefaultLayoutComponent (sidebar + header)
 │   └── icons/                   # logo.ts, signet.ts
@@ -209,7 +214,7 @@ src/
 | `/dashboard` | `DashboardComponent` | Tableau de bord |
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
-| `/library/:id/add-volume` | `VolumeAddComponent` | Ajouter un volume (recherche multi-source ou manuel) |
+| `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
@@ -480,8 +485,8 @@ jamais retransmis. `HubService` compense via un filet de rattrapage HTTP :
 
 ### LibraryViewStateService — persistance de la vue Library
 
-`LibraryComponent` (`path: ''` sous `library/:id`) est **détruit** quand on ouvre un volume /
-`add-volume`, mais **réutilisé** quand seul `:id` change (library A → library B). Ses
+`LibraryComponent` (`path: ''` sous `library/:id`) est **détruit** quand on ouvre un volume ou
+quitte vers `/add-volume`, mais **réutilisé** quand seul `:id` change (library A → library B). Ses
 filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewStateService`
 (`sessionStorage`, clé = id de library, même pattern que `PageJobService`) mémorise
 `{ search, letter, completeness, source, year, ageRating, page, scrollY }` par library ;
@@ -497,9 +502,10 @@ filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewState
   Applique `EMPTY_LIBRARY_VIEW_STATE` s'il n'y a pas d'état mémorisé (sinon les filtres de la
   library précédente resteraient collés).
 - **Restauration scroll** : uniquement quand on « revient » sur la page —
-  `navTracker.isReturnInto('/library/{id}')` = retour depuis une sous-page (`/library/{id}/volume/…`,
-  `/library/{id}/add-volume` — via le bouton *Back* de la page volume, le breadcrumb, ou le back
-  navigateur) **ou** back/forward navigateur. **Pas** lors d'une arrivée depuis la sidebar / un
+  `navTracker.isReturnInto('/library/{id}')` = retour depuis une sous-page (`/library/{id}/volume/…`
+  — via le bouton *Back* de la page volume, le breadcrumb, ou le back navigateur) **ou**
+  back/forward navigateur. Le retour depuis `/add-volume` (page dédiée, hors `/library/:id`)
+  n'est **pas** un « retour » : liste rechargée en haut, ce qui convient après un ajout. **Pas** lors d'une arrivée depuis la sidebar / un
   autre écran. Le bouton *Back* de `VolumeComponent` fait `router.navigate()` → navigation
   `imperative`, d'où la détection par URL quittée (`NavigationTrackerService.previousUrl`) plutôt
   que par `navigationTrigger` seul. Un `effect()` applique `window.scrollTo` (double

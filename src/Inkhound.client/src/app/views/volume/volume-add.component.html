@@ -1,5 +1,17 @@
 <c-container class="py-4">
 
+  <!-- Library cible : pré-remplie (?library=) ou à choisir dans le workflow d'ajout -->
+  @if (!hasLibraries()) {
+    <c-alert color="warning" class="mb-4">
+      No library yet — <a routerLink="/libraries">create a library</a> before adding volumes.
+    </c-alert>
+  } @else if (presetLibrary(); as lib) {
+    <div class="mb-3 text-body-secondary">
+      <svg cIcon name="cil-library" class="me-1"></svg>
+      Adding to <a [routerLink]="['/library', lib.id]" class="fw-semibold">{{ lib.name }}</a>
+    </div>
+  }
+
   <!-- Mode switcher -->
   <c-nav variant="tabs" class="mb-4">
     <c-nav-item>
@@ -109,6 +121,11 @@
                   @if (volume.year) {
                     <span class="position-absolute bottom-0 end-0 m-1 badge bg-dark bg-opacity-75">{{ volume.year }}</span>
                   }
+                  @if (volume.language) {
+                    <span class="position-absolute bottom-0 start-0 m-1 badge bg-dark bg-opacity-75 p-1">
+                      <app-language-flag [language]="volume.language" />
+                    </span>
+                  }
                 </div>
 
                 <c-card-body class="p-2">
@@ -200,6 +217,23 @@
     }
 
     <form [formGroup]="manualForm" (ngSubmit)="onSubmitManual()">
+
+      <!-- Library cible (seulement si non pré-remplie via ?library=) -->
+      @if (!presetLibrary()) {
+        <c-card class="mb-4">
+          <c-card-body>
+            <label cLabel for="manualLibrary">Library <span class="text-danger">*</span></label>
+            <select cSelect id="manualLibrary"
+                    [value]="libraryId() ?? ''"
+                    (change)="libraryId.set($any($event.target).value || null)">
+              <option value="">Choose a library…</option>
+              @for (lib of libraries(); track lib.id) {
+                <option [value]="lib.id">{{ lib.name }}</option>
+              }
+            </select>
+          </c-card-body>
+        </c-card>
+      }
 
       <!-- Volume info -->
       <c-card class="mb-4">
@@ -373,7 +407,7 @@
 
       <!-- Submit -->
       <div class="d-flex justify-content-end">
-        <button cButton color="primary" type="submit" [disabled]="manualForm.invalid || adding()">
+        <button cButton color="primary" type="submit" [disabled]="manualForm.invalid || adding() || !libraryId()">
           @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
           Add to Library
         </button>
@@ -484,6 +518,23 @@
     <button cButtonClose (click)="cancelAddModal()"></button>
   </c-modal-header>
   <c-modal-body>
+    @if (presetLibrary(); as lib) {
+      <div class="mb-3">
+        <span class="text-body-secondary">Library :</span> <span class="fw-semibold">{{ lib.name }}</span>
+      </div>
+    } @else {
+      <div class="mb-3">
+        <label cLabel for="addLibrary">Library <span class="text-danger">*</span></label>
+        <select cSelect id="addLibrary"
+                [value]="libraryId() ?? ''"
+                (change)="libraryId.set($any($event.target).value || null)">
+          <option value="">Choose a library…</option>
+          @for (lib of libraries(); track lib.id) {
+            <option [value]="lib.id">{{ lib.name }}</option>
+          }
+        </select>
+      </div>
+    }
     <label cLabel for="addAgeRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
     <select cSelect id="addAgeRating"
             [value]="selectedAgeRating()"
@@ -496,7 +547,7 @@
   </c-modal-body>
   <c-modal-footer>
     <button cButton color="secondary" (click)="cancelAddModal()">Cancel</button>
-    <button cButton color="primary" [disabled]="adding()" (click)="confirmAdd()">
+    <button cButton color="primary" [disabled]="adding() || !libraryId()" (click)="confirmAdd()">
       @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
       Add to Library
     </button>

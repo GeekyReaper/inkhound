@@ -1,0 +1,7 @@
+@if (language(); as lang) {
+  @if (icon(); as name) {
+    <svg cIcon [name]="name" [title]="lang" width="20" height="15" class="d-block"></svg>
+  } @else {
+    <span class="small">{{ lang }}</span>
+  }
+}

@@ -46,6 +46,7 @@ import { ImageService } from '../../core/services/image.service';
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { LanguageFlagComponent } from '../language-flag/language-flag.component';
 
 @Component({
   selector: 'app-volume-match',
@@ -61,7 +62,7 @@ import { JobPanelComponent } from '../job-panel/job-panel.component';
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
-    JobPanelComponent
+    JobPanelComponent, LanguageFlagComponent
   ]
 })
 export class VolumeMatchComponent {

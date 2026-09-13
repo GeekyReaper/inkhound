@@ -104,6 +104,7 @@ export interface VolumeSearchResult {
   imageUrl:       string | null;
   siteUrl:        string | null;
   score:          number;
+  language:       string | null;   // libellé Bedetheque ("Français", "Japonais", ...) ; null pour ComicVine
 }
 
 export interface PageResult<T> {

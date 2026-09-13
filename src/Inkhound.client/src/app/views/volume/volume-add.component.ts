@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
@@ -47,8 +47,9 @@ import { SourceIssue, IssueService } from '../../core/services/issue.service';
 import { ImageService } from '../../core/services/image.service';
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
-import { libraryPageKey } from '../../core/services/library.service';
+import { Library, libraryPageKey, LibraryService } from '../../core/services/library.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { LanguageFlagComponent } from '../language-flag/language-flag.component';
 
 @Component({
   selector: 'app-volume-add',
@@ -64,7 +65,7 @@ import { JobPanelComponent } from '../job-panel/job-panel.component';
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
     ModalFooterComponent,
-    JobPanelComponent
+    JobPanelComponent, LanguageFlagComponent, RouterLink
   ]
 })
 export class VolumeAddComponent {
@@ -76,14 +77,25 @@ export class VolumeAddComponent {
   private hub            = inject(HubService);
   private pageJobs       = inject(PageJobService);
   private fb             = inject(FormBuilder);
+  private libraryService = inject(LibraryService);
   readonly #destroyRef   = inject(DestroyRef);
 
-  readonly libraryId      = this.route.snapshot.parent!.paramMap.get('id') ?? '';
+  // Library cible : pré-remplie via ?library=<id> (bouton "+ Add" d'une page Library), sinon
+  // choisie par l'utilisateur dans le workflow d'ajout (modal en mode recherche, select en tête
+  // du formulaire manuel). Un id inconnu des libraries chargées est traité comme non pré-rempli.
+  readonly libraryId  = signal<string | null>(this.route.snapshot.queryParamMap.get('library'));
+  readonly libraries  = this.libraryService.libraries;
+  readonly presetLibrary = computed<Library | null>(() => {
+    const id = this.route.snapshot.queryParamMap.get('library');
+    return id ? this.libraries().find(l => l.id === id) ?? null : null;
+  });
+  readonly hasLibraries = computed(() => this.libraries().length > 0);
+
   readonly issuesPageSize = 12;
   readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
 
-  // Clé de page pour PageJobService — inclut les paramètres résolus (libraryId), donc stable
-  // pour toute la durée de vie de ce composant.
+  // Clé de page pour PageJobService — inclut le query string (?library=...), donc stable pour
+  // toute la durée de vie de ce composant.
   private readonly pageKey = this.router.url;
 
   readonly AUTHOR_ROLES = [
@@ -121,6 +133,12 @@ export class VolumeAddComponent {
   });
 
   constructor() {
+    // Les libraries sont normalement déjà chargées par DefaultLayoutComponent ; repli si on
+    // arrive directement sur cette URL avant que le layout ait répondu.
+    if (this.libraries().length === 0) {
+      this.libraryService.loadLibraries().pipe(takeUntilDestroyed(this.#destroyRef)).subscribe();
+    }
+
     effect(() => {
       const job = this.currentJob();
       if (!job || this.handledJobIds.has(job.jobId)) return;
@@ -251,13 +269,14 @@ export class VolumeAddComponent {
 
   confirmAdd(): void {
     const sel = this.selected();
-    if (!sel) return;
+    const libraryId = this.libraryId();
+    if (!sel || !libraryId) return;
 
     this.ageRatingModalVisible.set(false);
     this.adding.set(true);
     const ageRating = this.selectedAgeRating();
 
-    this.volumeService.addFromSource(this.libraryId, sel.source, sel.sourceId)
+    this.volumeService.addFromSource(libraryId, sel.source, sel.sourceId)
       .pipe(
         switchMap(res => {
           const patch$ = ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0);
@@ -269,8 +288,8 @@ export class VolumeAddComponent {
         next:  res => {
           // Le peuplement des issues continue en tâche de fond — on associe son job à la page
           // Library qu'on rejoint, pour y afficher sa progression (cf. LibraryComponent).
-          this.pageJobs.register(libraryPageKey(this.libraryId), res.jobId);
-          this.router.navigate(['../'], { relativeTo: this.route });
+          this.pageJobs.register(libraryPageKey(libraryId), res.jobId);
+          this.router.navigate(['/library', libraryId]);
         },
         error: err => {
           this.error.set(err?.error?.message ?? 'Failed to add volume.');
@@ -357,7 +376,8 @@ export class VolumeAddComponent {
   }
 
   onSubmitManual(): void {
-    if (this.manualForm.invalid) return;
+    const libraryId = this.libraryId();
+    if (this.manualForm.invalid || !libraryId) return;
 
     const val = this.manualForm.getRawValue();
     const request: AddVolumeManuallyRequest = {
@@ -380,13 +400,13 @@ export class VolumeAddComponent {
 
     this.adding.set(true);
     this.manualError.set(null);
-    this.volumeService.addManually(this.libraryId, request)
+    this.volumeService.addManually(libraryId, request)
       .pipe(
         switchMap(res => ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0)),
         takeUntilDestroyed(this.#destroyRef)
       )
       .subscribe({
-        next:  () => this.router.navigate(['../'], { relativeTo: this.route }),
+        next:  () => this.router.navigate(['/library', libraryId]),
         error: err => {
           this.manualError.set(err?.error?.message ?? 'Failed to add volume.');
           this.adding.set(false);
