@@ -23,6 +23,9 @@ public class ComicVineSourceService : BaseService<ComicVineOptions>, ISourceServ
 {
     public string SourceKey => SourceKeyConst;
 
+    // ComicVine n'expose pas de langue sur ses volumes — pas de préférence.
+    public string? PreferredLanguage => null;
+
 
     private const string VolumePrefix = "4050";
     private const string IssuePrefix = "4000";

@@ -198,6 +198,19 @@ dispatchers `AddVolumeFromSourceAsync`/`RematchVolumeFromSourceAsync` — le DTO
 `SourceVolume`/`SourceIssue` sert uniquement à l'affichage des résultats de recherche, pas à
 la persistance (il n'a pas d'auteurs/genres).
 
+**Tri par pertinence** (`Scoring/SearchScoring.ScoreTitleMatch`, tests dans
+`Inkhound.Core.Tests/Scoring/SearchScoringTests.cs`) — la pagination est appliquée **par source
+avant** la fusion, puis l'ensemble est retrié par score :
+- `NormalizeTitle` = `TextSimilarity.Normalize` (accents/casse/ponctuation) + retrait d'un article
+  en **tête et/ou en queue** (`le/la/les/l/un/une/des/the/a/an`), jamais au milieu. Sans ça la
+  forme Bedetheque « Trois fantômes de Tesla (Les) » tombait en repli Levenshtein (~42) face à
+  « Les trois fantômes de Tesla » de ComicVine (100) pour la même requête.
+- Bonus langue `+10` uniquement si `SourceVolume.Language` == `ISourceService.PreferredLanguage`
+  de la première source qui en déclare une — Bedetheque expose `LanguageFilterLabel(SearchLanguageFilter)`
+  (`null` en `All` → aucun bonus), ComicVine `null` (pas de métadonnée langue, ni bonus ni pénalité).
+  Plus de « Français » codé en dur.
+- Bonus « série complète » `min(5, CountOfIssues/10)` — plafonné pour rester sous le bonus langue.
+
 ### Kavita
 - Déclenchement scan : `POST /api/libraries/scan`
 - Auth : API key Kavita

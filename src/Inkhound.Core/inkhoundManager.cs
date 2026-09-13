@@ -662,10 +662,12 @@ public partial class InkhoundManager : BaseServiceManager
         // Score chaque résultat par pertinence par rapport à la requête (indépendamment de sa
         // source), puis trie l'ensemble fusionné dessus — sinon les résultats apparaissent
         // groupés par source (tous les ComicVine, puis tous les Bedetheque) plutôt que par
-        // pertinence réelle.
+        // pertinence réelle. La langue favorisée vient de la première source qui en déclare une
+        // (aujourd'hui : SearchLanguageFilter de Bedetheque, null en "All").
+        var preferredLanguage = sources.Select(s => s.PreferredLanguage).FirstOrDefault(l => l is not null);
         var scoredItems = results
             .SelectMany(p => p.Items)
-            .Select(v => v with { Score = SearchScoring.ScoreTitleMatch(name, v.Name, v.CountOfIssues, v.Language) })
+            .Select(v => v with { Score = SearchScoring.ScoreTitleMatch(name, v.Name, v.CountOfIssues, v.Language, preferredLanguage) })
             .OrderByDescending(v => v.Score)
             .ToList();
 

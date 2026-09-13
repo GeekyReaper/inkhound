@@ -21,6 +21,12 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     private const string SourceKeyConst = "bedetheque";
     public string SourceKey => SourceKeyConst;
 
+    // Même libellé que ExtractLangueFromFlag / SourceVolume.Language pour que la comparaison
+    // dans SearchScoring tombe juste ; null en "All" (aucune langue favorisée).
+    public string? PreferredLanguage => Options.SearchLanguageFilter == BedethequeSearchLanguage.All
+        ? null
+        : LanguageFilterLabel(Options.SearchLanguageFilter);
+
     private readonly CookieContainer _cookies = new();
     private HttpClient _http;
     private RateLimiter _rateLimiter = null!;
