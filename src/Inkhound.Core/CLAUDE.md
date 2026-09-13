@@ -153,6 +153,13 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
   qu'un tome ajouté récemment sur la source soit vu tout de suite ; recherche/enrichissement
   gardent `forceRefresh: false`.
 - Détail d'un album (auteurs, EAN, ...) : `GET /BD-x-Tome-1-x-{id}.html`
+- **Auteurs du Volume** : la page Serie ne porte aucun auteur (`BdSerie` n'a pas d'`Auteurs`,
+  `Mapper.Map(BdSerie)` laisse `Authors = []`) — contrairement à ComicVine (`cvVolume.People`).
+  `Volume.Authors` est donc reconstruit par `MergeIssueAuthorsIntoVolume` (union dédoublonnée par
+  nom, premier rôle non vide) depuis les auteurs de tous les albums, dans les trois flux : Add
+  (`RunAddBedethequeIssuesJobAsync`), Refresh complet (`RematchVolumeFromBedethequeAsync`) et
+  Refresh "NEW only" (`SyncNewBedethequeAlbumsAsync`). Côté ComicVine, le bloc `allIssueAuthors`
+  ne fait que compléter les rôles vides de `cvVolume.People`, il n'ajoute pas d'auteurs.
 - Pas d'authentification ; `CookieContainer` partagé + headers façon navigateur requis
   (le site bloque les requêtes qui ressemblent à du scraping automatisé)
 - Options dans `BedethequeOptions` ; `RateLimiter` obligatoire, comme pour ComicVine

@@ -1593,6 +1593,38 @@ public partial class InkhoundManager : BaseServiceManager
         return new AddVolumeResult(volume, job.JobId);
     }
 
+    // Bedetheque ne porte pas d'auteurs au niveau Serie (contrairement à ComicVine et son
+    // cvVolume.People) : Volume.Authors doit être reconstruit comme l'union dédoublonnée (par nom,
+    // premier rôle non vide rencontré) des auteurs de tous les albums. Les entrées déjà présentes
+    // sur le volume sont conservées (rôle complété si vide), les nouvelles ajoutées à la suite.
+    private static void MergeIssueAuthorsIntoVolume(Volume volume, IEnumerable<VolumeAuthor> issueAuthors)
+    {
+        var roleByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        List<string> order = [];
+        foreach (var a in issueAuthors)
+        {
+            if (string.IsNullOrWhiteSpace(a.Name)) continue;
+            if (!roleByName.TryGetValue(a.Name, out var known))
+            {
+                roleByName[a.Name] = a.Role ?? string.Empty;
+                order.Add(a.Name);
+            }
+            else if (string.IsNullOrEmpty(known) && !string.IsNullOrEmpty(a.Role))
+            {
+                roleByName[a.Name] = a.Role;
+            }
+        }
+
+        var merged = volume.Authors
+            .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
+                ? new VolumeAuthor(a.Name, role)
+                : a)
+            .ToList();
+        var present = new HashSet<string>(merged.Select(a => a.Name), StringComparer.OrdinalIgnoreCase);
+        merged.AddRange(order.Where(n => !present.Contains(n)).Select(n => new VolumeAuthor(n, roleByName[n])));
+        volume.Authors = merged;
+    }
+
     private async Task RunAddBedethequeIssuesJobAsync(JobContext job, Guid volumeId, int bdSerieId)
     {
         var ctx = GetDb();
@@ -1624,15 +1656,7 @@ public partial class InkhoundManager : BaseServiceManager
             }
             if (bdAlbums.Count > 0)
             {
-                var roleByName = allIssueAuthors
-                            .GroupBy(a => a.Name)
-                            .ToDictionary(g => g.Key, g => g.First().Role);
-
-                volume.Authors = volume.Authors
-                    .Select(a => string.IsNullOrEmpty(a.Role) && roleByName.TryGetValue(a.Name, out var role)
-                        ? new VolumeAuthor(a.Name, role ?? string.Empty)
-                        : a)
-                    .ToList();
+                MergeIssueAuthorsIntoVolume(volume, allIssueAuthors);
 
                 // Complétude basée uniquement sur les tomes Standard — voir RecalculateVolumeStatisticsAsync.
                 volume.CountOfIssues = bdAlbums.Count(a => a.Category == "Standard");
@@ -1766,6 +1790,12 @@ public partial class InkhoundManager : BaseServiceManager
             // DOWNLOADED / DOWNLOADING → conservé
         }
 
+        // volume.Authors a été remis à vide par Mapper.Map(bdSerie) plus haut — on le reconstruit
+        // depuis les albums (appariés mis à jour + nouveaux + téléchargés conservés).
+        MergeIssueAuthorsIntoVolume(volume, ctx.Issues.Local
+            .Where(i => i.VolumeId == volumeId && ctx.Entry(i).State != EntityState.Deleted)
+            .SelectMany(i => i.Authors));
+
         await ctx.SaveChangesAsync(ct);
         await RecalculateVolumeStatisticsAsync(ctx, volumeId, ct);
         return new RematchResult(issuesAdded, issuesUpdated, issuesRemoved);
@@ -1811,6 +1841,17 @@ public partial class InkhoundManager : BaseServiceManager
             progress.Increment(album is not null);
             progression?.Callback(progress);
         }
+
+        // volume.Authors a été remis à vide par Mapper.Map(bdSerie) chez l'appelant — on le
+        // reconstruit depuis toutes les issues du volume (connues en base + nouvelles ci-dessus).
+        var knownAuthors = await ctx.Issues
+            .Where(i => i.VolumeId == volume.Id)
+            .Select(i => i.Authors)
+            .ToListAsync(ct);
+        MergeIssueAuthorsIntoVolume(volume, knownAuthors
+            .SelectMany(a => a)
+            .Concat(ctx.Issues.Local.Where(i => i.VolumeId == volume.Id && ctx.Entry(i).State == EntityState.Added)
+                .SelectMany(i => i.Authors)));
 
         await ctx.SaveChangesAsync(ct);
         await RecalculateVolumeStatisticsAsync(ctx, volume.Id, ct);
