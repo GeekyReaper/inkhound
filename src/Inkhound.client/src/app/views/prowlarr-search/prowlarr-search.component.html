@@ -53,6 +53,8 @@
                     <th style="width: 75px;">Score</th>
                     <th style="width: 130px;">Indexer</th>
                     <th class="col-identity">Title</th>
+                    <!-- Catégories : intégrées à la cellule Title en desktop, ligne dédiée en carte mobile -->
+                    <th class="col-mobile-only">Categories</th>
                     <th style="width: 80px;">Format</th>
                     <th style="width: 90px;">Type</th>
                     @if (mode() === 'volume') {
@@ -66,7 +68,7 @@
                 </thead>
                 <tbody>
                   @for (item of pagedResults(); track item.result.guid) {
-                    <tr>
+                    <tr [class.row-no-seed]="hasNoSeed(item.result)">
                       <td class="align-middle" data-label="Score">
                         <span [class]="'badge bg-' + scoreColor(item.score)">
                           {{ item.score | number:'1.0-0' }}
@@ -76,9 +78,9 @@
                         <div class="d-flex flex-column gap-1">
                           <span class="small fw-semibold">{{ item.result.indexer ?? ('ID ' + item.result.indexerId) }}</span>
                           @if (item.result.protocol?.toLowerCase() === 'torrent') {
-                            <span class="badge bg-info text-uppercase" style="width: fit-content;">torrent</span>
+                            <span class="badge bg-info text-uppercase col-desktop-only" style="width: fit-content;">torrent</span>
                           } @else {
-                            <span class="badge bg-secondary text-uppercase" style="width: fit-content;">nzb</span>
+                            <span class="badge bg-secondary text-uppercase col-desktop-only" style="width: fit-content;">nzb</span>
                           }
                         </div>
                       </td>
@@ -89,19 +91,27 @@
                           } @else {
                             {{ item.result.title }}
                           }
+                          <!-- Carte mobile : le format suit le titre (sa colonne dédiée y est masquée) -->
+                          <span class="badge bg-secondary col-mobile-only-inline ms-1">{{ detectFormat(item.result.title) }}</span>
                         </div>
                         @if (item.result.categories.length > 0) {
-                          <div class="text-body-secondary small mt-1">
+                          <div class="text-body-secondary small mt-1 col-desktop-only">
                             {{ categoryNames(item.result.categories) }}
                           </div>
                         }
                       </td>
-                      <td class="align-middle" data-label="Format">
+                      <!-- Carte mobile : les catégories prennent leur propre rangée -->
+                      <td class="align-middle col-mobile-only">
+                        @if (item.result.categories.length > 0) {
+                          <span class="text-body-secondary small">{{ categoryNames(item.result.categories) }}</span>
+                        }
+                      </td>
+                      <td class="align-middle col-desktop-only" data-label="Format">
                         <span class="badge bg-secondary">{{ detectFormat(item.result.title) }}</span>
                       </td>
                       <td class="align-middle" data-label="Type">
                         @if (item.result.torrentType !== 'UNKNOWN') {
-                          <div class="d-flex flex-column gap-1 align-items-start">
+                          <div class="d-flex type-cell">
                             <span [class]="'badge bg-' + (item.result.torrentType === 'SINGLE' ? 'info' : 'warning')">
                               {{ item.result.torrentType }}
                             </span>
@@ -120,15 +130,32 @@
                           }
                         </td>
                       }
-                      <td class="align-middle text-nowrap" data-label="Size">{{ formatSize(item.result.size) }}</td>
+                      <td class="align-middle text-nowrap" data-label="Size">
+                        <span class="col-mobile-only-inline cell-icon" title="Size">
+                          <svg cIcon name="cilStorage" size="sm"></svg>
+                        </span>{{ formatSize(item.result.size) }}
+                      </td>
                       <td class="align-middle" data-label="Seeders">
                         @if (item.result.protocol?.toLowerCase() === 'torrent') {
-                          {{ item.result.seeders }}
+                          @if (item.result.seeders === 0) {
+                            <span class="badge bg-danger text-nowrap" title="No seeder — the download would stall">
+                              No seed
+                            </span>
+                          } @else {
+                            <span class="col-mobile-only-inline cell-icon" title="Seeders">
+                              <svg cIcon name="cilPeople" size="sm"></svg>
+                            </span>{{ item.result.seeders }}
+                          }
                         } @else {
                           <span class="text-body-secondary small">—</span>
                         }
                       </td>
-                      <td class="align-middle text-nowrap" data-label="Date">{{ item.result.publishDate | date:'mediumDate' }}</td>
+                      <td class="align-middle text-nowrap" data-label="Date">
+                        <span class="col-desktop-only-inline">{{ item.result.publishDate | date:'mediumDate' }}</span>
+                        <span class="col-mobile-only-inline cell-icon" title="Publish date">
+                          <svg cIcon name="cilCalendar" size="sm"></svg>
+                        </span><span class="col-mobile-only-inline">{{ item.result.publishDate | date:'dd/MM/yy' }}</span>
+                      </td>
                       <td class="align-middle col-full col-actions">
                         <button cButton color="primary" variant="outline" size="sm"
                                 [disabled]="grabbingGuid() !== null"

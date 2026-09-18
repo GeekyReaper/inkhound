@@ -17,6 +17,16 @@ public class ScoringTorrentTests
     private static ProwlarrSearchResult MakeResult(string title, long sizeBytes)
         => new(title, null, sizeBytes, 10, 2, 0, "guid", 1, "Indexer", "torrent", null, null);
 
+    private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, int seeders, string protocol = "torrent")
+        => new(title, null, sizeBytes, seeders, 2, 0, "guid", 1, "Indexer", protocol, null, null);
+
+    // Titre « parfait » : SINGLE #27 avec année, auteur et format reconnus (cf. le cas du bug rapporté).
+    private const string PerfectSingleTitle = "[BD] Jarry - Benoît - Elfes - Tome 27 - 2020 [aATAa] [cbr]";
+
+    private static (Volume Volume, Issue Issue) MakePerfectSingleContext()
+        => (MakeVolume([]),
+            MakeIssue(issueNumber: 27, year: 2020, authors: [new VolumeAuthor("Bertrand Benoît", "artist, colorist")]));
+
     [Fact]
     public void ScoringIndexerResult_SingleAvecAnneeCorrespondante_ScoreHautQueSansAnnee()
     {
@@ -132,5 +142,55 @@ public class ScoringTorrentTests
         Assert.Equal("SINGLE", scored.Analysis.Type);
         Assert.Equal("#27", scored.Analysis.Label);
         Assert.True(scored.Score >= 70f, $"Score attendu >= 70, obtenu {scored.Score}");
+    }
+
+    // ── Pénalité « aucun seeder » ──────────────────────────────────────────
+
+    [Fact]
+    public void ScoringIndexerResult_SingleParfaitSansSeeder_ScoreSousLeSeuilParDefaut()
+    {
+        // Sans pénalité, ce SINGLE au numéro confirmé atteint 100 : ApplyTypeAdjustment écrase le
+        // baseScore (et donc ScoreSeeders) par 70 + bonus taille + réassurance.
+        var (volume, issue) = MakePerfectSingleContext();
+
+        var seeded   = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 10);
+        var noSeeder = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 0);
+
+        var scoreSeeded   = ScoringTorrent.ScoringIndexerResult(volume, issue, seeded).Score;
+        var scoreNoSeeder = ScoringTorrent.ScoringIndexerResult(volume, issue, noSeeder).Score;
+
+        Assert.True(scoreNoSeeder < 70f,
+            $"Un torrent sans seeder doit passer sous AutoSearchMinScore (défaut 70), obtenu {scoreNoSeeder}");
+        Assert.Equal(scoreSeeded - 40f, scoreNoSeeder, precision: 3);
+    }
+
+    [Fact]
+    public void ScoringIndexerResult_UsenetSansSeeder_NonPenalise()
+    {
+        // L'usenet n'a pas de seeders : la pénalité ne doit jamais s'y appliquer.
+        var (volume, issue) = MakePerfectSingleContext();
+
+        var usenet = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 0, protocol: "usenet");
+        var torrent = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 10);
+
+        var scoreUsenet  = ScoringTorrent.ScoringIndexerResult(volume, issue, usenet).Score;
+        var scoreTorrent = ScoringTorrent.ScoringIndexerResult(volume, issue, torrent).Score;
+
+        Assert.Equal(scoreTorrent, scoreUsenet, precision: 3);
+    }
+
+    [Fact]
+    public void ScoringIndexerResult_SeedersFaiblesMaisNonNuls_NonPenalises()
+    {
+        var (volume, issue) = MakePerfectSingleContext();
+
+        var oneSeeder = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 1);
+        var noSeeder  = MakeResult(PerfectSingleTitle, 200 * Mb, seeders: 0);
+
+        var scoreOne = ScoringTorrent.ScoringIndexerResult(volume, issue, oneSeeder).Score;
+        var scoreNone = ScoringTorrent.ScoringIndexerResult(volume, issue, noSeeder).Score;
+
+        Assert.True(scoreOne - scoreNone >= 39f,
+            $"Un seul seeder ({scoreOne}) doit rester nettement au-dessus de zéro seeder ({scoreNone})");
     }
 }

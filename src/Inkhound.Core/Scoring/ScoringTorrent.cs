@@ -26,7 +26,9 @@ public static class ScoringTorrent
         var formatScore      = ScoreFormat(result, analysis.Type);
 
         var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + publisherMatch + sizePlausibility + seederScore + formatScore;
-        var total     = ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch);
+        var total     = ApplyNoSeederPenalty(
+            ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch),
+            result);
 
         var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, publisherMatch, sizePlausibility, seederScore, formatScore);
         return new ScoredSearchResultTorrent(result, total, details, analysis);
@@ -240,11 +242,29 @@ public static class ScoringTorrent
     internal static float ScoreSeeders(ProwlarrSearchResult result)
     {
         // Usenet : pas de seeders, bonus plat
-        if (result.Protocol?.Equals("torrent", StringComparison.OrdinalIgnoreCase) != true)
+        if (!IsTorrent(result))
             return 7f;
 
         return Math.Min(10f, result.Seeders / 3f);
     }
+
+    // Malus appliqué au score final d'un torrent sans aucun seeder : le téléchargement resterait
+    // bloqué en Stalled indéfiniment. Suffisant pour passer sous AutoSearchMinScore (défaut 70).
+    internal const float NoSeederPenalty = 40f;
+
+    // Un résultat sans protocole explicite est traité comme usenet (cf. ScoreSeeders).
+    internal static bool IsTorrent(ProwlarrSearchResult result)
+        => result.Protocol?.Equals("torrent", StringComparison.OrdinalIgnoreCase) == true;
+
+    // Applique le malus « aucun seeder » après l'ajustement de type. Doit rester en toute fin de
+    // calcul : sur le chemin SINGLE "#n" confirmé, ApplyTypeAdjustment écrase le baseScore (et
+    // donc ScoreSeeders) par une formule fixe — la pénalité serait perdue si elle était intégrée
+    // en amont.
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ApplyNoSeederPenalty(float score, ProwlarrSearchResult result)
+        => IsTorrent(result) && result.Seeders == 0
+            ? Math.Max(0f, score - NoSeederPenalty)
+            : score;
 
     // Détection du format d'archive dans le titre (max 10)
     // internal : réutilisé par ScoringVolumePack.

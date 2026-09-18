@@ -1,0 +1,200 @@
+// Doit rester aligné sur $table-stack-breakpoint-down de src/scss/_tables.scss.
+$stack-breakpoint-down: 767.98px;
+
+// Résultat sans seeder : ligne atténuée pour qu'elle se distingue au balayage. Le badge
+// "No seed" et le bouton d'action gardent leur pleine opacité (l'utilisateur garde la
+// possibilité de grab manuel en connaissance de cause).
+//
+// L'opacité est posée sur les <td> et non sur le <tr> : cela fonctionne identiquement en
+// affichage tableau et en mode carte mobile (.table-stack, sous 768px), où le <tr> devient
+// un conteneur flex.
+.row-no-seed td:not(.col-actions):not([data-label='Seeders']) {
+  opacity: 0.55;
+}
+
+// Cellule Type : badge (SINGLE/PACK) + son label ("#5", "1...13"). Empilés en desktop, faute
+// de largeur de colonne (90px).
+//
+// La mise en forme passe par cette classe plutôt que par les utilitaires Bootstrap
+// (flex-column / align-items-start / gap-1) : ceux-ci sont générés avec `!important` et ne
+// peuvent donc pas être surchargés par la media query mobile ci-dessous.
+.type-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+// Bascule desktop / carte mobile pour les éléments qui n'existent que d'un côté :
+// les catégories (intégrées à la cellule Title en desktop, ligne dédiée en carte) et le
+// badge de protocole (redondant en carte, où l'indexer suffit).
+.col-mobile-only,
+.col-mobile-only-inline {
+  display: none;
+}
+
+@media (max-width: $stack-breakpoint-down) {
+  .col-desktop-only,
+  .col-desktop-only-inline {
+    display: none;
+  }
+
+  .col-mobile-only {
+    display: block;
+  }
+
+  .col-mobile-only-inline {
+    display: inline;
+  }
+
+  // Badge de format accolé au titre (seul badge portant cette classe).
+  //
+  // `inline-block` et non `inline` : en `inline`, son fond et son padding vertical
+  // débordent sur les lignes voisines dès que le titre passe à la ligne. La police est
+  // réduite pour qu'il reste une annotation du titre, sans lui faire concurrence.
+  .col-mobile-only-inline.badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 400;
+    padding: 0.2em 0.45em;
+    vertical-align: middle;
+  }
+
+  // Icônes de rappel (taille, date, seeders) : en carte, les libellés de colonne du <thead>
+  // ont disparu — l'icône tient ce rôle sans consommer de largeur.
+  .cell-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 0.25rem;
+    color: var(--cui-secondary-color);
+    vertical-align: text-bottom;
+  }
+
+  // --- Carte mobile : mise en page en 5 lignes -----------------------------------------
+  //
+  //   1. Score (gauche)                       | Indexer puis seeders (droite)
+  //   2. Titre complet suivi du badge de format (pleine largeur)
+  //   3. Type + label de pack (gauche)        | Catégories (droite)
+  //   4. Coverage (mode volume uniquement, pleine largeur)
+  //   5. Taille (gauche)                      | Date courte (droite)
+  //   6. Bouton de téléchargement (droite)
+  //
+  // Les cellules gardent leur ordre DOM (= ordre des colonnes desktop) ; c'est `order` qui
+  // les réagence. On cible par [data-label] plutôt que par des classes dédiées : ces
+  // attributs sont déjà requis par .table-stack et restent le lien avec le <thead>.
+  //
+  // Les largeurs de chaque rangée totalisent exactement 100 % : c'est ce qui rend le retour
+  // à la ligne déterministe. `flex-grow` ne conviendrait pas — il s'applique après le calcul
+  // du wrap, donc une cellule de la rangée suivante pourrait remonter sur la précédente.
+  .table-stack tbody tr {
+    // Les cellules se répartissent sur une rangée pleine : pas de `gap` horizontal, sinon la
+    // somme des largeurs dépasserait 100 % et la dernière cellule tomberait à la ligne.
+    column-gap: 0;
+    align-items: center;
+  }
+
+  .table-stack tbody tr > td {
+    // Valeur par défaut : demi-rangée. Chaque cellule la redéfinit ci-dessous si besoin.
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+
+  // Aucun label en carte : chaque valeur est auto-descriptive à sa place (badge de score,
+  // nom d'indexer, "S: 42", taille, date...).
+  .table-stack tbody tr > td[data-label]::before {
+    content: none;
+  }
+
+  // Rangée 1 — largeurs au contenu, et non en % : indexer et seeders doivent se toucher, quel
+  // que soit la longueur du nom d'indexer. C'est le `margin-right: auto` du score qui absorbe
+  // tout l'espace libre et pousse les deux autres contre le bord droit.
+  //
+  // Le wrap reste garanti ici sans largeurs à 100 % : la cellule suivante est le titre, en
+  // `flex: 0 0 100%`, qui ne peut jamais tenir sur une rangée déjà entamée.
+  .table-stack tbody tr > td[data-label='Score'] {
+    order: 1;
+    flex: 0 0 auto;
+    max-width: none;
+    margin-right: auto;
+    text-align: left;
+  }
+
+  // Le score est l'information de tri principale : il doit ressortir. Sans cette règle il
+  // hérite du 0.8125rem des cellules de carte, encore réduit par le `.75em` de .badge.
+  .table-stack tbody tr > td[data-label='Score'] .badge {
+    font-size: 1rem;
+    padding: 0.3rem 0.55rem;
+  }
+
+  .table-stack tbody tr > td[data-label='Indexer'] {
+    order: 2;
+    // `0 1 auto` + `min-width: 0` : un nom d'indexer très long se réduit au lieu de déborder.
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: none;
+    text-align: right;
+  }
+
+  .table-stack tbody tr > td[data-label='Seeders'] {
+    order: 3;
+    flex: 0 0 auto;
+    max-width: none;
+    padding-left: 0.5rem;
+    text-align: right;
+  }
+
+  // Rangée 2 — titre seul.
+  .table-stack tbody tr > td.col-identity {
+    order: 4;
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  // Rangée 3 — 45 + 55 = 100 %.
+  .table-stack tbody tr > td[data-label='Type'] {
+    order: 5;
+    flex: 0 0 45%;
+    max-width: 45%;
+  }
+
+  // Le badge de type et son label sont dans un conteneur flex : c'est `justify-content` qui
+  // les positionne, `text-align` n'ayant pas d'effet sur des éléments flex.
+  .table-stack tbody tr > td[data-label='Type'] .type-cell {
+    justify-content: flex-start;
+  }
+
+  .table-stack tbody tr > td.col-mobile-only {
+    order: 6;
+    flex: 0 0 55%;
+    max-width: 55%;
+    text-align: right;
+  }
+
+  // Rangée 4 — mode volume uniquement ; non listée dans la maquette, on lui laisse sa propre
+  // rangée plutôt que de charger une paire existante.
+  .table-stack tbody tr > td[data-label='Coverage'] {
+    order: 7;
+    flex: 0 0 100%;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  // Rangée 5 — 50 + 50 = 100 %.
+  .table-stack tbody tr > td[data-label='Size'] { order: 8; text-align: left; }
+  .table-stack tbody tr > td[data-label='Date'] { order: 9; text-align: right; }
+
+  // Rangée 6 — bouton, poussé à droite par .col-actions (défini dans _tables.scss).
+  .table-stack tbody tr > td.col-actions {
+    order: 10;
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  // En carte, la demi-largeur de ligne permet de mettre le badge et son label côte à côte.
+  // `flex-wrap` garde un repli propre sur les labels de plage longs.
+  .type-cell {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.375rem;
+  }
+}

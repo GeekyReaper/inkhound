@@ -54,10 +54,14 @@ public static class ScoringVolumePack
 
         var coverageBonus = MaxCoverageBonus * covered / Math.Max(1, missingIssues.Count);
 
-        var total = Math.Clamp(
-            titleMatch + yearMatch + authorMatch + publisherMatch
-            + sizePlausibility + seederScore + formatScore + coverageBonus,
-            0f, 100f);
+        // Un torrent sans seeder resterait bloqué en Stalled : malus appliqué après le clamp,
+        // comme dans ScoringTorrent.
+        var total = ScoringTorrent.ApplyNoSeederPenalty(
+            Math.Clamp(
+                titleMatch + yearMatch + authorMatch + publisherMatch
+                + sizePlausibility + seederScore + formatScore + coverageBonus,
+                0f, 100f),
+            result);
 
         var details = new ScoreDetailsVolumePack(
             titleMatch, yearMatch, authorMatch, publisherMatch,

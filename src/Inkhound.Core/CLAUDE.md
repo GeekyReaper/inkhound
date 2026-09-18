@@ -559,7 +559,9 @@ Algorithme par volume (`RunAutoSearchVolumeJobAsync`) :
    `ScoringTorrent.ScoreAndSort` ; on s'arrête dès que l'issue est acquise.
 3. Candidat **éligible** = `Protocol == "torrent"` (usenet/NZB ignoré : non suivi par qBittorrent),
    `DownloadUrl` non vide, `Score >= MinScore`, URL absente de `IssueDownloads.DownloadUrl` (déjà
-   suivi) et non rejetée dans ce job. Parcours par score décroissant.
+   suivi) et non rejetée dans ce job. Parcours par score décroissant. Les torrents **sans seeder**
+   sont de fait écartés au `MinScore` par défaut (70) grâce au malus `NoSeederPenalty` — voir
+   « Malus aucun seeder » ci-dessous.
 4. **SINGLE `#n`** avec `n` manquant → `GrabToQBittorrentAsync` pour cette issue. `SINGLE/?` et
    `UNKNOWN` ne sont jamais grabés à l'aveugle.
 5. **PACK** → `GrabPackSelectiveAsync` (ajout en pause + fichiers ; si métadonnées absentes, polling
@@ -570,6 +572,25 @@ Algorithme par volume (`RunAutoSearchVolumeJobAsync`) :
    `ApplyPackSelectionAsync(volumeId, indices appariés)` — les issues déjà grabées en SINGLE sont
    `DOWNLOADING`, donc jamais ré-appariées.
 6. Les exceptions par candidat sont absorbées (trace WARNING) ; le job continue.
+
+**Malus « aucun seeder »** (`Scoring/ScoringTorrent.cs`) — un torrent à `Seeders == 0` ne se
+télécharge jamais et finit en `DownloadStatus.Stalled`. `ApplyNoSeederPenalty(score, result)`
+retranche `NoSeederPenalty` (**40 points**, planché à 0) du score **final**, et est appelé par
+`ScoringTorrent.ScoringIndexerResult` **et** `ScoringVolumePack.ScoringIndexerResult`.
+
+⚠️ L'ordre est critique : le malus s'applique **après** `ApplyTypeAdjustment`, car sur le chemin
+`SINGLE "#n"` confirmé cette méthode **écrase** le `baseScore` (et donc la composante
+`ScoreSeeders`) par la formule fixe `70 + ScoreSizeBonusForSingle + reassurance`. Intégré en
+amont, le malus serait purement perdu — un torrent mort pouvait ainsi atteindre 100.
+
+Le malus ne vise que `IsTorrent(result)` (l'usenet n'a pas de seeders et conserve son bonus plat
+de 7) et uniquement `Seeders == 0` : les seeders faibles restent gérés par la gradation
+`ScoreSeeders` (`min(10, Seeders / 3)`). Un `SINGLE` parfait sans seeder tombe ainsi de 100 à 60,
+sous le `AutoSearchMinScore` par défaut — mais **pas** sous un seuil abaissé à 50 ou moins.
+Tests : `Inkhound.Core.Tests/Scoring/ScoringTorrentTests.cs` et `ScoringVolumePackTests.cs`.
+
+Côté UI (`prowlarr-search.component`), `hasNoSeed()` signale ces résultats : badge rouge
+« No seed » dans la colonne Seeders et ligne atténuée via `.row-no-seed`.
 
 Le cache `queryCache` de `SearchProwlarrCascadeAsync` (partagé par les cascades A et B d'un même
 job) évite de réinterroger Prowlarr pour une requête commune (ex. `"{titre}"` seul). Les jobs de

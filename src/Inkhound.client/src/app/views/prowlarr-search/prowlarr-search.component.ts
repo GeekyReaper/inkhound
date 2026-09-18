@@ -33,6 +33,7 @@ export interface SearchResultRow {
   selector: 'app-prowlarr-search',
   standalone: true,
   templateUrl: './prowlarr-search.component.html',
+  styleUrl: './prowlarr-search.component.scss',
   imports: [
     RowComponent, ColComponent, CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, ButtonDirective, IconDirective,
@@ -447,6 +448,12 @@ export class ProwlarrSearchComponent {
     if (score >= 70) return 'success';
     if (score >= 40) return 'warning';
     return 'danger';
+  }
+
+  // Un torrent sans seeder ne se téléchargera pas (Stalled) — le backend le pénalise déjà de
+  // 40 points, la ligne est signalée visuellement. Ne concerne pas l'usenet (pas de seeders).
+  hasNoSeed(result: ProwlarrSearchResult): boolean {
+    return result.protocol?.toLowerCase() === 'torrent' && result.seeders === 0;
   }
 
   categoryNames(categories: ProwlarrCategory[]): string {

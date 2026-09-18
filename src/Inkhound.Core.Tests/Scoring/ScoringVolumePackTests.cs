@@ -17,6 +17,9 @@ public class ScoringVolumePackTests
     private static ProwlarrSearchResult MakeResult(string title, long sizeBytes)
         => new(title, null, sizeBytes, 10, 2, 0, "guid", 1, "Indexer", "torrent", null, null);
 
+    private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, int seeders)
+        => new(title, null, sizeBytes, seeders, 2, 0, "guid", 1, "Indexer", "torrent", null, null);
+
     [Fact]
     public void ScoringIndexerResult_PackCouvrantPlusDIssues_ScoreHautQueSingle()
     {
@@ -69,5 +72,22 @@ public class ScoringVolumePackTests
 
         Assert.Equal("PACK", fromTorrent.Analysis.Type);
         Assert.Equal(fromTorrent.Details.YearMatch, fromVolume.Details.YearMatch);
+    }
+
+    [Fact]
+    public void ScoringIndexerResult_PackSansSeeder_ScoreReduitDe40()
+    {
+        var volume = MakeVolume(year: 1996);
+        var missingIssues = MakeMissingIssues(24);
+
+        var seeded   = MakeResult("Sillage.Tomes.01.a.24.FRENCH.CBZ-NoTAG", 900L * Mb, seeders: 10);
+        var noSeeder = MakeResult("Sillage.Tomes.01.a.24.FRENCH.CBZ-NoTAG", 900L * Mb, seeders: 0);
+
+        var scoreSeeded   = ScoringVolumePack.ScoringIndexerResult(volume, missingIssues, seeded).Score;
+        var scoreNoSeeder = ScoringVolumePack.ScoringIndexerResult(volume, missingIssues, noSeeder).Score;
+
+        Assert.True(scoreNoSeeder < 70f,
+            $"Un PACK sans seeder doit passer sous AutoSearchMinScore (défaut 70), obtenu {scoreNoSeeder}");
+        Assert.Equal(Math.Max(0f, scoreSeeded - 40f), scoreNoSeeder, precision: 3);
     }
 }

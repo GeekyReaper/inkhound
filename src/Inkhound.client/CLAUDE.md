@@ -203,6 +203,20 @@ src/
 │   │   │                        #   l'indexer, pas de modal empilé — le bloc vit dans le modal Edit de la page
 │   │   │                        #   Library) : cocher un indexer ou cliquer « Categories » ouvre la vue, « Back »
 │   │   │                        #   revient à la liste ET persiste la sélection (save()).
+│   │   ├── prowlarr-search/     # ProwlarrSearchComponent — recherche + tableau des résultats scorés, réutilisé
+│   │   │                        #   en mode 'issue' (app-prowlarr-search mode="issue") et 'volume' (colonne
+│   │   │                        #   Coverage en plus). Badge de score coloré via scoreColor() (>=70 success,
+│   │   │                        #   >=40 warning, sinon danger). hasNoSeed() signale un torrent à 0 seeder
+│   │   │                        #   (badge rouge « No seed » + ligne atténuée .row-no-seed) : ces résultats
+│   │   │                        #   stalleraient au téléchargement et sont déjà pénalisés de 40 pts côté backend.
+│   │   │                        #   Carte mobile (<768px) : mise en page dédiée via `order` + largeurs en %
+│   │   │                        #   totalisant 100 % par rangée (score|indexer+seeders, titre,
+│   │   │                        #   catégories+format|type, coverage, taille|date, bouton), labels ::before
+│   │   │                        #   neutralisés, icônes cilStorage/cilCalendar/cilPeople en rappel. Les
+│   │   │                        #   éléments propres à un seul mode portent .col-mobile-only /
+│   │   │                        #   .col-desktop-only (+ variantes -inline). NB : les utilitaires Bootstrap
+│   │   │                        #   (flex-column, gap-*) sont en !important et ne peuvent pas être surchargés
+│   │   │                        #   par la media query — d'où la classe .type-cell — voir le .scss du composant.
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
