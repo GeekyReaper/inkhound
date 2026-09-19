@@ -1,6 +1,6 @@
 # Inkhound.Web — Contexte
 
-Backend ASP.NET Core 9. Sert l'API REST, le Hub SignalR, l'auth JWT, et les fichiers statiques Angular (single-unit).
+Backend ASP.NET Core 10 (.NET 10). Sert l'API REST, le Hub SignalR, l'auth JWT, et les fichiers statiques Angular (single-unit).
 Dépend de `Inkhound.Core` et `Foundation.Core`.
 Doit exposer en API les méthodes public de la class Inkhound.Core\InkhoundManager en les regroupant par ressource.
 

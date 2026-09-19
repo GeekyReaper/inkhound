@@ -14,7 +14,7 @@ RUN npm run build -- --configuration production
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 2 — .NET build
 # ─────────────────────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS dotnet-build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS dotnet-build
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ RUN dotnet publish ./Inkhound.Web/Inkhound.Web.csproj -c Release -o /publish
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 3 — Runtime image
 # ─────────────────────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 WORKDIR /app
 

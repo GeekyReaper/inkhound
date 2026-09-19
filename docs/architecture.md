@@ -2937,7 +2937,7 @@ RUN npm run build -- --configuration production
 # ─────────────────────────────────────────────────────────────
 # ÉTAPE 2 — Build .NET
 # ─────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS dotnet-build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS dotnet-build
 
 WORKDIR /app
 
@@ -2957,7 +2957,7 @@ RUN dotnet publish -c Release -o /publish
 # ─────────────────────────────────────────────────────────────
 # ÉTAPE 3 — Image finale (runtime only)
 # ─────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 WORKDIR /app
 
@@ -3083,7 +3083,7 @@ services:
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build-dotnet",
-      "program": "${workspaceFolder}/src/MyApp.Web/bin/Debug/net9.0/MyApp.Web.dll",
+      "program": "${workspaceFolder}/src/MyApp.Web/bin/Debug/net10.0/MyApp.Web.dll",
       "args": [],
       "cwd": "${workspaceFolder}/src/MyApp.Web",
       "stopAtEntry": false,

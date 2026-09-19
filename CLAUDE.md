@@ -24,7 +24,7 @@ Inkhound.sln
 
 | Couche | Choix |
 |---|---|
-| Backend | ASP.NET Core 9, C# 12 |
+| Backend | ASP.NET Core 10 (.NET 10), C# 14 |
 | Frontend | Angular (latest), CoreUI Free |
 | Temps réel | SignalR |
 | Auth | JWT (clé auto-générée, PBKDF2) |
