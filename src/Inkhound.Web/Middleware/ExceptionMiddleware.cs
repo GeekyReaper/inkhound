@@ -8,6 +8,14 @@ public class ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddlewa
         {
             await next(ctx);
         }
+        catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
+        {
+            // Le client a abandonné la requête (navigation, appel HTTP annulé côté Angular) : le
+            // token HttpContext.RequestAborted a déclenché l'annulation dans EF Core / HttpClient.
+            // Ce n'est pas une erreur applicative — personne n'attend plus la réponse, on ne logge
+            // ni ne renvoie rien (et le débogueur n'a plus à s'arrêter dessus).
+            logger.LogDebug("Request {Method} {Path} aborted by the client.", ctx.Request.Method, ctx.Request.Path);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unhandled exception: {Message}", ex.Message);

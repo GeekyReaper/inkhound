@@ -17,7 +17,8 @@ Inkhound.Web/
 │   ├── KavitaController.cs       # /api/kavita (test connexion, scan)
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
 │   ├── OptionsController.cs      # /api/options (settings app)
-│   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search)
+│   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque)
+│   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
 │   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
@@ -94,12 +95,15 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/POST/PUT/DELETE | `/api/libraries` | admin | CRUD librairies — `DELETE ?deleteFiles=true` supprime aussi les répertoires des volumes sur disque (204, ou 200 `{ fileWarning }` si un répertoire n'a pas pu l'être) ; la suppression en base cascade volumes/issues/downloads/indexers (`InkhoundManager.DeleteLibraryAsync`) |
 | GET | `/api/libraries/{id}/stats` | admin | Stats de l'encart de la page Library (volumes par statut/source, issues par statut, taille téléchargée, dernières dates d'activité) — `InkhoundManager.GetLibraryStatsAsync` |
 | GET/POST/PUT/DELETE | `/api/volumes` | auth | CRUD volumes |
+| POST / GET | `/api/volumes/search`, `/api/volumes/search/{jobId}` | admin | Recherche multi-source en job (`202 { jobId }`, puis résultat). Chaque `stats[]` porte `errorCode` (nullable) — `"CATALOG_NOT_LOADED"` = le catalogue local Bedetheque est vide, l'UI affiche un lien vers `/settings/bedetheque` |
 | GET/POST/PUT/DELETE | `/api/issues` | auth | CRUD issues |
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
-| GET/PUT | `/api/scheduler` | admin | Config du planificateur (3 tâches cron : import downloads / rolling refresh / auto search — `AutoSearchMinScore` validé 0-100 même tâche désactivée) |
-| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch`) |
+| GET/PUT | `/api/scheduler` | admin | Config du planificateur (4 tâches cron : import downloads / rolling refresh / auto search / catalogue Bedetheque — `AutoSearchMinScore` validé 0-100 même tâche désactivée) |
+| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog`) |
+| GET | `/api/bedetheque/catalog` | admin | État du catalogue local Bedetheque : `loaded`, `totalSeries`, `oldestFetchUtc`/`newestFetchUtc`, `refreshRunning`, `letters[27]` (`letter`, `count`, `fetchedAtUtc`) |
+| POST | `/api/bedetheque/catalog/refresh` | admin | Lance le job de refresh → `202 { jobId }`. Body `{ letterCount?, letters? }` (`letters` prioritaire, sinon rotation des `letterCount` plus anciennes, sinon les 27). `409` si un refresh est déjà en cours. |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 | GET | `/api/dashboard/stats` | auth | Agrégats du Dashboard : KPI globaux, stats par library, volumes récents, et `mostWanted` (issues `MISSING` proches de compléter leur volume — voir `Inkhound.Core/CLAUDE.md`) |
 

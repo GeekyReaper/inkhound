@@ -1,4 +1,4 @@
-<c-container class="py-4">
+﻿<c-container class="py-4">
 
   <c-row class="mb-4 align-items-center">
     <c-col>
@@ -39,13 +39,7 @@
 
           <div class="mb-3">
             <label cLabel for="processDownloadsCron">Cron expression</label>
-            <input cFormControl id="processDownloadsCron" formControlName="processDownloadsCron"
-                   type="text" placeholder="*/15 * * * *"
-                   [class.is-invalid]="form.get('processDownloadsCron')?.invalid && form.get('processDownloadsCron')?.touched" />
-            <div class="form-text text-body-secondary">Example: <code>*/15 * * * *</code> — every 15 minutes.</div>
-            @if (form.get('processDownloadsCron')?.invalid && form.get('processDownloadsCron')?.touched) {
-              <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
-            }
+            <app-cron-editor inputId="processDownloadsCron" formControlName="processDownloadsCron" title="Import downloads — schedule" placeholder="*/15 * * * *" />
           </div>
 
           <div class="d-flex flex-wrap align-items-center gap-3">
@@ -91,13 +85,7 @@
             <c-col md="7">
               <div class="mb-3">
                 <label cLabel for="rollingRefreshCron">Cron expression</label>
-                <input cFormControl id="rollingRefreshCron" formControlName="rollingRefreshCron"
-                       type="text" placeholder="0 3 * * *"
-                       [class.is-invalid]="form.get('rollingRefreshCron')?.invalid && form.get('rollingRefreshCron')?.touched" />
-                <div class="form-text text-body-secondary">Example: <code>0 3 * * *</code> — every day at 03:00.</div>
-                @if (form.get('rollingRefreshCron')?.invalid && form.get('rollingRefreshCron')?.touched) {
-                  <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
-                }
+                <app-cron-editor inputId="rollingRefreshCron" formControlName="rollingRefreshCron" title="Rolling refresh — schedule" placeholder="0 3 * * *" />
               </div>
             </c-col>
             <c-col md="5">
@@ -161,13 +149,7 @@
             <c-col md="6">
               <div class="mb-3">
                 <label cLabel for="autoSearchCron">Cron expression</label>
-                <input cFormControl id="autoSearchCron" formControlName="autoSearchCron"
-                       type="text" placeholder="0 4 * * *"
-                       [class.is-invalid]="form.get('autoSearchCron')?.invalid && form.get('autoSearchCron')?.touched" />
-                <div class="form-text text-body-secondary">Example: <code>0 4 * * *</code> — every day at 04:00.</div>
-                @if (form.get('autoSearchCron')?.invalid && form.get('autoSearchCron')?.touched) {
-                  <c-form-feedback [valid]="false">Enter a 5-field cron expression.</c-form-feedback>
-                }
+                <app-cron-editor inputId="autoSearchCron" formControlName="autoSearchCron" title="Auto search — schedule" placeholder="0 4 * * *" />
               </div>
             </c-col>
             <c-col md="3">
@@ -209,6 +191,68 @@
             <span class="text-body-secondary small">
               Last run: {{ formatDate(status()?.autoSearch?.lastRunUtc) }}
               · Next run: {{ formatDate(status()?.autoSearch?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
+      <!-- Bedetheque catalog -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>Bedetheque catalog</strong>
+          @if (status()?.bedethequeCatalog?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Each run re-fetches a fixed number of letters of the local Bedetheque series catalog
+            (never-fetched letters first, then the oldest ones), so the whole index (0, A–Z) is kept fresh
+            gradually instead of scraping the 27 pages at once.
+            See the <a routerLink="/settings/bedetheque">Bedetheque catalog</a> page for the per-letter state
+            and manual refreshes.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="bedethequeCatalogEnabled"
+                   formControlName="bedethequeCatalogEnabled" />
+            <label cFormCheckLabel for="bedethequeCatalogEnabled">Enabled</label>
+          </c-form-check>
+
+          <c-row>
+            <c-col md="7">
+              <div class="mb-3">
+                <label cLabel for="bedethequeCatalogCron">Cron expression</label>
+                <app-cron-editor inputId="bedethequeCatalogCron" formControlName="bedethequeCatalogCron" title="Bedetheque catalog — schedule" placeholder="0 2 * * *" />
+              </div>
+            </c-col>
+            <c-col md="5">
+              <div class="mb-3">
+                <label cLabel for="bedethequeCatalogLetterCount">Letters per run</label>
+                <input cFormControl id="bedethequeCatalogLetterCount" formControlName="bedethequeCatalogLetterCount"
+                       type="number" min="1" max="27" step="1"
+                       [class.is-invalid]="form.get('bedethequeCatalogLetterCount')?.invalid && form.get('bedethequeCatalogLetterCount')?.touched" />
+                <div class="form-text text-body-secondary">Least-recently-fetched letters first (27 = the whole index).</div>
+                @if (form.get('bedethequeCatalogLetterCount')?.invalid && form.get('bedethequeCatalogLetterCount')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a number between 1 and 27.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('BedethequeCatalog')" (click)="runNow('BedethequeCatalog')">
+              @if (runningNow().has('BedethequeCatalog')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.bedethequeCatalog?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.bedethequeCatalog?.nextRunUtc) }}
             </span>
           </div>
         </c-card-body>

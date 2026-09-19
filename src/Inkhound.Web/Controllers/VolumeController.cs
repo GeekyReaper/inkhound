@@ -23,12 +23,14 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
         new(v.SourceId, v.Source, v.Name, v.StartYear, v.CountOfIssues,
             v.Description, v.Publisher, v.ImageUrl, v.SiteUrl, v.Score, v.Language);
 
-    private record SourceSearchStatsDto(string Source, int ResultCount, long ElapsedMs, bool Success, string? ErrorMessage);
+    // ErrorCode : code d'échec exploitable par l'UI (ex. "CATALOG_NOT_LOADED" → lien vers la page
+    // du catalogue Bedetheque), null pour un échec générique.
+    private record SourceSearchStatsDto(string Source, int ResultCount, long ElapsedMs, bool Success, string? ErrorMessage, string? ErrorCode);
 
     private record SearchVolumesJobResultDto(VolumeSearchPageDto Page, IEnumerable<SourceSearchStatsDto> Stats);
 
     private static SourceSearchStatsDto ToStatsDto(SourceSearchStats s) =>
-        new(s.Source, s.ResultCount, s.ElapsedMs, s.Success, s.ErrorMessage);
+        new(s.Source, s.ResultCount, s.ElapsedMs, s.Success, s.ErrorMessage, s.ErrorCode);
 
     public record StartSearchRequest(string Name, int Page = 1, int? PageSize = null);
 

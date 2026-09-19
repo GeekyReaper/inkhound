@@ -84,6 +84,12 @@
               </span>
             }
           </div>
+          @if (catalogNotLoaded()) {
+            <c-alert color="warning" class="mt-2 mb-0 py-2 px-3">
+              The Bedetheque local catalog is not loaded — no Bedetheque results until it is.
+              <a routerLink="/settings/bedetheque" class="alert-link">Load it from the Bedetheque catalog page.</a>
+            </c-alert>
+          }
         </c-col>
       </c-row>
     }

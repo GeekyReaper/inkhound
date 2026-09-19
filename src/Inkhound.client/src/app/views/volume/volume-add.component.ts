@@ -39,6 +39,7 @@ import {
   AgeRating,
   AgeRatingOption,
   PageResult,
+  SEARCH_ERROR_CATALOG_NOT_LOADED,
   SourceSearchStats,
   VolumeSearchResult,
   VolumeService
@@ -121,6 +122,9 @@ export class VolumeAddComponent {
   issuesError       = signal<string | null>(null);
 
   stats           = signal<SourceSearchStats[] | null>(null);
+  // Le catalogue local Bedetheque est vide : alerte avec lien vers /settings/bedetheque.
+  readonly catalogNotLoaded = computed(() =>
+    this.stats()?.some(s => s.errorCode === SEARCH_ERROR_CATALOG_NOT_LOADED) ?? false);
   private handledJobIds = new Set<string>();
 
   // Job actif pour cette page (persisté en session via PageJobService, 1 seul job actif à la

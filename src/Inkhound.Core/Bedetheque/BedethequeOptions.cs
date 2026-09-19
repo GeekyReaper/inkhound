@@ -34,11 +34,21 @@ public class BedethequeOptions : IOptionList
     public bool UseFlareSolverr { get; set; } = false;
     public string FlareSolverrUrl { get; set; } = "";
 
-    // Limite les résultats de recherche à une langue — chaque série trouvée déclenche un appel
-    // supplémentaire (GetOrFetchSerieAsync, mis en file derrière le sémaphore FlareSolverr) pour
-    // l'enrichir ; restreindre la langue réduit d'autant le nombre de ces appels. "All" = pas de
-    // filtre (toutes les variantes linguistiques d'une série remontées séparément).
+    // Limite les résultats de recherche à une langue (filtre exact sur la langue du catalogue
+    // local). "All" = pas de filtre (toutes les variantes linguistiques d'une série remontées
+    // séparément).
     public BedethequeSearchLanguage SearchLanguageFilter { get; set; } = BedethequeSearchLanguage.All;
+
+    // Score minimum (1-1000) d'un rapprochement du catalogue local pour être retenu — voir
+    // BedethequeCatalogIndex.Search : 1000 = identique, 900-x = mot entier, 800-x = sous-chaîne,
+    // 1-500 = flou par tokens. Sous ~250 la strate floue remonte surtout du bruit.
+    public int CatalogMinScore { get; set; } = 250;
+
+    // Nombre de séries retenues par la recherche dans le catalogue local (les mieux classées).
+    // Chacune est enrichie via sa page série — cover, année, nombre de tomes, éditeur — au prix
+    // d'une requête par série (cache mémoire 24h, MaxParallelRequests en parallèle) : c'est donc
+    // aussi le plafond de requêtes réseau par recherche.
+    public int CatalogMaxResults { get; set; } = 5;
 
     public bool IsValid(out List<string> errors)
     {
@@ -58,6 +68,12 @@ public class BedethequeOptions : IOptionList
 
         if (UseFlareSolverr && string.IsNullOrWhiteSpace(FlareSolverrUrl))
             errors.Add("FlareSolverrUrl is required when UseFlareSolverr is enabled.");
+
+        if (CatalogMinScore is < 1 or > 1000)
+            errors.Add("CatalogMinScore must be between 1 and 1000.");
+
+        if (CatalogMaxResults <= 0)
+            errors.Add("CatalogMaxResults must be greater than 0.");
 
         return errors.Count == 0;
     }
@@ -86,9 +102,11 @@ public class BedethequeOptions : IOptionList
                 Value = SearchLanguageFilter.ToString(),
                 DefaultValue = nameof(BedethequeSearchLanguage.All),
                 AllowedValues = Enum.GetNames(typeof(BedethequeSearchLanguage)).ToList(),
-                Description = "Limit search results to one language — each match triggers an extra series detail request, so narrowing reduces load. 'All' returns every language variant.",
+                Description = "Limit local catalog search results to one language. 'All' returns every language variant.",
                 Mandatory = false
-            }
+            },
+            new OptionDefinition { Name = "CatalogMinScore", Section = "Search Behavior", SortOrder = 46, ValueType = EValueType.INT, Value = CatalogMinScore.ToString(), DefaultValue = "250", Description = "Minimum fuzzy-match score (1-1000) for a local catalog series to be returned: 1000 exact title, ~900 whole word, ~800 substring, below 500 fuzzy token match.", Mandatory = false },
+            new OptionDefinition { Name = "CatalogMaxResults", Section = "Search Behavior", SortOrder = 47, ValueType = EValueType.INT, Value = CatalogMaxResults.ToString(), DefaultValue = "5", Description = "Number of best-matching local catalog series returned per search. Each one is enriched with its series page (cover, year, issue count, publisher) — one request each (24h cache), so this also caps the network load per search.", Mandatory = false }
         };
     }
 
@@ -129,6 +147,12 @@ public class BedethequeOptions : IOptionList
                     case "SearchLanguageFilter":
                         if (Enum.TryParse<BedethequeSearchLanguage>(option.Value, out var lang))
                             SearchLanguageFilter = lang;
+                        break;
+                    case "CatalogMinScore":
+                        CatalogMinScore = option.GetInt();
+                        break;
+                    case "CatalogMaxResults":
+                        CatalogMaxResults = option.GetInt();
                         break;
                 }
             }

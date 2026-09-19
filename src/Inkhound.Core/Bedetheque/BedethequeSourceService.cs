@@ -8,6 +8,7 @@ using Foundation.Core;
 using Foundation.Core.Interface;
 using Foundation.Core.Model;
 using HtmlAgilityPack;
+using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.Models;
 using Inkhound.Core.Sources;
 
@@ -130,76 +131,69 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             ? new FlareSolverrClient(Options.FlareSolverrUrl)
             : null;
 
-    #region API Mapping — recherche de séries
+    #region Catalogue local — recherche de séries
 
-    // Recherche via l'autocomplete AJAX du site (/ajax/tout?term=), pas via le formulaire
-    // /search/albums : ce dernier exige un header Referer pointant vers la page de recherche pour
-    // renvoyer de vrais résultats (vérifié : sans lui, réponse 200 mais formulaire vide,
-    // silencieusement) — un Referer que FlareSolverr ne peut pas poser sur une navigation directe.
-    // /ajax/tout n'a pas cette contrainte et renvoie directement des séries (pas des albums à
-    // regrouper) avec leur ID réel, ce qui simplifie aussi tout le flux : plus besoin de dédupliquer
-    // par nom ni de résoudre l'ID via la page d'un album.
-    //
-    // L'endpoint ne matche que depuis le début du nom de série et pas sur plusieurs mots : on
-    // envoie le premier mot et on filtre côté client pour les requêtes multi-mots.
-    public async Task<IReadOnlyList<BdSerieSearchResult>> SearchAllSeriesByNameAsync(string query, CancellationToken ct = default)
+    // La recherche ne fait AUCUNE requête réseau : elle interroge l'index mémoire du catalogue
+    // local (toutes les séries du site, scrapées depuis les 27 pages d'index alphabétique et
+    // persistées en base par InkhoundManager — voir inkhoundManager.BedethequeCatalog.cs). Remplace
+    // l'ancien appel à l'autocomplete /ajax/tout, qui ne matchait que le début du premier mot et
+    // était sensible aux accents/ponctuation. Le rapprochement flou vit dans BedethequeCatalogIndex.
+    private readonly BedethequeCatalogIndex _catalog = new();
+
+    /// <summary>Remplace l'index mémoire du catalogue (appelé au démarrage et après chaque refresh).</summary>
+    public void LoadCatalog(IEnumerable<BedethequeCatalogEntry> entries) => _catalog.Load(entries);
+
+    /// <summary>Nombre de séries indexées.</summary>
+    public int CatalogCount => _catalog.Count;
+
+    /// <summary>Le catalogue contient au moins une série — la recherche est possible.</summary>
+    public bool IsCatalogLoaded => _catalog.IsLoaded;
+
+    /// <summary>
+    /// Scrape une page de l'index alphabétique (<c>/bandes_dessinees_{letter}.html</c>, une seule
+    /// page par lettre, pas de sous-pagination) et renvoie ses séries. Passe par le rate limiter /
+    /// FlareSolverr comme toute autre requête ; une page bloquée lève <see cref="BedethequeBlockedException"/>.
+    /// </summary>
+    public async Task<List<BedethequeCatalogEntry>> FetchCatalogLetterAsync(string letter, CancellationToken ct = default)
     {
-        var strippedQuery = StripLeadingArticle(query);
-        var firstWord = strippedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? strippedQuery;
+        var html = await GetHtmlAsync($"/bandes_dessinees_{letter}.html", referer: Options.BaseUrl, ct: ct);
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        return ParseCatalogPage(doc, letter, DateTime.UtcNow);
+    }
 
-        var url = $"{Options.BaseUrl}/ajax/tout?term={Uri.EscapeDataString(firstWord)}";
-        var json = await GetHtmlAsync(url, referer: Options.BaseUrl, navigate: false, ct: ct);
+    // Structure de page : <ul class="nav-liste"><li><span class="ico"><img src="…/flags/France.png"></span>
+    // <a href="…/serie-{id}-BD-…"><span class="libelle">Titre</span></a></li>…
+    internal static List<BedethequeCatalogEntry> ParseCatalogPage(HtmlDocument doc, string letter, DateTime fetchedAtUtc)
+    {
+        var results = new List<BedethequeCatalogEntry>();
+        var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'nav-liste')]/li");
+        if (items is null) return results;
 
-        var items = ParseAjaxToutItemsResilient(json);
-        var series = new List<(int Id, string Titre, string FlagSrc)>();
-        foreach (var item in items)
+        foreach (var li in items)
         {
-            if (item.GetProperty("category").GetString() != "Séries") continue;
+            var link = li.SelectSingleNode(".//a[contains(@href,'serie-')]");
+            if (link is null) continue;
 
-            var rawId = item.GetProperty("id").GetString() ?? string.Empty;
-            if (!int.TryParse(rawId.TrimStart('S'), out var id)) continue;
+            var idMatch = Regex.Match(link.GetAttributeValue("href", string.Empty), @"serie-(\d+)-");
+            if (!idMatch.Success || !int.TryParse(idMatch.Groups[1].Value, out var id) || id == 0) continue;
 
-            var titre = item.GetProperty("label").GetString();
-            if (string.IsNullOrEmpty(titre)) continue;
+            var title = CleanScrapedText(li.SelectSingleNode(".//span[contains(@class,'libelle')]")?.InnerText ?? link.InnerText);
+            if (string.IsNullOrEmpty(title)) continue;
 
-            series.Add((id, WebUtility.HtmlDecode(titre), item.GetProperty("desc").GetString() ?? string.Empty));
-        }
+            var flagSrc = li.SelectSingleNode(".//span[contains(@class,'ico')]/img")?.GetAttributeValue("src", string.Empty) ?? string.Empty;
 
-        if (strippedQuery.Contains(' '))
-            series = series.Where(s => s.Titre.Contains(strippedQuery, StringComparison.OrdinalIgnoreCase)).ToList();
-
-        // Filtre par langue AVANT enrichissement (pas après) : chaque série enrichie coûte une
-        // requête réseau supplémentaire en file derrière le sémaphore FlareSolverr — le filtre
-        // exploite le drapeau déjà présent dans la réponse AJAX, sans avoir besoin d'enrichir pour
-        // connaître la langue.
-        if (Options.SearchLanguageFilter != BedethequeSearchLanguage.All)
-        {
-            var wanted = LanguageFilterLabel(Options.SearchLanguageFilter);
-            series = series.Where(s => string.Equals(ExtractLangueFromFlag(s.FlagSrc), wanted, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-
-        using var semaphore = new SemaphoreSlim(Math.Max(1, Options.MaxParallelRequests));
-        var enrichTasks = series.Select(async s =>
-        {
-            await semaphore.WaitAsync(ct);
-            try
+            results.Add(new BedethequeCatalogEntry
             {
-                var detail = await GetOrFetchSerieAsync(s.Id, requireComplete: false, ct);
-                var origine = ExtractOrigineFromFlag(s.FlagSrc);
-                var langue = ExtractLangueFromFlag(s.FlagSrc);
-                var coverUrl = detail?.Albums.FirstOrDefault()?.CoverUrl
-                    ?? detail?.CoverUrl
-                    ?? $"{Options.BaseUrl}/cache/thb_series/PlancheS_{s.Id}.jpg";
-
-                return new BdSerieSearchResult(
-                    s.Id, s.Titre, detail?.Genre, origine, detail?.Langue ?? langue,
-                    detail?.AnneeDebut, detail?.AnneeFin, detail?.NombreAlbums ?? detail?.Albums.Count,
-                    coverUrl, $"{Options.BaseUrl}/serie-{s.Id}-BD-x.html", detail?.Editeur);
-            }
-            finally { semaphore.Release(); }
-        });
-
-        return (await Task.WhenAll(enrichTasks)).ToList().AsReadOnly();
+                Id = id,
+                Title = title,
+                Language = ExtractLangueFromFlag(flagSrc),
+                Origin = ExtractOrigineFromFlag(flagSrc),
+                Letter = letter,
+                FetchedAtUtc = fetchedAtUtc,
+            });
+        }
+        return results;
     }
 
     private static string LanguageFilterLabel(BedethequeSearchLanguage lang) => lang switch
@@ -215,84 +209,6 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         _ => lang.ToString(),
     };
 
-    // FlareSolverr renvoie driver.page_source (le DOM tel que rendu par Chrome), jamais la réponse
-    // HTTP brute — pour un endpoint JSON, certaines entrées peuvent être corrompues par ce rendu
-    // (ex. catégorie "Auteurs", dont le label embarque un tag <i class="icon-user"> que Chrome
-    // interprète parfois comme du vrai DOM plutôt que du texte, cassant le JSON à cet endroit). On
-    // découpe donc le tableau en objets top-level et on parse chacun individuellement, en ignorant
-    // silencieusement ceux qui échouent plutôt que de perdre tout le résultat.
-    private static List<JsonElement> ParseAjaxToutItemsResilient(string json)
-    {
-        var results = new List<JsonElement>();
-        var trimmed = json.Trim();
-        if (trimmed.Length < 2 || trimmed[0] != '[')
-            return results;
-
-        foreach (var objJson in SplitTopLevelJsonObjects(trimmed))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(objJson);
-                results.Add(doc.RootElement.Clone());
-            }
-            catch (JsonException) { /* entrée corrompue par le rendu Chrome, ignorée */ }
-        }
-        return results;
-    }
-
-    // Découpe un tableau JSON ("[{...},{...}]") en substrings de ses objets top-level.
-    private static List<string> SplitTopLevelJsonObjects(string jsonArray)
-    {
-        var result = new List<string>();
-        int depth = 0, start = -1;
-        bool inString = false, escape = false;
-
-        for (int i = 1; i < jsonArray.Length; i++)
-        {
-            var c = jsonArray[i];
-            if (inString)
-            {
-                if (escape) escape = false;
-                else if (c == '\\') escape = true;
-                else if (c == '"') inString = false;
-                continue;
-            }
-
-            if (c == '"') { inString = true; continue; }
-            if (c == '{')
-            {
-                if (depth == 0) start = i;
-                depth++;
-            }
-            else if (c == '}')
-            {
-                depth--;
-                if (depth == 0 && start >= 0)
-                {
-                    result.Add(jsonArray[start..(i + 1)]);
-                    start = -1;
-                }
-            }
-        }
-        return result;
-    }
-
-    // Articles français courants placés en tête de titre par l'utilisateur mais que le site
-    // range en fin de titre : "Les Légendaires" → "Légendaires (Les)". Couvre l'apostrophe droite
-    // et l'apostrophe typographique (celle qu'insèrent certains claviers/correcteurs).
-    private static readonly string[] LeadingArticles = ["l'", "l'", "les ", "le ", "la ", "des ", "un ", "une "];
-
-    private static string StripLeadingArticle(string query)
-    {
-        var trimmed = query.TrimStart();
-        foreach (var article in LeadingArticles)
-        {
-            if (trimmed.StartsWith(article, StringComparison.OrdinalIgnoreCase))
-                return trimmed[article.Length..].TrimStart();
-        }
-        return trimmed;
-    }
-
     #endregion
 
     #region API Mapping — détail série + albums
@@ -304,13 +220,13 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         => await GetOrFetchSerieAsync(id, requireComplete: true, ct, forceRefresh);
 
     // Point d'entrée unique pour récupérer les informations d'une série, avec cache mémoire (24h,
-    // par instance) partagé entre GetSerieAsync et l'enrichissement de SearchAllSeriesByNameAsync
+    // par instance) partagé entre GetSerieAsync et l'enrichissement des résultats de recherche
     // pour éviter de refetcher la même page /serie-{id}-BD-x.html deux fois.
     // requireComplete: true (GetSerieAsync — flux "ajouter à la bibliothèque"/rematch) exige la
     // liste complète des albums et n'accepte une entrée en cache que si elle est déjà complète ;
     // false (enrichissement de recherche) se contente d'un aperçu (page 1) et accepte n'importe
-    // quelle entrée fraîche, complète ou non — moins cher en requêtes pour une recherche qui peut
-    // remonter plusieurs séries à enrichir.
+    // quelle entrée fraîche, complète ou non — moins cher en requêtes pour une recherche qui
+    // enrichit plusieurs séries.
     private async Task<BdSerie?> GetOrFetchSerieAsync(int id, bool requireComplete, CancellationToken ct, bool forceRefresh = false)
     {
         if (!forceRefresh
@@ -766,15 +682,46 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
     #region ISourceService
 
+    // Sélection des candidats 100 % locale (voir région « Catalogue local ») : les
+    // CatalogMaxResults séries les mieux classées, puis enrichissement de CHACUNE via sa page série
+    // (cover, année, nombre de tomes, éditeur) — une requête par série, servie par le cache mémoire
+    // 24h de GetOrFetchSerieAsync et parallélisée à hauteur de MaxParallelRequests. Seuls les
+    // résultats enrichis remontent ; une série dont la page n'a pas pu être lue est écartée. Le
+    // score flou du catalogue sert uniquement à sélectionner/ordonner les candidats ; le score
+    // 0-100 affiché reste celui de SearchScoring, commun à toutes les sources.
     async Task<Page<SourceVolume>> ISourceService.SearchVolumesByNameAsync(
         string query, int page, int? limit, CancellationToken ct)
     {
-        var all = await SearchAllSeriesByNameAsync(query, ct);
+        if (!_catalog.IsLoaded) throw new BedethequeCatalogNotLoadedException();
+
+        var language = Options.SearchLanguageFilter == BedethequeSearchLanguage.All
+            ? null
+            : LanguageFilterLabel(Options.SearchLanguageFilter);
+        var matches = _catalog.Search(query, language, Options.CatalogMaxResults, Options.CatalogMinScore);
+
+        using var semaphore = new SemaphoreSlim(Math.Max(1, Options.MaxParallelRequests));
+        var enriched = await Task.WhenAll(matches.Select(async m =>
+        {
+            await semaphore.WaitAsync(ct);
+            try
+            {
+                var detail = await GetOrFetchSerieAsync(m.Entry.Id, requireComplete: false, ct);
+                return detail is null ? null : ToSourceVolume(m.Entry, detail);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                SendTrace($"[Bedetheque] Enrichment failed for serie {m.Entry.Id} ({m.Entry.Title}): {ex.Message}", ETraceLevel.WARNING);
+                return null;
+            }
+            finally { semaphore.Release(); }
+        }));
+        var all = enriched.Where(v => v is not null).Select(v => v!).ToList();
+
         var effectiveLimit = limit ?? 20;
         var offset = (page - 1) * effectiveLimit;
         return new Page<SourceVolume>
         {
-            Items = all.Skip(offset).Take(effectiveLimit).Select(ToSourceVolume).ToList(),
+            Items = all.Skip(offset).Take(effectiveLimit).ToList(),
             PageNumber = page,
             PageSize = effectiveLimit,
             TotalItems = all.Count,
@@ -819,8 +766,13 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return album is null ? null : ToSourceIssue(album);
     }
 
-    private static SourceVolume ToSourceVolume(BdSerieSearchResult s) =>
-        new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreTomes ?? 0, s.Editeur, null, s.CoverUrl, s.Url, Language: s.Langue);
+    // Entrée du catalogue enrichie par sa page série (aperçu page 1 suffisant : cover, année,
+    // total annoncé). Le titre reste celui du catalogue (même forme « Titre (Les) » que la page).
+    private SourceVolume ToSourceVolume(BedethequeCatalogEntry e, BdSerie detail) =>
+        new(e.Id.ToString(), SourceKeyConst, e.Title, ParseYear(detail.AnneeDebut),
+            detail.NombreAlbums ?? detail.Albums.Count, detail.Editeur, detail.Description,
+            detail.Albums.FirstOrDefault()?.CoverUrl ?? detail.CoverUrl,
+            $"{Options.BaseUrl}/serie-{e.Id}-BD-x.html", Language: detail.Langue ?? e.Language);
 
     private static SourceVolume ToSourceVolume(BdSerie s) =>
         new(s.Id.ToString(), SourceKeyConst, s.Titre, ParseYear(s.AnneeDebut), s.NombreAlbums ?? s.Albums.Count, s.Editeur, s.Description, s.CoverUrl, s.Url, Language: s.Langue);

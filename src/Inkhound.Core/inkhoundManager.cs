@@ -1,5 +1,6 @@
 using Inkhound.Core.ApiTokens;
 using Inkhound.Core.Bedetheque;
+using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
 using Inkhound.Core.Security;
@@ -169,6 +170,16 @@ public partial class InkhoundManager : BaseServiceManager
                 }
             }
 
+            // Index mémoire du catalogue local Bedetheque — la table existe (migrations jouées par
+            // DbStorageService.LoadOptions → CheckInternalState) et les options Bedetheque sont chargées.
+            try
+            {
+                await LoadBedethequeCatalogAsync();
+            }
+            catch (Exception ex)
+            {
+                JobSendTrace($"[Bedetheque] Catalog load failed: {ex.Message}", ETraceLevel.ERROR);
+            }
         }
 
         // Démarre la boucle de planification cron une fois les options de tous les services chargées.
@@ -734,7 +745,10 @@ public partial class InkhoundManager : BaseServiceManager
             {
                 sw.Stop();
                 JobSendTrace($"[{src.SourceKey}] Failed: {ex.Message}", ETraceLevel.WARNING);
-                stats.Add(new SourceSearchStats(src.SourceKey, 0, sw.ElapsedMilliseconds, false, ex.Message));
+                // Catalogue local vide : code dédié pour que l'UI propose le lien vers la page de
+                // chargement au lieu d'un simple "failed".
+                var errorCode = ex is BedethequeCatalogNotLoadedException ? SourceSearchStats.CatalogNotLoaded : null;
+                stats.Add(new SourceSearchStats(src.SourceKey, 0, sw.ElapsedMilliseconds, false, ex.Message, errorCode));
                 job?.Progress.Increment(false);
                 job?.CallbackHandler.Callback(job.Progress);
                 return null;

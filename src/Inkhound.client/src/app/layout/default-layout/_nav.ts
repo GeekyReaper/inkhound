@@ -58,6 +58,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-clock' }
   },
   {
+    name: 'Bedetheque catalog',
+    url: '/settings/bedetheque',
+    iconComponent: { name: 'cil-book' }
+  },
+  {
     title: true,
     name: 'Access'
   },

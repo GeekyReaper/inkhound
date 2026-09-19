@@ -1,0 +1,159 @@
+<c-container class="py-4">
+
+  <c-row class="mb-4 align-items-center">
+    <c-col>
+      <h2 class="mb-0">Bedetheque catalog</h2>
+      <div class="text-body-secondary small">
+        Local copy of the Bedetheque series index (27 pages: 0, A–Z). The Bedetheque source of the
+        multi-source search only queries this catalog — it returns nothing until at least one letter is loaded.
+      </div>
+    </c-col>
+  </c-row>
+
+  @if (error()) {
+    <c-alert color="danger" [dismissible]="true" (visibleChange)="!$event && error.set(null)">{{ error() }}</c-alert>
+  }
+
+  @if (loading() && !status()) {
+    <div class="d-flex justify-content-center py-5">
+      <c-spinner color="primary"></c-spinner>
+    </div>
+  } @else if (status(); as st) {
+
+    <!-- Stats -->
+    <c-card class="mb-4">
+      <c-card-header class="d-flex align-items-center justify-content-between">
+        <strong>Status</strong>
+        @if (st.loaded) {
+          <c-badge color="success">Loaded</c-badge>
+        } @else {
+          <c-badge color="warning" textColor="dark">Not loaded</c-badge>
+        }
+      </c-card-header>
+      <c-card-body>
+        <c-row class="g-3">
+          <c-col [xs]="6" [md]="3">
+            <div class="text-body-secondary small">Series</div>
+            <div class="fs-5 fw-semibold">{{ st.totalSeries }}</div>
+          </c-col>
+          <c-col [xs]="6" [md]="3">
+            <div class="text-body-secondary small">Letters loaded</div>
+            <div class="fs-5 fw-semibold">{{ loadedLetters() }} / {{ st.letters.length }}</div>
+          </c-col>
+          <c-col [xs]="6" [md]="3">
+            <div class="text-body-secondary small">Oldest fetch</div>
+            <div class="fw-semibold">{{ st.oldestFetchUtc ? (st.oldestFetchUtc | smartDate) : '—' }}</div>
+          </c-col>
+          <c-col [xs]="6" [md]="3">
+            <div class="text-body-secondary small">Newest fetch</div>
+            <div class="fw-semibold">{{ st.newestFetchUtc ? (st.newestFetchUtc | smartDate) : '—' }}</div>
+          </c-col>
+        </c-row>
+      </c-card-body>
+    </c-card>
+
+    <!-- Actions -->
+    <c-card class="mb-4">
+      <c-card-header class="d-flex align-items-center justify-content-between">
+        <strong>Refresh</strong>
+        @if (refreshBusy()) {
+          <c-badge color="info">Running</c-badge>
+        }
+      </c-card-header>
+      <c-card-body>
+        <p class="text-body-secondary">
+          Each letter is one page fetched from bedetheque.com (rate-limited). “Refresh oldest” picks the
+          never-fetched letters first, then the least recently fetched — the same rotation as the
+          scheduler task.
+        </p>
+        <div class="d-flex flex-wrap align-items-end gap-3">
+          <div>
+            <label cLabel for="letterCount">Letters</label>
+            <input cFormControl id="letterCount" type="number" min="1" max="27" step="1"
+                   [formControl]="letterCount" style="width: 6rem;"
+                   [class.is-invalid]="letterCount.invalid" />
+          </div>
+          <button cButton color="primary" type="button"
+                  [disabled]="launching() || refreshBusy() || letterCount.invalid" (click)="refreshOldest()">
+            @if (launching()) {
+              <c-spinner size="sm" class="me-1"></c-spinner>
+            } @else {
+              <svg cIcon name="cilReload" class="me-1"></svg>
+            }
+            Refresh oldest
+          </button>
+          <button cButton color="secondary" variant="outline" type="button"
+                  [disabled]="launching() || refreshBusy()" (click)="requestRefreshAll()">
+            Refresh all (27 pages)
+          </button>
+        </div>
+      </c-card-body>
+    </c-card>
+
+    @if (activeJobId()) {
+      <c-row class="mb-4">
+        <c-col>
+          <app-job-panel [jobId]="activeJobId()" />
+        </c-col>
+      </c-row>
+    }
+
+    <!-- Letters -->
+    <c-card>
+      <c-card-header><strong>Letters</strong></c-card-header>
+      <c-card-body class="p-0 p-md-3">
+        <table cTable [hover]="true" class="table-stack mb-0 letters-table">
+          <thead>
+            <tr>
+              <th class="col-identity">Letter</th>
+              <th style="width: 120px;">Series</th>
+              <th style="width: 180px;">Last fetch</th>
+              <th style="width: 110px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (l of st.letters; track l.letter) {
+              <tr [class.text-body-secondary]="l.count === 0">
+                <td class="col-identity fw-semibold">{{ l.letter }}</td>
+                <td data-label="Series">{{ l.count }}</td>
+                <td data-label="Last fetch">
+                  @if (l.fetchedAtUtc) {
+                    {{ l.fetchedAtUtc | smartDate }}
+                  } @else {
+                    <c-badge color="warning" textColor="dark">never</c-badge>
+                  }
+                </td>
+                <td class="col-full col-actions">
+                  <button cButton color="secondary" variant="outline" size="sm" type="button"
+                          [disabled]="launching() || refreshBusy()" (click)="refreshLetter(l.letter)">
+                    <svg cIcon name="cilReload" size="sm" class="me-1"></svg>
+                    Refresh
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </c-card-body>
+    </c-card>
+
+  }
+
+  <!-- Confirmation « Refresh all » -->
+  <c-modal [visible]="confirmAllVisible()" (visibleChange)="confirmAllVisible.set($event)">
+    <c-modal-header>
+      <h5 cModalTitle>Refresh the whole catalog?</h5>
+      <button cButtonClose (click)="confirmAllVisible.set(false)"></button>
+    </c-modal-header>
+    <c-modal-body>
+      This fetches all 27 index pages from bedetheque.com in a row. With the configured rate limit it
+      takes a while and puts a noticeable load on the site — prefer refreshing a few letters at a time
+      unless the catalog is empty.
+    </c-modal-body>
+    <c-modal-footer>
+      <button cButton color="secondary" variant="outline" (click)="confirmAllVisible.set(false)">Cancel</button>
+      <button cButton color="primary" (click)="confirmRefreshAll()">Refresh all</button>
+    </c-modal-footer>
+  </c-modal>
+
+</c-container>

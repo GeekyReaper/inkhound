@@ -1,4 +1,4 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+﻿import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -12,13 +12,12 @@ import {
   SpinnerComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
+import { RouterLink } from '@angular/router';
 import {
   SchedulerService, SchedulerStatus, SchedulerTaskKey
 } from '../../core/services/scheduler.service';
-
-// Cron 5 champs : validation légère côté client (5 groupes non vides séparés par des espaces).
-// La validation réelle reste backend (Cronos).
-const CRON_PATTERN = /^\S+(\s+\S+){4}$/;
+import { CronEditorComponent } from '../cron-editor/cron-editor.component';
+import { cronValidator } from '../cron-editor/cron.utils';
 
 @Component({
   selector: 'app-scheduler-settings',
@@ -29,7 +28,8 @@ const CRON_PATTERN = /^\S+(\s+\S+){4}$/;
     CardComponent, CardHeaderComponent, CardBodyComponent,
     FormDirective, FormControlDirective, FormLabelDirective, FormFeedbackComponent,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
-    BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent, IconDirective
+    BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent, IconDirective, RouterLink,
+    CronEditorComponent
   ],
   templateUrl: './scheduler.component.html'
 })
@@ -46,14 +46,17 @@ export class SchedulerSettingsComponent implements OnInit {
 
   form = new FormGroup({
     processDownloadsEnabled: new FormControl(false, { nonNullable: true }),
-    processDownloadsCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
+    processDownloadsCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
     rollingRefreshEnabled: new FormControl(false, { nonNullable: true }),
-    rollingRefreshCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
+    rollingRefreshCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
     rollingRefreshBatchSize: new FormControl(10, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
     autoSearchEnabled: new FormControl(false, { nonNullable: true }),
-    autoSearchCron: new FormControl('', { nonNullable: true, validators: [Validators.pattern(CRON_PATTERN)] }),
+    autoSearchCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
     autoSearchBatchSize: new FormControl(5, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
-    autoSearchMinScore: new FormControl(70, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(100)] })
+    autoSearchMinScore: new FormControl(70, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(100)] }),
+    bedethequeCatalogEnabled: new FormControl(false, { nonNullable: true }),
+    bedethequeCatalogCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
+    bedethequeCatalogLetterCount: new FormControl(3, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(27)] })
   });
 
   ngOnInit(): void {
@@ -118,7 +121,10 @@ export class SchedulerSettingsComponent implements OnInit {
       autoSearchEnabled: s.autoSearch.enabled,
       autoSearchCron: s.autoSearch.cron,
       autoSearchBatchSize: s.autoSearchBatchSize,
-      autoSearchMinScore: s.autoSearchMinScore
+      autoSearchMinScore: s.autoSearchMinScore,
+      bedethequeCatalogEnabled: s.bedethequeCatalog.enabled,
+      bedethequeCatalogCron: s.bedethequeCatalog.cron,
+      bedethequeCatalogLetterCount: s.bedethequeCatalogLetterCount
     });
   }
 }

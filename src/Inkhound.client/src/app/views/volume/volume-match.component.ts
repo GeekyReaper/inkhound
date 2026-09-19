@@ -1,6 +1,6 @@
 import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   AlertComponent,
@@ -34,6 +34,7 @@ import { NgClass, SlicePipe } from '@angular/common';
 import { IconDirective } from '@coreui/icons-angular';
 import {
   PageResult,
+  SEARCH_ERROR_CATALOG_NOT_LOADED,
   SourceSearchStats,
   UpdateIssueRequest,
   UpdateVolumeManuallyRequest,
@@ -62,7 +63,7 @@ import { LanguageFlagComponent } from '../language-flag/language-flag.component'
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
-    JobPanelComponent, LanguageFlagComponent
+    JobPanelComponent, LanguageFlagComponent, RouterLink
   ]
 })
 export class VolumeMatchComponent {
@@ -111,6 +112,9 @@ export class VolumeMatchComponent {
   issuesError       = signal<string | null>(null);
 
   stats          = signal<SourceSearchStats[] | null>(null);
+  // Le catalogue local Bedetheque est vide : alerte avec lien vers /settings/bedetheque.
+  readonly catalogNotLoaded = computed(() =>
+    this.stats()?.some(s => s.errorCode === SEARCH_ERROR_CATALOG_NOT_LOADED) ?? false);
   private handledJobIds = new Set<string>();
 
   // Job actif pour cette page (persisté en session via PageJobService, 1 seul job actif à la

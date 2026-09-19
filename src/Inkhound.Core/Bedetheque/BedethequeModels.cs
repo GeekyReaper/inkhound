@@ -2,19 +2,6 @@ namespace Inkhound.Core.Bedetheque;
 
 public record BdAuteur(string Nom, string? Role, string? Url);
 
-public record BdSerieSearchResult(
-    int Id,
-    string Titre,
-    string? Genre,
-    string? Origine,
-    string? Langue,
-    string? AnneeDebut,
-    string? AnneeFin,
-    int? NombreTomes,
-    string? CoverUrl,
-    string Url,
-    string? Editeur);
-
 public record BdAlbumSummary(
     int Id,
     string Titre,

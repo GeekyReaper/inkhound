@@ -1,0 +1,69 @@
+// Éditeur cron : puces des 5 champs sous l'input, panneau d'aide + prochaines exécutions en
+// deux colonnes (empilées sous 768px).
+.cron-input {
+  letter-spacing: 0.08em;
+}
+
+.cron-description {
+  line-height: 1.3;
+}
+
+.cron-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cron-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 4.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--cui-border-color);
+  border-radius: var(--cui-border-radius);
+  color: var(--cui-secondary-color);
+  transition: border-color 0.15s, background-color 0.15s;
+
+  .cron-token {
+    font-weight: 600;
+    color: var(--cui-body-color);
+  }
+
+  .cron-field-name {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  &.active {
+    border-color: var(--cui-primary);
+    background-color: var(--cui-primary-bg-subtle);
+    color: var(--cui-primary-text-emphasis);
+
+    .cron-token {
+      color: var(--cui-primary-text-emphasis);
+    }
+  }
+}
+
+.cron-details {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--cui-border-color);
+  background-color: var(--cui-tertiary-bg);
+  border-radius: var(--cui-border-radius);
+
+  @media (max-width: 767.98px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cron-op {
+  display: inline-block;
+  min-width: 1.5rem;
+  text-align: center;
+  margin-right: 0.25rem;
+}

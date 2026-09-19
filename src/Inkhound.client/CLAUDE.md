@@ -182,7 +182,8 @@ src/
 │   │   │                        #   À utiliser à la place de date:'medium'/'short' sur tout horodatage métier.
 │   │   └── services/            # AuthService, HubService, LibraryService, LibraryViewStateService,
 │   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
-│   │                            # OptionsService, SchedulerService, FilesystemService, ImageService
+│   │                            # OptionsService, SchedulerService, BedethequeCatalogService,
+│   │                            # FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,
 │   │   │                        #   Active jobs, Downloads — section « Most wanted » : cartes des issues
@@ -222,7 +223,14 @@ src/
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
 │   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler —
-│   │   │                        #   3 cartes : Import downloads / Rolling refresh / Auto search)
+│   │   │                        #   4 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog,
+│   │   │                        #   champs cron via app-cron-editor) +
+│   │   │                        #   BedethequeCatalogComponent (/settings/bedetheque — état du catalogue local
+│   │   │                        #   Bedetheque : encart stats, « Refresh oldest » N lettres / « Refresh all »
+│   │   │                        #   (modal de confirmation) / tableau .table-stack des 27 lettres avec bouton
+│   │   │                        #   Refresh par ligne, suivi du job via app-job-panel + PageJobService, état
+│   │   │                        #   rechargé à la fin du job — effect() sur hub.jobs())
+│   │   ├── cron-editor/         # CronEditorComponent — éditeur cron (CVA, modale, traduction + next runs)
 │   │   ├── jobs/                # JobsComponent (historique et suivi des jobs)
 │   │   ├── select-path/         # SelectPathComponent — modal réutilisable de navigation filesystem
 │   │   ├── language-flag/       # LanguageFlagComponent — drapeau CoreUI (cif-*) depuis le libellé langue
@@ -251,7 +259,8 @@ src/
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service — accordéon CoreUI (`alwaysOpen`, plusieurs panneaux ouverts), état/formulaire par module (`ModuleEntry`), chargement paresseux à la 1re ouverture |
-| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) |
+| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) |
+| `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
 
@@ -374,6 +383,22 @@ interface VolumeSearchResult {
   imageUrl: string | null; siteUrl: string | null;
 }
 
+// Stats par source d'une recherche multi-source. errorCode = code d'échec exploitable par l'UI :
+// SEARCH_ERROR_CATALOG_NOT_LOADED ('CATALOG_NOT_LOADED') → VolumeAdd/VolumeMatch affichent une
+// c-alert warning avec routerLink vers /settings/bedetheque (computed catalogNotLoaded()).
+interface SourceSearchStats {
+  source: SourceKey; resultCount: number; elapsedMs: number;
+  success: boolean; errorMessage: string | null; errorCode: string | null;
+}
+
+// ─── bedetheque-catalog.service.ts ───────────────────────────────────────────
+interface BedethequeCatalogLetterStatus { letter: string; count: number; fetchedAtUtc: string | null; }
+interface BedethequeCatalogStatus {
+  loaded: boolean; totalSeries: number; oldestFetchUtc: string | null; newestFetchUtc: string | null;
+  refreshRunning: boolean; letters: BedethequeCatalogLetterStatus[];   // toujours 27 (0, A-Z)
+}
+interface RefreshCatalogRequest { letterCount?: number; letters?: string[]; }  // letters prioritaire
+
 interface PageResult<T> {
   items: T[]; pageNumber: number; pageSize: number;
   totalItems: number; totalPages: number; hasNext: boolean; hasPrev: boolean;
@@ -473,7 +498,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
-| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch'` |
+| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog'` |
+| `BedethequeCatalogService` | — | `getStatus()`, `refresh(req)` → `{ jobId }` (409 si un refresh tourne déjà) — page `/settings/bedetheque` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |
@@ -572,6 +598,34 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
 
 `mode="file"` (émet le chemin complet du fichier sur *confirm*, `''` sur *cancel*) — utilisé par la
 page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`).
+
+## Composant réutilisable : CronEditorComponent
+
+`app-cron-editor` (`views/cron-editor/`) — éditeur d'expression cron 5 champs façon crontab.guru,
+**`ControlValueAccessor`** : se branche directement sur un `formControlName`. Sur la page, il
+n'affiche qu'un résumé compact (input en lecture seule + traduction en langage naturel + bouton
+« Edit ») ; l'édition se fait dans une **modale** (`size="lg"`) sur un brouillon, appliqué au
+`FormControl` uniquement sur « Apply » (désactivé si invalide).
+
+```html
+<label cLabel for="autoSearchCron">Cron expression</label>
+<app-cron-editor inputId="autoSearchCron" formControlName="autoSearchCron"
+                 title="Auto search — schedule" placeholder="0 4 * * *" [nextCount]="5" />
+```
+
+Contenu de la modale : input + dropdown « Presets » (`CRON_PRESETS`), traduction en anglais
+(`cronstrue`, `use24HourTimeFormat`, non verbose), 5 puces (minute / hour / day (month) / month /
+day (week)) dont celle sous le curseur est surlignée et pilote le panneau d'aide (plage, alias
+`JAN-DEC` / `SUN-SAT`, légende `* , - /`), et les `nextCount` prochaines exécutions (`cron-parser`,
+**fuseau du navigateur** — le backend Cronos tourne en heure serveur, mention affichée).
+
+Logique pure dans `cron.utils.ts` (testée par `cron.utils.spec.ts`) : `describeCron`, `cronError`
+(strict 5 champs — les secondes sont refusées, comme côté Cronos), `nextOccurrences`, `splitFields`,
+`fieldAtCursor`, `CRON_FIELDS` / `CRON_OPERATORS` / `CRON_PRESETS`, et le validateur Reactive Forms
+`cronValidator` (vide = valide ; sinon `{ cron: message }`) utilisé par `SchedulerSettingsComponent`
+à la place de l'ancienne regex.
+
+Dépendances npm : `cronstrue`, `cron-parser`.
 
 ## Composant réutilisable : FileIssueMatcherComponent
 

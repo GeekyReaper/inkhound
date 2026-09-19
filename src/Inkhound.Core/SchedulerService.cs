@@ -39,4 +39,13 @@ public class SchedulerService : BaseService<SchedulerOptions>
 
     /// <summary>Score minimum (0-100) qu'un torrent doit atteindre pour être acquis automatiquement.</summary>
     public int AutoSearchMinScore => Options.AutoSearchMinScore;
+
+    /// <summary>Rafraîchissement automatique du catalogue local Bedetheque activé.</summary>
+    public bool BedethequeCatalogEnabled => Options.BedethequeCatalogEnabled;
+
+    /// <summary>Expression cron (heure serveur) du rafraîchissement du catalogue Bedetheque.</summary>
+    public string BedethequeCatalogCron => Options.BedethequeCatalogCron;
+
+    /// <summary>Nombre de lettres d'index rafraîchies à chaque exécution.</summary>
+    public int BedethequeCatalogLetterCount => Options.BedethequeCatalogLetterCount;
 }

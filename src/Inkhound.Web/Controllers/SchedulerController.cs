@@ -14,11 +14,12 @@ namespace Inkhound.Web.Controllers;
 [Authorize(Roles = "admin")]
 public class SchedulerController(InkhoundManager manager) : ControllerBase
 {
-    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des trois tâches.</summary>
+    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des quatre tâches.</summary>
     public record SchedulerConfigRequest(
         bool ProcessDownloadsEnabled, string ProcessDownloadsCron,
         bool RollingRefreshEnabled, string RollingRefreshCron, int RollingRefreshBatchSize,
-        bool AutoSearchEnabled, string AutoSearchCron, int AutoSearchBatchSize, int AutoSearchMinScore);
+        bool AutoSearchEnabled, string AutoSearchCron, int AutoSearchBatchSize, int AutoSearchMinScore,
+        bool BedethequeCatalogEnabled, string BedethequeCatalogCron, int BedethequeCatalogLetterCount);
 
     // GET /api/scheduler — état courant (config + dernier / prochain déclenchement).
     [HttpGet]
@@ -31,6 +32,7 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
         var processCron = (request.ProcessDownloadsCron ?? string.Empty).Trim();
         var rollingCron = (request.RollingRefreshCron ?? string.Empty).Trim();
         var autoSearchCron = (request.AutoSearchCron ?? string.Empty).Trim();
+        var catalogCron = (request.BedethequeCatalogCron ?? string.Empty).Trim();
 
         if (request.ProcessDownloadsEnabled && !InkhoundManager.IsValidCronExpression(processCron))
             return BadRequest(new { message = "Import downloads: invalid 5-field cron expression." });
@@ -50,6 +52,12 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
         if (request.AutoSearchMinScore is < 0 or > 100)
             return BadRequest(new { message = "Auto search: minimum score must be between 0 and 100." });
 
+        if (request.BedethequeCatalogEnabled && !InkhoundManager.IsValidCronExpression(catalogCron))
+            return BadRequest(new { message = "Bedetheque catalog: invalid 5-field cron expression." });
+
+        if (request.BedethequeCatalogEnabled && request.BedethequeCatalogLetterCount < 1)
+            return BadRequest(new { message = "Bedetheque catalog: letters per run must be at least 1." });
+
         var updates = new Dictionary<string, string>
         {
             ["ProcessDownloadsEnabled"]    = request.ProcessDownloadsEnabled.ToString().ToLowerInvariant(),
@@ -60,7 +68,10 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
             ["AutoSearchEnabled"]          = request.AutoSearchEnabled.ToString().ToLowerInvariant(),
             ["AutoSearchCron"]             = autoSearchCron,
             ["AutoSearchBatchSize"]        = request.AutoSearchBatchSize.ToString(),
-            ["AutoSearchMinScore"]         = request.AutoSearchMinScore.ToString()
+            ["AutoSearchMinScore"]         = request.AutoSearchMinScore.ToString(),
+            ["BedethequeCatalogEnabled"]   = request.BedethequeCatalogEnabled.ToString().ToLowerInvariant(),
+            ["BedethequeCatalogCron"]      = catalogCron,
+            ["BedethequeCatalogLetterCount"] = request.BedethequeCatalogLetterCount.ToString()
         };
 
         var success = await manager.UpdateOptionsForService("Scheduler", updates);

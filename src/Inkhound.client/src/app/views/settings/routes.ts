@@ -30,5 +30,10 @@ export const routes: Routes = [
     path: 'scheduler',
     loadComponent: () => import('./scheduler.component').then(m => m.SchedulerSettingsComponent),
     data: { title: 'Scheduler' }
+  },
+  {
+    path: 'bedetheque',
+    loadComponent: () => import('./bedetheque-catalog.component').then(m => m.BedethequeCatalogComponent),
+    data: { title: 'Bedetheque catalog' }
   }
 ];

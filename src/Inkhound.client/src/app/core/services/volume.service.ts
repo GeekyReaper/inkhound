@@ -117,12 +117,17 @@ export interface PageResult<T> {
   hasPrev:    boolean;
 }
 
+// Code d'échec exploitable par l'UI : 'CATALOG_NOT_LOADED' = le catalogue local Bedetheque est
+// vide (alerte + lien vers /settings/bedetheque). null pour un échec générique.
+export const SEARCH_ERROR_CATALOG_NOT_LOADED = 'CATALOG_NOT_LOADED';
+
 export interface SourceSearchStats {
   source:       SourceKey;
   resultCount:  number;
   elapsedMs:    number;
   success:      boolean;
   errorMessage: string | null;
+  errorCode:    string | null;
 }
 
 export interface SearchVolumesJobResult {

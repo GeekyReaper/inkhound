@@ -1,0 +1,139 @@
+<!-- Résumé en page : expression + traduction, édition via la modale -->
+<c-input-group>
+  <input cFormControl
+         [id]="inputId()"
+         type="text"
+         class="font-monospace cron-input"
+         readonly
+         [placeholder]="placeholder()"
+         [value]="value()"
+         [disabled]="disabled()"
+         [class.is-invalid]="showError()"
+         (click)="open()" />
+  <button cButton color="secondary" variant="outline" type="button" [disabled]="disabled()" (click)="open()">
+    <svg cIcon name="cilPencil" size="sm" class="me-1"></svg>Edit
+  </button>
+</c-input-group>
+
+@if (parsed(); as p) {
+  @if (p.valid) {
+    <div class="form-text">“{{ p.description }}”</div>
+  } @else if (showError()) {
+    <div class="form-text text-danger">
+      <svg cIcon name="cilXCircle" size="sm" class="me-1"></svg>{{ p.error }}
+    </div>
+  } @else {
+    <div class="form-text text-body-secondary">No schedule set.</div>
+  }
+}
+
+<!-- Modale d'édition (brouillon) -->
+<c-modal size="lg" [visible]="modalVisible()" (visibleChange)="onVisibleChange($event)" backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>{{ title() }}</h5>
+    <button cButtonClose type="button" (click)="cancel()"></button>
+  </c-modal-header>
+
+  <c-modal-body class="cron-editor">
+
+    <!-- Saisie + presets -->
+    <c-input-group>
+      <input cFormControl
+             type="text"
+             class="font-monospace cron-input fs-5"
+             autocomplete="off"
+             spellcheck="false"
+             [placeholder]="placeholder()"
+             [value]="draft()"
+             [class.is-invalid]="!draftParsed().valid && draft().trim().length > 0"
+             (input)="onDraftInput($event)"
+             (click)="onCursorMove($event)"
+             (keyup)="onCursorMove($event)"
+             (focus)="onCursorMove($event)" />
+      <c-dropdown alignment="end">
+        <button cButton cDropdownToggle color="secondary" variant="outline" type="button">Presets</button>
+        <ul cDropdownMenu>
+          @for (p of presets; track p.expression) {
+            <li>
+              <button cDropdownItem type="button" (click)="applyPreset(p)">
+                <span class="font-monospace me-2">{{ p.expression }}</span>
+                <span class="text-body-secondary">{{ p.label }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      </c-dropdown>
+    </c-input-group>
+
+    <!-- Traduction -->
+    @if (draftParsed(); as p) {
+      @if (p.valid) {
+        <div class="cron-description fs-4 mt-3 text-center">“{{ p.description }}”</div>
+      } @else if (draft().trim().length > 0) {
+        <div class="cron-description fs-6 mt-3 text-center text-danger">
+          <svg cIcon name="cilXCircle" size="sm" class="me-1"></svg>{{ p.error }}
+        </div>
+      } @else {
+        <div class="cron-description fs-6 mt-3 text-center text-body-secondary">Enter a 5-field cron expression.</div>
+      }
+    }
+
+    <!-- Champs -->
+    <div class="cron-fields mt-3">
+      @for (f of fields; track f.name; let i = $index) {
+        <div class="cron-field" [class.active]="i === activeField()">
+          <span class="cron-token font-monospace">{{ draftTokens()[i] }}</span>
+          <span class="cron-field-name">{{ f.name }}</span>
+        </div>
+      }
+    </div>
+
+    <!-- Aide du champ courant + prochaines exécutions -->
+    <div class="cron-details mt-3">
+      <div class="cron-help">
+        @if (activeFieldInfo(); as f) {
+          <div class="small">
+            <strong class="text-capitalize">{{ f.name }}</strong>
+            <span class="text-body-secondary"> — allowed values </span><code>{{ f.range }}</code>
+            @if (f.aliases) {
+              <span class="text-body-secondary"> or </span><code>{{ f.aliases }}</code>
+            }
+            @if (f.note) {
+              <span class="text-body-secondary"> ({{ f.note }})</span>
+            }
+          </div>
+        }
+        <ul class="cron-operators list-unstyled small mb-0 mt-2">
+          @for (op of operators; track op.symbol) {
+            <li>
+              <code class="cron-op">{{ op.symbol }}</code>
+              <span>{{ op.meaning }}</span>
+              <span class="text-body-secondary"> — {{ op.example }}</span>
+            </li>
+          }
+        </ul>
+      </div>
+
+      <div class="cron-next">
+        <div class="small text-body-secondary">
+          Next runs <span class="fst-italic">(browser time — the scheduler uses server time)</span>
+        </div>
+        @if (nextRuns().length > 0) {
+          <ol class="list-unstyled small mb-0 mt-2">
+            @for (d of nextRuns(); track $index) {
+              <li class="font-monospace">{{ d | smartDate }}</li>
+            }
+          </ol>
+        } @else {
+          <div class="small text-body-secondary mt-2">—</div>
+        }
+      </div>
+    </div>
+
+  </c-modal-body>
+
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" type="button" (click)="cancel()">Cancel</button>
+    <button cButton color="primary" type="button" [disabled]="!draftParsed().valid" (click)="apply()">Apply</button>
+  </c-modal-footer>
+</c-modal>

@@ -18,7 +18,8 @@ Inkhound.Core/
 │   ├── ArchiveJobParameters.cs
 │   ├── SynchronizeLibraryJobParameters.cs
 │   ├── RegenerateComicInfoJobParameters.cs
-│   └── AutoSearchVolumeJobParameters.cs  # job Auto search (VolumeId + MinScore)
+│   ├── AutoSearchVolumeJobParameters.cs  # job Auto search (VolumeId + MinScore)
+│   └── RefreshBedethequeCatalogJobParameters.cs  # job refresh catalogue Bedetheque (LetterCount / Letters)
 ├── Security/            # PasswordHasher.cs — PBKDF2/SHA-256, 100 000 itérations
 ├── ComicVine/           # Intégration API ComicVine
 │   ├── ComicVineSourceService.cs
@@ -28,7 +29,13 @@ Inkhound.Core/
 │   ├── BedethequeSourceService.cs
 │   ├── BedethequeModels.cs
 │   ├── BedethequeOptions.cs
-│   └── BedethequeBlockedException.cs
+│   ├── BedethequeBlockedException.cs
+│   └── Catalog/         # Catalogue local des séries (recherche floue hors-ligne — voir section Bedetheque)
+│       ├── BedethequeCatalogEntry.cs        # entité EF (table BedethequeCatalogSeries)
+│       ├── BedethequeCatalogIndex.cs        # index mémoire + Search() (scoring par paliers)
+│       ├── BedethequeTitleNormalizer.cs     # normalisation/tokens/synonymes/Levenshtein (pur, testé)
+│       ├── BedethequeCatalogStatus.cs / BedethequeCatalogLetterStatus.cs
+│       └── BedethequeCatalogNotLoadedException.cs
 ├── Sources/             # Abstraction multi-source (ISourceService, SourceVolume/SourceIssue)
 │   ├── ISourceService.cs
 │   └── SourceModels.cs
@@ -48,7 +55,8 @@ Inkhound.Core/
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
 ├── inkhoundManager.cs   # Orchestrateur principal des jobs
 ├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
-└── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
+├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
+└── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
 ```
 
 ## Modèles domaine
@@ -152,8 +160,43 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 
 ### Bedetheque
 - Site scrapé (pas d'API publique) — Serie = Volume, Album = Issue
-- Recherche de séries : formulaire `/search/albums` (token CSRF + dédup par nom de série,
-  puis résolution de l'ID réel via la page du premier album trouvé)
+- **Recherche de séries = catalogue local, zéro requête réseau** (`Bedetheque/Catalog/`, port de
+  la recherche par catalogue de `bdguest-scrapper`). Les 27 pages d'index alphabétique du site
+  (`/bandes_dessinees_{0,A..Z}.html`, ~77 000 séries) sont scrapées lettre par lettre
+  (`FetchCatalogLetterAsync` → `ParseCatalogPage`, `internal static` testé) et persistées dans la
+  table `BedethequeCatalogSeries` (`Id` = id série, `Title` au format du site « Titre (Les) »,
+  `Language`/`Origin` déduits du drapeau, `Letter`, `FetchedAtUtc`). `InkhoundManager.LoadBedethequeCatalogAsync`
+  (fin d'`AutomaticLoadServices` + fin de chaque refresh) charge la table dans l'index mémoire
+  `BedethequeCatalogIndex` de `BedethequeSourceService` (`LoadCatalog` / `IsCatalogLoaded` / `CatalogCount`).
+  - `ISourceService.SearchVolumesByNameAsync` interroge uniquement cet index : **catalogue vide →
+    `BedethequeCatalogNotLoadedException`**, que `SearchVolumesAsync` traduit en
+    `SourceSearchStats.ErrorCode = "CATALOG_NOT_LOADED"` (l'UI affiche un lien vers `/settings/bedetheque`).
+    Le service reste `OK` (son état ne dépend pas du catalogue). Les `CatalogMaxResults` (défaut 5)
+    meilleures séries sont ensuite **toutes enrichies** via leur page série (`GetOrFetchSerieAsync(requireComplete:false)`,
+    cache 24 h, `MaxParallelRequests` en parallèle) → cover (premier album / og:image), année, nombre
+    de tomes, éditeur, description. **Seuls les résultats enrichis remontent** : une série dont la
+    page n'a pas pu être lue est écartée (trace WARNING). `CatalogMaxResults` plafonne donc aussi les
+    requêtes réseau par recherche.
+  - Rapprochement (`BedethequeTitleNormalizer` + `BedethequeCatalogIndex.Search`) : titre et requête
+    passent par le même pipeline — `ReorderParentheticalPrefix` (titre seulement, « X (Les) » → « Les X »),
+    `StripLeadingArticle`, minuscules, `&`→`et`, `$`→`s`, points supprimés, ligatures/accents retirés
+    (table `BaseChar` de repli, indépendante d'ICU), ponctuation → espace, puis `CanonicalizeTokens`
+    (`and`→`et`, nombres en lettres FR/EN → chiffres sauf `un/une/one`). Score : **1000** identique,
+    **900−écart** (≤ 99) requête = mot entier du titre, **800−écart** (≤ 200) sous-chaîne, **1-500**
+    flou par tokens (meilleure similarité Levenshtein par token de requête, rejet si < 0,5 ;
+    `round(500 × (0,7 × similarité moyenne + 0,3 × couverture du titre))`). Options `CatalogMinScore`
+    (défaut 250) et `CatalogMaxResults` (défaut 5) dans `BedethequeOptions` ; `SearchLanguageFilter`
+    = filtre exact sur `Language`. Le score 0-100 affiché reste `SearchScoring.ScoreTitleMatch`.
+  - **Refresh** (`inkhoundManager.BedethequeCatalog.cs`) : `LaunchJobRefreshBedethequeCatalog(RefreshBedethequeCatalogJobParameters)`
+    → `JobContext` (`Letters` explicites, sinon `LetterCount` lettres par rotation « jamais chargée
+    d'abord, puis `FetchedAtUtc` asc », sinon les 27). Un seul refresh à la fois (`_catalogRefreshRunning`,
+    `InvalidOperationException` → 409). Par lettre : fetch, page vide → WARNING + contenu précédent
+    conservé, sinon `ReplaceCatalogLetterAsync` (transaction : delete par `Letter` + delete des ids
+    réinsérés, puis `AddRange`). `BedethequeBlockedException` arrête la boucle. ⚠️ `StartJob` est
+    appelé directement dans `LaunchJob…`/`RunScheduled…` (jamais dans un helper `async` awaité) :
+    le job courant est un `AsyncLocal` qui ne remonte pas vers l'appelant.
+  - `GetBedethequeCatalogStatusAsync()` → `BedethequeCatalogStatus` (loaded, total, oldest/newest,
+    refreshRunning, 27 `BedethequeCatalogLetterStatus`).
 - Détail d'une série + liste des albums : `GET /serie-{id}-BD-x.html` — `GetSerieAsync` met en
   cache mémoire 24h (`_serieCache`). `GetSerieAsync(id, ct, forceRefresh: true)` ignore ce cache
   et le repeuple : le flux Refresh/Rematch (`RematchVolumeFromBedethequeAsync`) le passe pour
@@ -212,6 +255,9 @@ avant** la fusion, puis l'ensemble est retrié par score :
   en **tête et/ou en queue** (`le/la/les/l/un/une/des/the/a/an`), jamais au milieu. Sans ça la
   forme Bedetheque « Trois fantômes de Tesla (Les) » tombait en repli Levenshtein (~42) face à
   « Les trois fantômes de Tesla » de ComicVine (100) pour la même requête.
+- Une source qui lève une exception est ignorée avec `SourceSearchStats(Success=false, ErrorMessage)` ;
+  `ErrorCode` (nullable) qualifie les échecs que l'UI traite spécifiquement — aujourd'hui
+  `SourceSearchStats.CatalogNotLoaded` (`"CATALOG_NOT_LOADED"`) pour `BedethequeCatalogNotLoadedException`.
 - Bonus langue `+10` uniquement si `SourceVolume.Language` == `ISourceService.PreferredLanguage`
   de la première source qui en déclare une — Bedetheque expose `LanguageFilterLabel(SearchLanguageFilter)`
   (`null` en `All` → aucun bonus), ComicVine `null` (pas de métadonnée langue, ni bonus ni pénalité).
@@ -525,7 +571,7 @@ dossier qui vient d'être supprimé.
 
 `SchedulerService` / `SchedulerOptions` (`Models/SchedulerOptions.cs`) — service à options
 (persisté dans la table `Options`, service `"Scheduler"`, aucune migration d'options : créé par le
-merge de `AutomaticLoadServices`). Trois tâches indépendantes, chacune `Enabled` + expression
+merge de `AutomaticLoadServices`). Quatre tâches indépendantes, chacune `Enabled` + expression
 **cron 5 champs** (parsing via le package **`Cronos`**, heure serveur `TimeZoneInfo.Local`) :
 
 | Tâche (clé) | Options | Action |
@@ -533,6 +579,7 @@ merge de `AutomaticLoadServices`). Trois tâches indépendantes, chacune `Enable
 | `ProcessDownloads` | `ProcessDownloadsEnabled`, `ProcessDownloadsCron` | `LaunchJobProcessDownloads(new())` |
 | `RollingRefresh` | `RollingRefreshEnabled`, `RollingRefreshCron`, `RollingRefreshBatchSize` (int, défaut 10) | `RunScheduledRollingRefreshAsync` — voir ci-dessous |
 | `AutoSearch` | `AutoSearchEnabled`, `AutoSearchCron` (défaut `0 4 * * *`), `AutoSearchBatchSize` (int, défaut 5), `AutoSearchMinScore` (int 0-100, défaut 70) | `RunScheduledAutoSearchAsync` — voir « Auto search » ci-dessous |
+| `BedethequeCatalog` | `BedethequeCatalogEnabled`, `BedethequeCatalogCron` (défaut `0 2 * * *`), `BedethequeCatalogLetterCount` (int, défaut 3) | `RunScheduledBedethequeCatalogAsync` — job de refresh du catalogue local sur les N lettres les moins récemment chargées, **awaité** (la garde `_schedulerBusy` couvre toute l'exécution) ; ignoré (trace WARNING) si un refresh manuel tourne déjà. Voir section Bedetheque. |
 
 **Rolling refresh** (`RunScheduledRollingRefreshAsync`) : au lieu de rafraîchir tout le catalogue
 d'un coup (charge source trop forte), chaque exécution prend les **N volumes les moins récemment
@@ -610,7 +657,7 @@ au démarrage (`lastCheckUtc` initialisé à `DateTime.UtcNow`). `_schedulerLast
 déclenchement) est **en mémoire** — repart à vide après redémarrage.
 
 `GetSchedulerStatus()` → `SchedulerStatus` (enabled / cron / lastRunUtc / nextRunUtc / running par
-tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
+tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
 « Run now »), `ArgumentException` si clé inconnue. Exposés par `SchedulerController` (`Inkhound.Web`).
 
 ---

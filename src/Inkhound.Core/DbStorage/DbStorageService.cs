@@ -297,6 +297,22 @@ public class DbStorageService : BaseService<DbStorageOption>
         // au prochain refresh de leur volume.
         await AddColumnIfMissingAsync(db, "Issues", "Category", "TEXT NOT NULL DEFAULT 'Standard'");
 
+        // BedethequeCatalogSeries ajouté en septembre 2026 — catalogue local des séries Bedetheque
+        // (index alphabétique du site scrapé par lettre) qui alimente la recherche floue de
+        // BedethequeSourceService. Letter/FetchedAtUtc permettent le rafraîchissement par rotation.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS BedethequeCatalogSeries (
+                Id           INTEGER NOT NULL PRIMARY KEY,
+                Title        TEXT    NOT NULL DEFAULT '',
+                Language     TEXT    NULL,
+                Origin       TEXT    NULL,
+                Letter       TEXT    NOT NULL DEFAULT '',
+                FetchedAtUtc TEXT    NOT NULL DEFAULT ''
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_BedethequeCatalogSeries_Letter ON BedethequeCatalogSeries(Letter)");
+
         // Backfill Volumes.DateAdded (septembre 2026) — seul AddVolumeManuallyAsync le renseignait ;
         // les volumes ajoutés via ComicVine, Bedetheque ou synchronisation filesystem avaient tous
         // DateAdded == default, empêchant le tri "Recently added" du dashboard de les départager (ces

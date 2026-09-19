@@ -27,13 +27,19 @@ public record SourceIssue(
 
 // Statistiques d'une source pour une recherche donnée — affichées dans la console du job et
 // dans un résumé au-dessus des résultats, pour que l'utilisateur voie combien de résultats
-// chaque source a renvoyés et en combien de temps.
+// chaque source a renvoyés et en combien de temps. ErrorCode (optionnel) identifie un échec
+// que l'UI sait traiter spécifiquement (ex. catalogue local à charger → lien vers la page).
 public record SourceSearchStats(
     string Source,
     int ResultCount,
     long ElapsedMs,
     bool Success,
-    string? ErrorMessage);
+    string? ErrorMessage,
+    string? ErrorCode = null)
+{
+    /// <summary>Le catalogue local Bedetheque est vide — l'utilisateur doit le charger.</summary>
+    public const string CatalogNotLoaded = "CATALOG_NOT_LOADED";
+}
 
 public class SearchVolumesJobResult
 {

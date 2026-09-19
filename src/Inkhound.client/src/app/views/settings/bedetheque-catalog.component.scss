@@ -1,0 +1,10 @@
+// Tableau des 27 lettres : colonne lettre étroite en desktop (le socle .table-stack lui donne une
+// largeur plancher pensée pour du texte libre), carte compacte en mobile.
+.letters-table {
+  @media (min-width: 768px) {
+    .col-identity {
+      width: 80px;
+      min-width: 0;
+    }
+  }
+}

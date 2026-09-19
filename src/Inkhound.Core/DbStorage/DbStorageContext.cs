@@ -1,4 +1,5 @@
 using Foundation.Core.Model;
+using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.Models;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,8 @@ public class DbStorageContext : DbContext
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     public DbSet<User> Users => Set<User>();
+
+    public DbSet<BedethequeCatalogEntry> BedethequeCatalog => Set<BedethequeCatalogEntry>();
 
     public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
@@ -57,6 +60,15 @@ public class DbStorageContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Login)
             .IsUnique();
+
+        // Catalogue local Bedetheque — la clé est l'id de série du site, jamais générée par la base.
+        modelBuilder.Entity<BedethequeCatalogEntry>(entity =>
+        {
+            entity.ToTable("BedethequeCatalogSeries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.HasIndex(e => e.Letter);
+        });
 
         // Authors serialized as JSON column
         modelBuilder.Entity<Volume>()
