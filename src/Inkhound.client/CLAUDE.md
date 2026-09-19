@@ -26,6 +26,7 @@ utiliser en priorité les composants CoreUI avant d'écrire du HTML/CSS custom.
 | Pagination | `<c-pagination>` | `PaginationModule` |
 | Dropdown | `<c-dropdown>` | `DropdownModule` |
 | Tabs | `<c-tabs>` | `TabsModule` |
+| Accordion | `<c-accordion>`, `<c-accordion-item>`, `cAccordionButton`, `cTemplateId` | `AccordionModule` |
 | Tooltip | `cTooltip` directive | `TooltipModule` |
 | Grid layout | `<c-row>`, `<c-col>` | `GridModule` |
 | Sidebar | `<c-sidebar>`, `<c-sidebar-nav>` | `SidebarModule` |
@@ -249,7 +250,7 @@ src/
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
-| `/settings` | `SettingsComponent` | Options de configuration par service |
+| `/settings` | `SettingsComponent` | Options de configuration par service — accordéon CoreUI (`alwaysOpen`, plusieurs panneaux ouverts), état/formulaire par module (`ModuleEntry`), chargement paresseux à la 1re ouverture |
 | `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |

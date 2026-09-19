@@ -1,37 +1,31 @@
 <div class="container-lg px-4">
   <div class="row">
     <div class="col-12">
-      <c-tabs [activeItemKey]="activeIndex()">
-        <c-tabs-list variant="tabs">
-          @for (name of services(); track name; let i = $index) {
-            <button cTab [itemKey]="i" (click)="activeTab.set(name)">
-              {{ name }}
-              <c-badge [color]="getBadgeColor(getServiceState(name))" class="ms-2">
-                {{ getServiceState(name) }}
-              </c-badge>
-            </button>
-          }
-        </c-tabs-list>
+      <c-accordion [alwaysOpen]="true">
+        @for (entry of entries(); track entry.name) {
+          <c-accordion-item #item="cAccordionItem" [visible]="false">
+            <ng-template cTemplateId="accordionHeaderTemplate">
+              <button cAccordionButton [collapsed]="!item.visible" (click)="toggle(entry, item)">
+                <span class="flex-grow-1">{{ entry.name }}</span>
+                <c-badge [color]="getBadgeColor(getServiceState(entry.name))" class="me-3">
+                  {{ getServiceState(entry.name) }}
+                </c-badge>
+              </button>
+            </ng-template>
+            <ng-template cTemplateId="accordionBodyTemplate">
+              <div class="accordion-body">
 
-        <div class="border border-top-0 rounded-bottom bg-white">
-        <c-tabs-content>
-          @for (name of services(); track name; let i = $index) {
-            <c-tab-panel class="p-3" [itemKey]="i">
-              @if (activeTab() === name) {
-
-                @if (loading()) {
+                @if (entry.loading()) {
                   <div class="d-flex justify-content-center py-4">
                     <c-spinner color="primary" />
                   </div>
-                } @else if (noOptions()) {
+                } @else if (entry.noOptions()) {
                   <p class="text-muted fst-italic py-3">No options available for this service.</p>
                 } @else {
-                  <div class="d-flex align-items-center gap-2 mb-3">
-                    <span class="text-muted small">Status:</span>
-                    <c-badge [color]="getBadgeColor(getServiceState(name))">{{ getServiceState(name) }}</c-badge>
+                  <div class="d-flex justify-content-end mb-3">
                     <button cButton color="secondary" variant="outline" size="sm"
-                            [disabled]="refreshingState()" (click)="refreshState()">
-                      @if (refreshingState()) {
+                            [disabled]="entry.refreshingState()" (click)="refreshState(entry)">
+                      @if (entry.refreshingState()) {
                         <c-spinner size="sm" class="me-1" />
                       } @else {
                         <svg cIcon name="cilSync" class="me-1"></svg>
@@ -40,11 +34,11 @@
                     </button>
                   </div>
 
-                  <form cForm [formGroup]="form()" (ngSubmit)="saveOptions()" novalidate>
+                  <form cForm [formGroup]="entry.form()" (ngSubmit)="saveOptions(entry)" novalidate>
 
-                    @for (group of groupedOptions(); track group.section + '-' + $index) {
+                    @for (group of entry.groupedOptions(); track group.section + '-' + $index) {
 
-                      @if (showSectionHeaders()) {
+                      @if (entry.showSectionHeaders()) {
                         <h6 class="text-uppercase fw-bold text-primary pb-2 mb-3 border-bottom border-primary-subtle"
                             [class.mt-4]="!$first">
                           {{ group.section }}
@@ -63,7 +57,7 @@
 
                           @if (def.valueType === 'TEXT') {
                             <textarea cFormControl [id]="def.id" [formControlName]="def.name" rows="4"
-                                      [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                                      [class.is-invalid]="entry.form().get(def.name)?.invalid && entry.form().get(def.name)?.touched">
                             </textarea>
                           } @else if (def.valueType === 'BOOL') {
                             <c-form-check>
@@ -76,14 +70,14 @@
                           } @else if (def.valueType === 'PATH') {
                             <c-input-group>
                               <input cFormControl [id]="def.id" [formControlName]="def.name" type="text" readonly
-                                     [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
-                              <button cButton color="secondary" type="button" (click)="openPathPicker(def.name)">
+                                     [class.is-invalid]="entry.form().get(def.name)?.invalid && entry.form().get(def.name)?.touched" />
+                              <button cButton color="secondary" type="button" (click)="openPathPicker(entry, def.name)">
                                 <svg cIcon name="cilFolder"></svg>
                               </button>
                             </c-input-group>
                           } @else if (def.valueType === 'SELECT') {
                             <select cSelect [id]="def.id" [formControlName]="def.name"
-                                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched">
+                                    [class.is-invalid]="entry.form().get(def.name)?.invalid && entry.form().get(def.name)?.touched">
                               @for (v of def.allowedValues; track v) {
                                 <option [value]="v">{{ v }}</option>
                               }
@@ -92,17 +86,17 @@
                             <input cFormControl [id]="def.id" [formControlName]="def.name"
                                    [type]="getInputType(def.valueType)"
                                    [attr.step]="def.valueType === 'DOUBLE' ? 'any' : null"
-                                   [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                                   [class.is-invalid]="entry.form().get(def.name)?.invalid && entry.form().get(def.name)?.touched" />
                           }
 
                           @if (def.description) {
                             <div class="form-text text-muted">{{ def.description }}</div>
                           }
 
-                          @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
+                          @if (entry.form().get(def.name)?.invalid && entry.form().get(def.name)?.touched) {
                             <c-form-feedback [valid]="false">
-                              @if (form().get(def.name)?.hasError('required')) { This field is required. }
-                              @else if (form().get(def.name)?.hasError('pattern')) { Invalid format. }
+                              @if (entry.form().get(def.name)?.hasError('required')) { This field is required. }
+                              @else if (entry.form().get(def.name)?.hasError('pattern')) { Invalid format. }
                             </c-form-feedback>
                           }
 
@@ -110,30 +104,31 @@
                       }
                     }
 
-                    @if (saveStatus() === 'success') {
+                    @if (entry.saveStatus() === 'success') {
                       <c-alert color="success" class="mb-3">Settings saved.</c-alert>
-                    } @else if (saveStatus() === 'error') {
+                    } @else if (entry.saveStatus() === 'error') {
                       <c-alert color="danger" class="mb-3">Failed to save settings.</c-alert>
                     }
 
-                    <button cButton color="primary" type="submit" [disabled]="form().invalid || saving()">
-                      @if (saving()) {
-                        <c-spinner size="sm" class="me-2" />
-                        Saving…
-                      } @else {
-                        Save
-                      }
-                    </button>
-
+                    <div class="d-flex justify-content-end mb-2">
+                      <button cButton color="primary" type="submit" [disabled]="entry.form().invalid || entry.saving()">
+                        @if (entry.saving()) {
+                          <c-spinner size="sm" class="me-2" />
+                          Saving…
+                        } @else {
+                          <svg cIcon name="cilSave" class="me-2"></svg>
+                          Save
+                        }
+                      </button>
+                    </div>
                   </form>
                 }
 
-              }
-            </c-tab-panel>
-          }
-        </c-tabs-content>
-        </div>
-      </c-tabs>
+              </div>
+            </ng-template>
+          </c-accordion-item>
+        }
+      </c-accordion>
     </div>
   </div>
 </div>
@@ -141,6 +136,6 @@
 <app-select-path
   mode="directory"
   [(visible)]="pathPickerVisible"
-  [initialPath]="activePathOption() ? (form().get(activePathOption()!)?.value ?? '') : ''"
+  [initialPath]="pathPickerInitialPath()"
   (pathSelected)="onPathSelected($event)"
 />
