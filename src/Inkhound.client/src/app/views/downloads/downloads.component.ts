@@ -1,22 +1,21 @@
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+﻿import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { interval, merge, switchMap, finalize } from 'rxjs';
 import { DecimalPipe } from '@angular/common';
 import {
-  AlertComponent, BadgeComponent, ButtonCloseDirective, ButtonDirective,
+  AlertComponent, ButtonDirective,
   CardBodyComponent, CardComponent,
   ColComponent, ContainerComponent,
-  FormControlDirective, FormLabelDirective,
-  ModalBodyComponent, ModalComponent, ModalFooterComponent, ModalHeaderComponent, ModalTitleDirective,
   PageItemComponent, PageLinkDirective, PaginationComponent,
   ProgressBarComponent, ProgressComponent,
-  RowComponent, SpinnerComponent, TableDirective
+  RowComponent, SpinnerComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { QBittorrentService, DownloadItem, DownloadStatus, DownloadsPageResult } from '../../core/services/qbittorrent.service';
+import { QBittorrentService, DownloadStatus, DownloadsPageResult } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
 import { JobContext } from '../../core/models/hub.models';
 import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal.component';
+import { DownloadListComponent } from '../download-list/download-list.component';
 
 @Component({
   selector: 'app-downloads',
@@ -24,16 +23,13 @@ import { JobConsoleModalComponent } from '../job-console-modal/job-console-modal
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
-    SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
-    TableDirective, ProgressComponent, ProgressBarComponent,
+    SpinnerComponent, AlertComponent, ButtonDirective,
+    ProgressComponent, ProgressBarComponent,
     PaginationComponent, PageItemComponent, PageLinkDirective,
     DecimalPipe, IconDirective,
-    JobConsoleModalComponent,
-    ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
-    ModalTitleDirective, ButtonCloseDirective, FormControlDirective, FormLabelDirective,
+    JobConsoleModalComponent, DownloadListComponent
   ],
-  templateUrl: './downloads.component.html',
-  styleUrl: './downloads.component.scss'
+  templateUrl: './downloads.component.html'
 })
 export class DownloadsComponent {
   private qbService    = inject(QBittorrentService);
@@ -55,20 +51,8 @@ export class DownloadsComponent {
   selectedJob    = signal<JobContext | null>(null);
   consoleVisible = signal(false);
 
-  // --- Modale « Fix download » (correction d'un hash orphelin) ---
-  editModalVisible = signal(false);
-  editingItem       = signal<DownloadItem | null>(null);
-  editHashInput     = signal('');
-  editSaving        = signal(false);
-  editError         = signal<string | null>(null);
-
-  // --- Modale de confirmation de suppression (toute ligne, tout état) ---
-  deleteModalVisible  = signal(false);
-  deleteTarget        = signal<DownloadItem | null>(null);
-  deleteRemoveTorrent = signal(true);
-  deleting            = signal(false);
-  deleteError         = signal<string | null>(null);
-  deleteNotice        = signal<string | null>(null);
+  // Le rendu d'une ligne, ses actions et les modales (fix hash / suppression) vivent dans
+  // app-download-list, partagé avec la page Issue.
 
   // Choix exclusif — Active par défaut (Done, déjà traités, n'a que peu d'intérêt à être vu en
   // premier).
@@ -140,24 +124,6 @@ export class DownloadsComponent {
     this.currentPage.set(page);
   }
 
-  statusBadgeColor(status: DownloadStatus): string {
-    switch (status) {
-      case 'Downloading': return 'info';
-      case 'Stalled':     return 'warning';
-      case 'Paused':      return 'warning';
-      case 'Finished':    return 'success';
-      case 'Syncing':     return 'info';
-      case 'Done':        return 'success';
-      case 'Error':       return 'danger';
-      case 'NotFound':    return 'dark';
-      default:            return 'secondary';
-    }
-  }
-
-  canProcess(item: DownloadItem): boolean {
-    return item.status === 'Finished' || item.status === 'Syncing';
-  }
-
   openConsole(job: JobContext): void {
     this.selectedJob.set(job);
     this.consoleVisible.set(true);
@@ -179,135 +145,9 @@ export class DownloadsComponent {
       .subscribe({ next: () => {}, error: () => {} });
   }
 
-  processOne(item: DownloadItem): void {
-    if (this.processingIds().has(item.id)) return;
-    this.processingIds.update(ids => new Set(ids).add(item.id));
-    this.qbService.processDownload(item.id)
-      .pipe(
-        takeUntilDestroyed(this.#destroyRef),
-        finalize(() => this.processingIds.update(ids => {
-          const next = new Set(ids);
-          next.delete(item.id);
-          return next;
-        }))
-      )
-      .subscribe({ next: () => {}, error: () => {} });
-  }
-
-  // --- Modale « Fix download » (ligne NotFound : corriger le hash orphelin) ---
-
-  openEditModal(item: DownloadItem): void {
-    this.editingItem.set(item);
-    this.editHashInput.set('');
-    this.editError.set(null);
-    this.editModalVisible.set(true);
-  }
-
-  onEditModalVisibleChange(visible: boolean): void {
-    if (!visible) this.closeEditModal();
-  }
-
-  closeEditModal(): void {
-    this.editModalVisible.set(false);
-    this.editingItem.set(null);
-    this.editHashInput.set('');
-    this.editError.set(null);
-  }
-
-  saveHash(): void {
-    const item = this.editingItem();
-    const hash = this.editHashInput().trim();
-    if (!item || !hash || this.editSaving()) return;
-
-    this.editSaving.set(true);
-    this.editError.set(null);
-    this.qbService.updateDownloadHash(item.id, hash)
-      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.editSaving.set(false)))
-      .subscribe({
-        next:  () => this.closeEditModal(),
-        error: err => this.editError.set(err?.error?.message ?? 'Failed to update hash.')
-      });
-  }
-
-  // --- Modale de confirmation de suppression ---
-
-  requestDelete(item: DownloadItem): void {
-    this.deleteTarget.set(item);
-    this.deleteRemoveTorrent.set(true);
-    this.deleteError.set(null);
-    this.deleteNotice.set(null);
-    this.deleteModalVisible.set(true);
-  }
-
-  onDeleteModalVisibleChange(visible: boolean): void {
-    if (!visible) this.closeDeleteModal();
-  }
-
-  closeDeleteModal(): void {
-    this.deleteModalVisible.set(false);
-    this.deleteTarget.set(null);
-    this.deleteError.set(null);
-  }
-
-  confirmDelete(): void {
-    const item = this.deleteTarget();
-    if (!item || this.deleting()) return;
-
-    const removeTorrent = this.deleteRemoveTorrent();
-    this.deleting.set(true);
-    this.deleteError.set(null);
-    this.qbService.deleteDownload(item.id, removeTorrent)
-      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.deleting.set(false)))
-      .subscribe({
-        next: res => {
-          if (removeTorrent && !res.torrentRemoved) {
-            this.deleteNotice.set('Tracking removed. The torrent could not be removed from qBittorrent (service unavailable) — only this download was deleted.');
-          } else if (res.torrentRemoved && res.deletedCount > 1) {
-            this.deleteNotice.set(`Torrent removed from qBittorrent — ${res.deletedCount} downloads that shared it were deleted.`);
-          }
-          this.closeDeleteModal();
-          this.reloadTick.update(t => t + 1);
-        },
-        error: err => this.deleteError.set(err?.error?.message ?? 'Failed to delete download.')
-      });
-  }
-
-  formatSpeed(bytesPerSec: number | null): string {
-    if (bytesPerSec === null || bytesPerSec <= 0) return '—';
-    if (bytesPerSec >= 1_048_576) return `${(bytesPerSec / 1_048_576).toFixed(1)} MB/s`;
-    return `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
-  }
-
-  formatEta(seconds: number | null): string {
-    if (seconds === null || seconds <= 0 || seconds >= 8640000) return '—';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  }
-
-  formatSize(bytes: number | null): string {
-    if (bytes === null || bytes <= 0) return '—';
-    const mb = bytes / 1_048_576;
-    return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
-  }
-
-  // Date d'ajout compacte : "HH:mm" si c'est aujourd'hui, sinon "dd/MM HH:mm".
-  formatAdded(value: string | null): string {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '—';
-
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-
-    const now = new Date();
-    const sameDay = d.getFullYear() === now.getFullYear()
-      && d.getMonth() === now.getMonth()
-      && d.getDate() === now.getDate();
-
-    return sameDay ? time : `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${time}`;
+  // Refetch immédiat après une action de app-download-list (suppression, import, hash corrigé),
+  // sans attendre le poll 10 s.
+  reload(): void {
+    this.reloadTick.update(t => t + 1);
   }
 }

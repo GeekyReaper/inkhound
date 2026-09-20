@@ -1,7 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
-import { filter, finalize, switchMap } from 'rxjs';
+import { filter, finalize, interval, merge, switchMap } from 'rxjs';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
@@ -10,10 +10,12 @@ import {
   ColComponent, ContainerComponent,
   FormControlDirective, FormLabelDirective, FormSelectDirective,
   ModalModule,
-  RowComponent, SpinnerComponent
+  RowComponent, SpinnerComponent, TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { Issue, IssueService, IssueStatus } from '../../core/services/issue.service';
+import { Issue, IssueBan, IssueService, IssueStatus } from '../../core/services/issue.service';
+import { DownloadItem } from '../../core/services/qbittorrent.service';
+import { DownloadListComponent } from '../download-list/download-list.component';
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
@@ -30,12 +32,13 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective, IconDirective,
-    ModalModule,
+    ModalModule, TableDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, SlicePipe, SmartDatePipe,
     JobPanelComponent,
     ProwlarrSearchComponent,
-    SelectPathComponent
+    SelectPathComponent,
+    DownloadListComponent
   ]
 })
 export class IssueComponent {
@@ -71,6 +74,16 @@ export class IssueComponent {
   deletingFile           = signal(false);
   deleteFileError        = signal<string | null>(null);
 
+  // --- Téléchargements de cette issue (carte au-dessus de la recherche Prowlarr) ---
+  downloads = signal<DownloadItem[]>([]);
+  // Bumper ce signal force un refetch immédiat, sans attendre le poll 10 s.
+  private downloadsTick = signal(0);
+
+  // --- Torrents bannis pour cette issue ---
+  bans          = signal<IssueBan[]>([]);
+  banRemovingId = signal<string | null>(null);
+  banError      = signal<string | null>(null);
+
   // --- État de la modale d'édition ---
   editModalVisible = signal(false);
   editSaving        = signal(false);
@@ -99,13 +112,34 @@ export class IssueComponent {
         error: ()    => { this.loadError.set('Issue not found.'); this.loading.set(false); }
       });
 
+    this.loadBans();
+
+    // Téléchargements de l'issue : chargement immédiat, puis poll 10 s (même rythme que la page
+    // Downloads — la progression et le statut viennent de qBittorrent, hors SignalR).
+    // toObservable() exige un contexte d'injection, d'où l'appel ici.
+    merge(interval(10_000), toObservable(this.downloadsTick))
+      .pipe(
+        switchMap(() => this.issueService.getDownloads(this.issueId)),
+        takeUntilDestroyed(this.#destroyRef)
+      )
+      .subscribe({
+        next:  items => this.downloads.set(items),
+        error: ()    => { /* carte secondaire : un échec ne doit pas polluer la page */ }
+      });
+
     toObservable(this.hub.lastDataUpdated)
       .pipe(
         filter((d): d is UpdatedData => d !== null && d.dataType.endsWith('Issue') && d.id === this.issueId),
         switchMap(() => this.issueService.getById(this.issueId)),
         takeUntilDestroyed(this.#destroyRef)
       )
-      .subscribe(issue => this.issue.set(issue));
+      .subscribe(issue => {
+        this.issue.set(issue);
+        // Un download supprimé/importé ailleurs (page Downloads) a pu créer un ban pour cette
+        // issue et changer sa liste de téléchargements.
+        this.loadBans();
+        this.reloadDownloads();
+      });
 
     effect(() => {
       const job = this.currentJob();
@@ -129,6 +163,36 @@ export class IssueComponent {
 
   goBack(): void {
     this.router.navigate(['.'], { relativeTo: this.route.parent });
+  }
+
+  // --- Téléchargements ---
+
+  reloadDownloads(): void {
+    this.downloadsTick.update(t => t + 1);
+  }
+
+  // --- Torrents bannis ---
+
+  loadBans(): void {
+    this.issueService.getBans(this.issueId)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  bans => this.bans.set(bans),
+        error: ()   => { /* liste secondaire : un échec ne doit pas polluer la page */ }
+      });
+  }
+
+  removeBan(ban: IssueBan): void {
+    if (this.banRemovingId()) return;
+
+    this.banRemovingId.set(ban.id);
+    this.banError.set(null);
+    this.issueService.deleteBan(ban.id)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.banRemovingId.set(null)))
+      .subscribe({
+        next:  () => this.bans.update(list => list.filter(b => b.id !== ban.id)),
+        error: err => this.banError.set(err?.error?.message ?? 'Failed to lift the ban.')
+      });
   }
 
   // --- Actions de la modale d'édition ---

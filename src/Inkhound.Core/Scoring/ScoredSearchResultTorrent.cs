@@ -17,4 +17,7 @@ public record ScoredSearchResultTorrent(
     ProwlarrSearchResult Result,
     float Score,
     ScoreDetailsTorrent Details,
-    TorrentAnalysis Analysis);
+    TorrentAnalysis Analysis,
+    // Le torrent est banni pour l'issue recherchée (voir TorrentBanIndex) : Score vaut alors 0 et
+    // l'UI l'indique explicitement plutôt que de laisser croire à un simple mauvais résultat.
+    bool Banned = false);

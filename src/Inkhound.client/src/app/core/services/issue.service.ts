@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { VolumeAuthor, VolumeImage, PageResult, SourceKey } from './volume.service';
+import { DownloadItem } from './qbittorrent.service';
 
 export type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 
@@ -68,6 +69,19 @@ export interface Issue {
   analyzedAt:                        string | null;
 }
 
+// Couple (issue, torrent) banni — créé à la suppression d'un téléchargement, il force à 0 le score
+// du torrent dans les recherches Prowlarr suivantes (issue concernée, et volume parent).
+export interface IssueBan {
+  id:           string;
+  issueId:      string;
+  torrentTitle: string;
+  trackerName:  string | null;
+  downloadUrl:  string;
+  torrentHash:  string;
+  createdAt:    string;
+  reason:       string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class IssueService {
   private http = inject(HttpClient);
@@ -105,5 +119,20 @@ export class IssueService {
   // effacés). L'Issue mise à jour arrive via ManagerDataUpdated.
   deleteFile(issueId: string) {
     return this.http.delete<void>(`/api/issues/${issueId}/file`);
+  }
+
+  // Téléchargements de cette issue (carte « Download » de sa page détail) — statut enrichi côté
+  // serveur, donc à jour.
+  getDownloads(issueId: string) {
+    return this.http.get<DownloadItem[]>(`/api/issues/${issueId}/downloads`);
+  }
+
+  getBans(issueId: string) {
+    return this.http.get<IssueBan[]>(`/api/issues/${issueId}/bans`);
+  }
+
+  // Lève un ban : le torrent est de nouveau scoré normalement.
+  deleteBan(banId: string) {
+    return this.http.delete<void>(`/api/issues/bans/${banId}`);
   }
 }

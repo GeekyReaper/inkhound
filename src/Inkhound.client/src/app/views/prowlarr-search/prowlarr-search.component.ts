@@ -27,6 +27,8 @@ export interface SearchResultRow {
   result: ProwlarrSearchResult;
   score: number;
   coverage: { covered: number; total: number } | null;
+  // Torrent banni (couple issue/torrent mémorisé à la suppression d'un download) : score forcé à 0.
+  banned: boolean;
 }
 
 @Component({
@@ -217,11 +219,11 @@ export class ProwlarrSearchComponent {
       const result$ = this.mode() === 'issue'
         ? this.prowlarrService.getSearchJobResult(job.jobId).pipe(
             map(results => results.map((r: ScoredSearchResult): SearchResultRow =>
-              ({ result: r.result, score: r.score, coverage: null })))
+              ({ result: r.result, score: r.score, coverage: null, banned: r.banned })))
           )
         : this.prowlarrService.getVolumeSearchJobResult(job.jobId).pipe(
             map(results => results.map((r: ScoredSearchResultVolumePack): SearchResultRow =>
-              ({ result: r.result, score: r.score, coverage: { covered: r.coveredIssueCount, total: r.totalMissingIssueCount } })))
+              ({ result: r.result, score: r.score, coverage: { covered: r.coveredIssueCount, total: r.totalMissingIssueCount }, banned: r.banned })))
           );
 
       result$
@@ -454,6 +456,13 @@ export class ProwlarrSearchComponent {
   // 40 points, la ligne est signalée visuellement. Ne concerne pas l'usenet (pas de seeders).
   hasNoSeed(result: ProwlarrSearchResult): boolean {
     return result.protocol?.toLowerCase() === 'torrent' && result.seeders === 0;
+  }
+
+  // Libellé du badge « Banned » : le périmètre du ban dépend du mode de recherche.
+  bannedTitle(): string {
+    return this.mode() === 'issue'
+      ? 'Banned for this issue — a previous download of this torrent was deleted. Lift it from the issue page.'
+      : 'Banned for an issue of this volume — a previous download of this torrent was deleted.';
   }
 
   categoryNames(categories: ProwlarrCategory[]): string {

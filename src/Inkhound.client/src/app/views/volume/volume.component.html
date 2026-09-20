@@ -1,4 +1,4 @@
-<c-container class="py-4">
+﻿<c-container class="py-4">
 
   @if (loading()) {
     <c-row>
@@ -222,7 +222,7 @@
               <c-row class="g-3">
                 @for (issue of standardIssues(); track issue.id) {
                   <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
-                    <app-issue-card [issue]="issue" (select)="goIssue(issue)" />
+                    <app-issue-card [issue]="issue" [downloadStatus]="downloadStatusFor(issue.id)" (select)="goIssue(issue)" />
                   </c-col>
                 }
               </c-row>
@@ -254,7 +254,7 @@
                 <c-row class="g-3">
                   @for (issue of group.issues; track issue.id) {
                     <c-col [xs]="6" [sm]="4" [md]="3" [lg]="2">
-                      <app-issue-card [issue]="issue" (select)="goIssue(issue)" />
+                      <app-issue-card [issue]="issue" [downloadStatus]="downloadStatusFor(issue.id)" (select)="goIssue(issue)" />
                     </c-col>
                   }
                 </c-row>

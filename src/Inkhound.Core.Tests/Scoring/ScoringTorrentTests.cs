@@ -20,12 +20,62 @@ public class ScoringTorrentTests
     private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, int seeders, string protocol = "torrent")
         => new(title, null, sizeBytes, seeders, 2, 0, "guid", 1, "Indexer", protocol, null, null);
 
+    private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, string? downloadUrl)
+        => new(title, null, sizeBytes, 10, 2, 0, "guid", 1, "Indexer", "torrent", downloadUrl, null);
+
+    private static IssueTorrentBan MakeBan(string downloadUrl = "", string torrentTitle = "")
+        => new() { Id = Guid.NewGuid(), IssueId = Guid.NewGuid(), DownloadUrl = downloadUrl, TorrentTitle = torrentTitle, CreatedAt = DateTime.UtcNow };
+
     // Titre « parfait » : SINGLE #27 avec année, auteur et format reconnus (cf. le cas du bug rapporté).
     private const string PerfectSingleTitle = "[BD] Jarry - Benoît - Elfes - Tome 27 - 2020 [aATAa] [cbr]";
 
     private static (Volume Volume, Issue Issue) MakePerfectSingleContext()
         => (MakeVolume([]),
             MakeIssue(issueNumber: 27, year: 2020, authors: [new VolumeAuthor("Bertrand Benoît", "artist, colorist")]));
+
+    [Fact]
+    public void ScoringIndexerResult_TorrentBanni_ScoreZeroEtDrapeau()
+    {
+        var (volume, issue) = MakePerfectSingleContext();
+        var result = MakeResult(PerfectSingleTitle, 200 * Mb, downloadUrl: "https://tracker/download/abc");
+        var bans = TorrentBanIndex.From([MakeBan(downloadUrl: "https://tracker/download/abc")]);
+
+        var scored = ScoringTorrent.ScoringIndexerResult(volume, issue, result, bans);
+
+        Assert.True(scored.Banned);
+        Assert.Equal(0f, scored.Score);
+        // Sans le ban, ce SINGLE parfait score très haut : c'est bien le ban qui écrase le score.
+        Assert.True(ScoringTorrent.ScoringIndexerResult(volume, issue, result).Score > 70f);
+    }
+
+    [Fact]
+    public void ScoringIndexerResult_BanDUnAutreTorrent_ScoreInchange()
+    {
+        var (volume, issue) = MakePerfectSingleContext();
+        var result = MakeResult(PerfectSingleTitle, 200 * Mb, downloadUrl: "https://tracker/download/abc");
+        var bans = TorrentBanIndex.From([MakeBan(downloadUrl: "https://tracker/download/other", torrentTitle: "Autre release")]);
+
+        var withBans = ScoringTorrent.ScoringIndexerResult(volume, issue, result, bans);
+        var without = ScoringTorrent.ScoringIndexerResult(volume, issue, result);
+
+        Assert.False(withBans.Banned);
+        Assert.Equal(without.Score, withBans.Score, precision: 3);
+    }
+
+    [Fact]
+    public void ScoreAndSort_ResultatBanni_RelegueEnFinDeListe()
+    {
+        var (volume, issue) = MakePerfectSingleContext();
+        var banned = MakeResult(PerfectSingleTitle, 200 * Mb, downloadUrl: "https://tracker/download/abc");
+        var mediocre = MakeResult("Elfes - Tome 27 [cbr]", 200 * Mb, downloadUrl: "https://tracker/download/xyz");
+        var bans = TorrentBanIndex.From([MakeBan(downloadUrl: "https://tracker/download/abc")]);
+
+        var sorted = ScoringTorrent.ScoreAndSort(volume, issue, [banned, mediocre], bans);
+
+        Assert.Equal(mediocre.DownloadUrl, sorted[0].Result.DownloadUrl);
+        Assert.True(sorted[^1].Banned);
+        Assert.Equal(0f, sorted[^1].Score);
+    }
 
     [Fact]
     public void ScoringIndexerResult_SingleAvecAnneeCorrespondante_ScoreHautQueSansAnnee()

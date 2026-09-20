@@ -155,6 +155,71 @@
       </c-row>
     }
 
+    <!-- Téléchargement(s) de cette issue — même ligne et mêmes actions que la page Downloads -->
+    @if (downloads().length > 0) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-card>
+            <c-card-body class="p-0">
+              <app-download-list [items]="downloads()" [showVolume]="false" (changed)="reloadDownloads()" />
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
+
+    <!-- Banned torrents : couples (issue, torrent) mémorisés à la suppression d'un download -->
+    @if (bans().length > 0) {
+      <c-row class="mb-3">
+        <c-col>
+          <c-card>
+            <c-card-body>
+              <h6 class="mb-2">Banned torrents</h6>
+              <p class="text-body-secondary small">
+                These torrents are scored 0 in Prowlarr searches for this issue and for its volume.
+                Lift a ban to make it eligible again.
+              </p>
+
+              @if (banError()) {
+                <c-alert color="danger" class="mb-2">{{ banError() }}</c-alert>
+              }
+
+              <table cTable [hover]="true" class="table-stack mb-0">
+                <thead>
+                  <tr>
+                    <th class="col-identity">Torrent</th>
+                    <th style="width: 160px;">Indexer</th>
+                    <th style="width: 170px;">Banned on</th>
+                    <th style="width: 110px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (ban of bans(); track ban.id) {
+                    <tr>
+                      <td class="col-identity text-break">{{ ban.torrentTitle || '(unknown title)' }}</td>
+                      <td data-label="Indexer">{{ ban.trackerName ?? '—' }}</td>
+                      <td data-label="Banned on">{{ ban.createdAt | smartDate }}</td>
+                      <td class="col-full col-actions">
+                        <button cButton color="secondary" variant="outline" size="sm" type="button"
+                                [disabled]="banRemovingId() !== null" (click)="removeBan(ban)">
+                          @if (banRemovingId() === ban.id) {
+                            <c-spinner size="sm" class="me-1"></c-spinner>
+                          } @else {
+                            <svg cIcon name="cilTrash" size="sm" class="me-1"></svg>
+                          }
+                          Lift
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
+
     <!-- Manual Search -->
     <app-prowlarr-search mode="issue" [targetId]="issueId" />
 

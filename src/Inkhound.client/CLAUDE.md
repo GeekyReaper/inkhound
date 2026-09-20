@@ -185,7 +185,11 @@ src/
 │   │                            # OptionsService, SchedulerService, BedethequeCatalogService,
 │   │                            # FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
+│   │   ├── download-list/       # DownloadListComponent — tableau + actions + modales d'un download,
+│   │   │                        #   partagé par la page Downloads et la page Issue (voir plus bas)
 │   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,
+│   │   │                        #   Stalled downloads — section d'alerte rouge listant les downloads
+│   │   │                        #   sans seeder, masquée si vide, lien vers la page de l'issue —
 │   │   │                        #   Active jobs, Downloads — section « Most wanted » : cartes des issues
 │   │   │                        #   MISSING proches de compléter leur volume, clic → page détail issue)
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
@@ -211,6 +215,10 @@ src/
 │   │   │                        #   >=40 warning, sinon danger). hasNoSeed() signale un torrent à 0 seeder
 │   │   │                        #   (badge rouge « No seed » + ligne atténuée .row-no-seed) : ces résultats
 │   │   │                        #   stalleraient au téléchargement et sont déjà pénalisés de 40 pts côté backend.
+│   │   │                        #   `row.banned` (backend) → badge rouge « Banned » sous le score + ligne
+│   │   │                        #   atténuée .row-banned : torrent banni pour l'issue (ou une issue du volume
+│   │   │                        #   en mode 'volume'), score 0 — levable depuis la page Issue. bannedTitle()
+│   │   │                        #   adapte l'infobulle au mode.
 │   │   │                        #   Carte mobile (<768px) : mise en page dédiée via `order` + largeurs en %
 │   │   │                        #   totalisant 100 % par rangée (score|indexer+seeders, titre,
 │   │   │                        #   catégories+format|type, coverage, taille|date, bouton), labels ::before
@@ -220,7 +228,11 @@ src/
 │   │   │                        #   (flex-column, gap-*) sont en !important et ne peuvent pas être surchargés
 │   │   │                        #   par la media query — d'où la classe .type-cell — voir le .scss du composant.
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
-│   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra"
+│   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra".
+│   │   │                        #   Input optionnel `downloadStatus` (alimenté par VolumeComponent via
+│   │   │                        #   GET /api/volumes/{id}/downloads, un seul appel et seulement s'il existe
+│   │   │                        #   une issue DOWNLOADING) : un download `Stalled` affiche un badge rouge
+│   │   │                        #   « STALLED » au lieu du bleu « DOWNLOADING ».
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
 │   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler —
 │   │   │                        #   4 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog,
@@ -429,6 +441,14 @@ interface RefreshVolumeOptions {
 }
 
 // ─── issue.service.ts ────────────────────────────────────────────────────────
+// Couple (issue, torrent) banni — créé à la suppression d'un download (case cochée par défaut dans
+// la modale de la page Downloads, `deleteDownload(id, removeTorrent, ban)`). Listé par la carte
+// « Banned torrents » de la page Issue (bouton « Lift » → deleteBan), et force à 0 le score du
+// torrent dans les recherches Prowlarr de l'issue ET de son volume (`banned` sur les résultats).
+interface IssueBan {
+  id: string; issueId: string; torrentTitle: string; trackerName: string | null;
+  downloadUrl: string; torrentHash: string; createdAt: string; reason: string | null;
+}
 type IssueStatus = 'DOWNLOADING' | 'DOWNLOADED' | 'MISSING';
 // Catégorie d'album Bedetheque (BedethequeAlbumClassifier côté backend) — 'Standard' pour
 // ComicVine/manuel. Page volume : bloc "Issues" = Standard uniquement, bloc "Extra" = le reste,
@@ -495,7 +515,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()`, `refresh()`, `patchVolumesStatus(id, 'PAUSED' \| 'MONITORED')` (boutons « Pause all » / « Resume all » de la page Library, affichés selon `monitoredCount()` / `pausedCount()`) |
 | `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `patchStatus(id, 'MONITORED' \| 'PAUSED')` (bouton Pause/Resume de la page Volume, masqué si `COMPLETED`), `delete(id, deleteFiles?)`, `importFromDirectory()` |
-| `IssueService` | — | `getByVolume()`, `getBySourceVolume()` |
+| `IssueService` | — | `getByVolume()`, `getBySourceVolume()`, `getDownloads(issueId)` (carte « Download » de la page Issue), `getBans(issueId)` / `deleteBan(banId)` (carte « Banned torrents ») |
+| `QBittorrentService` | — | `getDownloads(statuses, page, pageSize)`, `getVolumeDownloads(volumeId)`, `getStalledDownloads(limit)`, `deleteDownload(id, removeTorrent, ban)`, `processDownload()`, `updateDownloadHash()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
 | `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog'` |
@@ -598,6 +619,30 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
 
 `mode="file"` (émet le chemin complet du fichier sur *confirm*, `''` sur *cancel*) — utilisé par la
 page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`).
+
+## Composant réutilisable : DownloadListComponent
+
+`app-download-list` (`views/download-list/`) — tableau `.table-stack` des téléchargements et
+**toutes** leurs actions : process, correction de hash (modale « Fix download »), suppression
+(modale avec les cases « remove torrent » et « ban »). Utilisé par la page Downloads **et** la carte
+« Download » de la page Issue : une seule implémentation du rendu, de la carte mobile (6 lignes via
+`order`, SCSS du composant) et du flux de suppression.
+
+```html
+<app-download-list [items]="items()" (changed)="reload()" />               <!-- page Downloads -->
+<app-download-list [items]="downloads()" [showVolume]="false"              <!-- page Issue -->
+                   (changed)="reloadDownloads()" />
+```
+- `showVolume` (défaut `true`) masque la colonne « Volume / Issue » quand la page porte déjà ce contexte.
+- `changed` est émis après toute action : le parent recharge sa liste (la page Downloads bumpe son
+  `reloadTick`, la page Issue son `downloadsTick`).
+
+Formatage et couleurs dans `core/util/download-format.ts` (`downloadStatusColor`, `formatSpeed`,
+`formatEta`, `formatSize`, `formatAdded`, `canProcess`) — fonctions pures partagées avec le
+Dashboard, qui en avait sa propre copie divergente.
+
+> Les downloads ne passent **pas** par SignalR (aucun `ManagerDataUpdated` de type download) :
+> chaque page qui les affiche poll toutes les 10 s (`merge(interval(10_000), toObservable(tick))`).
 
 ## Composant réutilisable : CronEditorComponent
 

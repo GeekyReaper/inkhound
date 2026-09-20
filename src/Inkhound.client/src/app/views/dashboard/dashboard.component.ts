@@ -25,6 +25,7 @@ import { DashboardService, DashboardStats, DashboardMostWantedIssue, DashboardLi
 import { HubService } from '../../core/services/hub.service';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 import { VolumeStatus } from '../../core/services/volume.service';
+import { downloadStatusColor, formatSize } from '../../core/util/download-format';
 
 @Component({
   selector: 'app-dashboard',
@@ -54,6 +55,10 @@ export class DashboardComponent {
   recentDownloadsTotal = signal(0);
   downloadsLoading     = signal(true);
 
+  // Téléchargements bloqués (aucune source) : ils n'avanceront jamais seuls — section d'alerte,
+  // masquée tant que la liste est vide.
+  stalledDownloads = signal<DownloadItem[]>([]);
+
   readonly activeJobs = computed(() =>
     this.hub.jobs().filter(j => j.state === 'RUNNING' || j.state === 'INITIALIZING').slice(0, 5)
   );
@@ -80,6 +85,13 @@ export class DashboardComponent {
           this.recentDownloadsTotal.set(res.totalItems);
         },
         error: () => {}
+      });
+
+    this.qbService.getStalledDownloads(5)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next:  items => this.stalledDownloads.set(items),
+        error: ()    => { /* section d'alerte : un échec la laisse simplement masquée */ }
       });
   }
 
@@ -134,23 +146,14 @@ export class DashboardComponent {
     return 'primary';
   }
 
-  downloadStatusBadgeColor(status: DownloadStatus): string {
-    switch (status) {
-      case 'Downloading': return 'info';
-      case 'Stalled':     return 'warning';
-      case 'Paused':      return 'warning';
-      case 'Finished':    return 'success';
-      case 'Syncing':     return 'info';
-      case 'Done':        return 'success';
-      case 'Error':       return 'danger';
-      default:            return 'secondary';
-    }
-  }
+  // Helpers partagés avec la page Downloads (core/util/download-format.ts).
+  readonly downloadStatusBadgeColor = downloadStatusColor;
+  readonly formatSize = formatSize;
 
-  formatSize(bytes: number | null): string {
-    if (bytes === null || bytes <= 0) return '—';
-    const mb = bytes / 1_048_576;
-    if (mb >= 1_048_576) return `${(mb / 1_048_576).toFixed(1)} TB`;
-    return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(0)} MB`;
+  // Lien vers la page de l'issue bloquée — null si le volume/la library parents ne sont pas connus
+  // (entité supprimée entre-temps) : la ligne reste affichée, simplement non cliquable.
+  stalledLink(item: DownloadItem): unknown[] | null {
+    if (!item.volumeId || !item.libraryId) return null;
+    return ['/library', item.libraryId, 'volume', item.volumeId, 'issue', item.issueId];
   }
 }

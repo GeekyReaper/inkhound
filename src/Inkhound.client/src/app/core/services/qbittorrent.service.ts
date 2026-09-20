@@ -12,6 +12,10 @@ export type DownloadStatus =
 export interface DownloadItem {
   id: string;
   issueId: string;
+  // Volume et library parents — permettent de construire le lien vers la page de l'issue
+  // (route library/:id/volume/:volumeId/issue/:issueId), utilisé par le Dashboard.
+  volumeId: string | null;
+  libraryId: string | null;
   torrentHash: string;
   torrentTitle: string;
   trackerName: string | null;
@@ -147,9 +151,25 @@ export class QBittorrentService {
   // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent. Si le torrent est
   // partagé (PACK), tous les downloads jumeaux sont supprimés aussi (deletedCount les compte).
   // torrentRemoved = le torrent a effectivement été retiré de QBittorrent.
-  deleteDownload(id: string, removeTorrent: boolean) {
-    return this.http.delete<{ torrentRemoved: boolean; deletedCount: number }>(`/api/qbittorrent/downloads/${id}`, {
-      params: new HttpParams().set('removeTorrent', removeTorrent)
+  // Téléchargements de toutes les issues d'un volume — un seul appel pour la liste des issues
+  // (badges DOWNLOADING / bloqué), jamais un par carte.
+  getVolumeDownloads(volumeId: string) {
+    return this.http.get<DownloadItem[]>(`/api/volumes/${volumeId}/downloads`);
+  }
+
+  // Téléchargements actuellement bloqués (aucune source) — section d'alerte du Dashboard. Le
+  // statut est réévalué côté serveur avant filtrage, donc à jour.
+  getStalledDownloads(limit = 5) {
+    return this.http.get<DownloadItem[]>('/api/qbittorrent/downloads/stalled', {
+      params: new HttpParams().set('limit', limit)
+    });
+  }
+
+  // ban : mémorise le couple (issue, torrent) pour que les recherches Prowlarr suivantes le scorent 0
+  // (banCount = bans réellement créés, doublons exclus) — levable depuis la page de l'issue.
+  deleteDownload(id: string, removeTorrent: boolean, ban = true) {
+    return this.http.delete<{ torrentRemoved: boolean; deletedCount: number; banCount: number }>(`/api/qbittorrent/downloads/${id}`, {
+      params: new HttpParams().set('removeTorrent', removeTorrent).set('ban', ban)
     });
   }
 }

@@ -53,8 +53,12 @@ public partial class InkhoundManager
         public int MinScore { get; } = minScore;
         public int Acquired { get; set; }
 
-        public bool IsEligible(ProwlarrSearchResult r, float score)
-            => score >= MinScore
+        // `banned` est exclu explicitement : un ban ramène déjà le score à 0, donc sous le MinScore
+        // par défaut (70) — mais un seuil abaissé à 0 ne doit pas rouvrir la porte à un torrent que
+        // l'utilisateur a écarté à la main.
+        public bool IsEligible(ProwlarrSearchResult r, float score, bool banned)
+            => !banned
+               && score >= MinScore
                && string.Equals(r.Protocol, "torrent", StringComparison.OrdinalIgnoreCase)
                && !string.IsNullOrWhiteSpace(r.DownloadUrl)
                && !KnownUrls.Contains(r.DownloadUrl)
@@ -103,6 +107,11 @@ public partial class InkhoundManager
                     .ToListAsync())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            // Torrents bannis pour une issue de ce volume (suppression manuelle d'un download) —
+            // chargés une fois, servent aux deux phases : la phase A raisonne sur tout le volume,
+            // la phase B se restreint à l'issue courante.
+            var volumeBans = await LoadBanIndexForVolumeAsync(volume.Id);
+
             var run = new AutoSearchRun(volume, missing, knownUrls, parameters.MinScore);
             var (indexerIds, saved) = await ResolveIndexersAsync(ctx, volume, null);
 
@@ -119,8 +128,8 @@ public partial class InkhoundManager
 
             // ── Phase A : recherche au niveau volume (capte les PACK et les SINGLE en une cascade) ──
             var merged = await SearchProwlarrCascadeAsync(job, prowlarr, volumeQueries, indexerIds, saved, run.QueryCache);
-            var volumeCandidates = ScoringVolumePack.ScoreAndSort(volume, missing, merged)
-                .Where(c => run.IsEligible(c.Result, c.Score))
+            var volumeCandidates = ScoringVolumePack.ScoreAndSort(volume, missing, merged, volumeBans)
+                .Where(c => run.IsEligible(c.Result, c.Score, c.Banned))
                 .ToList();
 
             JobSendTrace($"[AutoSearch] Volume search: {merged.Count} result(s), {volumeCandidates.Count} eligible candidate(s)");
@@ -143,8 +152,9 @@ public partial class InkhoundManager
 
                 var issueQueries = BuildSearchQueries(volume, issue);
                 var issueMerged = await SearchProwlarrCascadeAsync(job, prowlarr, issueQueries, indexerIds, saved, run.QueryCache);
-                var issueCandidates = ScoringTorrent.ScoreAndSort(volume, issue, issueMerged)
-                    .Where(c => run.IsEligible(c.Result, c.Score))
+                var issueBans = await LoadBanIndexForIssueAsync(issue.Id);
+                var issueCandidates = ScoringTorrent.ScoreAndSort(volume, issue, issueMerged, issueBans)
+                    .Where(c => run.IsEligible(c.Result, c.Score, c.Banned))
                     .ToList();
 
                 JobSendTrace($"[AutoSearch] Issue #{issue.IssueNumber}: {issueMerged.Count} result(s), {issueCandidates.Count} eligible candidate(s)");

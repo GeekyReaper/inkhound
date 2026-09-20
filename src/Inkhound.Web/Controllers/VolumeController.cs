@@ -1,6 +1,7 @@
 using Inkhound.Core;
 using Inkhound.Core.Models;
 using Inkhound.Core.Sources;
+using Inkhound.Web.Controllers.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -109,6 +110,15 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
             return volume is null ? NotFound() : Ok(ToDto(volume));
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
+    }
+
+    // GET /api/volumes/{volumeId}/downloads — téléchargements de toutes les issues du volume, en un
+    // seul appel (badges de la liste des issues : DOWNLOADING vs bloqué).
+    [HttpGet("/api/volumes/{volumeId:guid}/downloads")]
+    public async Task<IActionResult> GetDownloads(Guid volumeId)
+    {
+        var items = await manager.GetVolumeDownloadsAsync(volumeId);
+        return Ok(items.Select(DownloadItemDto.From));
     }
 
     // FileIssueMap : nom de fichier → IssueId, issu de la popup de revue. Null = appariement auto.

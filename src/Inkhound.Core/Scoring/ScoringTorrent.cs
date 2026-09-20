@@ -13,7 +13,8 @@ public static class ScoringTorrent
     public static ScoredSearchResultTorrent ScoringIndexerResult(
         Volume volume,
         Issue issue,
-        ProwlarrSearchResult result)
+        ProwlarrSearchResult result,
+        TorrentBanIndex? bans = null)
     {
         var analysis         = TorrentTypeAnalyzer.Analyze(result.Title, result.Size, volume.CountOfIssues);
         var titleMatch       = ScoreTitle(volume, result);
@@ -26,20 +27,24 @@ public static class ScoringTorrent
         var formatScore      = ScoreFormat(result, analysis.Type);
 
         var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + publisherMatch + sizePlausibility + seederScore + formatScore;
-        var total     = ApplyNoSeederPenalty(
-            ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch),
-            result);
+        var banned    = IsBanned(result, bans);
+        var total     = ApplyBan(
+            ApplyNoSeederPenalty(
+                ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch),
+                result),
+            banned);
 
         var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, publisherMatch, sizePlausibility, seederScore, formatScore);
-        return new ScoredSearchResultTorrent(result, total, details, analysis);
+        return new ScoredSearchResultTorrent(result, total, details, analysis, banned);
     }
 
     public static List<ScoredSearchResultTorrent> ScoreAndSort(
         Volume volume,
         Issue issue,
-        List<ProwlarrSearchResult> results)
+        List<ProwlarrSearchResult> results,
+        TorrentBanIndex? bans = null)
         => results
-            .Select(r => ScoringIndexerResult(volume, issue, r))
+            .Select(r => ScoringIndexerResult(volume, issue, r, bans))
             .OrderByDescending(r => r.Score)
             .ToList();
 
@@ -265,6 +270,18 @@ public static class ScoringTorrent
         => IsTorrent(result) && result.Seeders == 0
             ? Math.Max(0f, score - NoSeederPenalty)
             : score;
+
+    // Ce résultat est-il banni dans le périmètre fourni (issue recherchée, ou toutes les issues du
+    // volume) ? internal : réutilisé par ScoringVolumePack.
+    internal static bool IsBanned(ProwlarrSearchResult result, TorrentBanIndex? bans)
+        => bans is not null && bans.IsBanned(result);
+
+    // Un torrent banni est ramené à 0 — l'utilisateur l'a explicitement écarté pour cette issue en
+    // supprimant son téléchargement. Appliqué APRÈS le malus seeder, donc en toute fin de calcul,
+    // pour la même raison que lui (ApplyTypeAdjustment écrase le baseScore sur le chemin
+    // SINGLE "#n" confirmé) : à 0, le résultat passe sous n'importe quel AutoSearchMinScore.
+    // internal : réutilisé par ScoringVolumePack.
+    internal static float ApplyBan(float score, bool banned) => banned ? 0f : score;
 
     // Détection du format d'archive dans le titre (max 10)
     // internal : réutilisé par ScoringVolumePack.

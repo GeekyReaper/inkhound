@@ -11,6 +11,7 @@ Inkhound.Core/
 │   ├── Library.cs       # Librairie Kavita (dossier racine)
 │   ├── Volume.cs        # Série / volume (= COMIC dans le brief)
 │   ├── Issue.cs         # Numéro individuel
+│   ├── IssueTorrentBan.cs  # Couple (Issue, Torrent) banni — voir section IssueTorrentBan
 │   ├── Page.cs          # Page d'une issue
 │   ├── AgeRating.cs     # Enum AgeRating + extension ToKavitaString()
 │   ├── BlobAccess.cs    # Accès fichier binaire
@@ -120,6 +121,54 @@ Status (DOWNLOADING | DOWNLOADED | MISSING)
   - Particularité du rematch Bedetheque (`RematchVolumeFromBedethequeAsync`) : contrairement aux autres champs "protégés" par statut, `IssueNumber`/`Category` sont recopiés **sans condition de `Status`** — y compris sur une issue déjà `DOWNLOADED` — pour corriger les valeurs historiquement fausses (issues téléchargées avant l'introduction de `BedethequeAlbumClassifier`, ex. `0`/`Standard` pour un hors-série). `RenameIssueFilesIfNeededAsync` renomme le fichier `.cbz` en conséquence au Refresh (mécanisme générique déjà utilisé pour Title/Year, sans condition de case cochée). Le rematch ComicVine, lui, garde `IssueNumber` figé une fois l'issue téléchargée (`Status == MISSING` requis) — pas concerné par ce bug historique.
   - Mode **"NEW issues only"** du Refresh (`RematchVolumeJobParameters.SyncNewIssuesOnly`, radio de la popup, défaut UI) : la metadata Volume/Serie est synchronisée normalement, mais on ne récupère la page détail (`GetIssueAsync`/`GetAlbumAsync`) **que pour les `SourceId` source encore absents en base**, insérés en `MISSING` via `SyncNew{ComicVine,Bedetheque}IssuesAsync`/`AlbumsAsync`. Les issues déjà connues **ne sont pas touchées** (pas de maj metadata, pas de renumérotation `IssueNumber`/`Category`, pas de suppression d'orphelins). `RecalculateVolumeStatisticsAsync` tourne quand même. Limite assumée : les indices gap-fill des catégories non-Standard peuvent dériver tant qu'un Refresh **"ALL issues"** (`SyncNewIssuesOnly == false`, comportement historique complet) n'a pas été relancé. Le Rematch changement de série (`RematchFromSource`) reste toujours en mode complet.
   - Mode **"NEW only"** de la case *Regenerate ComicInfo.xml* du Refresh (`RematchVolumeJobParameters.RegenerateComicInfoNewOnly`, radio de la popup, défaut UI) : `RegenerateComicInfoForDownloadedIssuesAsync(newOnly: true)` ne (ré)injecte le `ComicInfo.xml` **que dans les CBZ qui n'en contiennent pas déjà un** (`ArchiveService.CbzContainsComicInfo`, lecture seule) — cible les issues sideloadées (torrent, import manuel). Les renommages de fichier sont une étape distincte et inconditionnelle (`RenameIssueFilesIfNeededAsync`, cf. « Renommages au Refresh ») ; un fichier renommé est toujours réinjecté, même en mode "NEW only" (métadonnées à jour). `false` (défaut backend, Rematch inclus) = réécriture dans toutes les issues `DOWNLOADED`, nécessaire quand la metadata du volume a changé.
+
+### Téléchargements (`IssueDownload`) — statut et vues ciblées
+
+`IssueDownload.Status` (`Downloading | Stalled | Paused | Finished | Syncing | Done | Error |
+Unknown | NotFound`) n'est **recalculé que par `EnrichDownloadsAsync`** (mapping de l'état
+qBittorrent via `MapQBittorrentState`, `"stalleddl"` → `Stalled`), qui le **persiste** au passage.
+Toute lecture de downloads passe donc par elle — et une fois `Finished`/`Syncing`/`Done` (statuts
+« possédés » par Inkhound), le polling ne l'écrase plus.
+
+⚠️ **Conséquence** : un `WHERE Status = 'Stalled'` en SQL renvoie l'état du **dernier**
+enrichissement. `GetStalledDownloadsAsync(limit)` (section d'alerte du Dashboard) charge donc les
+lignes *actives* (`ActiveDownloadStatuses`), les enrichit, **puis** filtre sur `Stalled` — ne jamais
+inverser cet ordre.
+
+Vues ciblées, toutes bâties sur `EnrichDownloadsAsync(ctx, …)` avec le contexte de l'appelant :
+| Méthode | Usage |
+|---|---|
+| `GetIssueDownloadsAsync(issueId)` | carte « Download » de la page Issue |
+| `GetVolumeDownloadsAsync(volumeId)` | badges de la liste des issues — **un seul** appel qBittorrent pour tout le volume (jointure sur `Issues`, `IssueDownload` n'ayant pas de `VolumeId`) |
+| `GetStalledDownloadsAsync(limit)` | section « Stalled downloads » du Dashboard |
+
+### IssueTorrentBan
+Couple (Issue, Torrent) banni — table `IssueTorrentBans`.
+```
+Id, IssueId, TorrentHash, TorrentTitle, DownloadUrl, TrackerName, CreatedAt, Reason
+```
+Créé par `DeleteDownloadAsync(..., ban: true)` (défaut : case cochée dans la modale de la page
+Downloads) — **un ban par ligne `IssueDownload` supprimée**, donc aussi pour les jumelles d'un PACK
+partageant le hash ; les doublons (même issue + même URL/hash/titre) ne sont pas recréés. Les autres
+chemins de purge (`DeleteVolumeAsync`, `DeleteLibraryAsync`, `CheckVolumeFilesAsync`,
+`DeleteIssueFileAsync`) **ne bannissent pas** ; volume et library purgent en revanche les bans de
+leurs issues en cascade.
+
+**Effet au scoring** (`Scoring/TorrentBanIndex.cs`, testé) : l'appelant charge l'index du périmètre
+voulu — `LoadBanIndexForIssueAsync(issueId)` pour une recherche par issue,
+`LoadBanIndexForVolumeAsync(volumeId)` (jointure `IssueTorrentBans` × `Issues`) pour une recherche
+par volume, où un ban posé sur **n'importe quelle** issue écarte le torrent. `IsBanned(result)`
+rapproche par **`DownloadUrl`**, puis par `Guid` (certains indexers y placent l'URL ou le hash),
+puis par **titre normalisé** (`TextSimilarity.Normalize`) — une clé vide ne matche jamais.
+⚠️ `ProwlarrSearchResult` n'expose **pas** d'`InfoHash` (il n'existe qu'après l'ajout à
+qBittorrent) : `TorrentHash` sert à la traçabilité et au repli par `Guid`, pas au matching direct.
+
+`ScoringTorrent.ApplyBan(score, banned)` force le score à **0** et le record scoré porte
+`Banned = true` ; comme `ApplyNoSeederPenalty`, il s'applique **en tout dernier** (voir l'avertissement
+de la section « Malus aucun seeder »). Les 4 points de scoring passent l'index : les deux jobs de
+recherche manuelle et les phases A/B de l'auto search — dont `AutoSearchRun.IsEligible` exclut aussi
+explicitement `banned`, pour qu'un `MinScore` abaissé à 0 ne rouvre pas la porte à un torrent écarté
+à la main.
 
 ### VolumeImage (record partagé Volume + Issue)
 ```
@@ -605,8 +654,9 @@ Algorithme par volume (`RunAutoSearchVolumeJobAsync`) :
 2. **Phase B — par issue restante** : cascade `BuildSearchQueries(volume, issue)` →
    `ScoringTorrent.ScoreAndSort` ; on s'arrête dès que l'issue est acquise.
 3. Candidat **éligible** = `Protocol == "torrent"` (usenet/NZB ignoré : non suivi par qBittorrent),
-   `DownloadUrl` non vide, `Score >= MinScore`, URL absente de `IssueDownloads.DownloadUrl` (déjà
-   suivi) et non rejetée dans ce job. Parcours par score décroissant. Les torrents **sans seeder**
+   `DownloadUrl` non vide, **non banni** (voir `IssueTorrentBan`), `Score >= MinScore`, URL absente
+   de `IssueDownloads.DownloadUrl` (déjà suivi) et non rejetée dans ce job. Parcours par score
+   décroissant. Les torrents **sans seeder**
    sont de fait écartés au `MinScore` par défaut (70) grâce au malus `NoSeederPenalty` — voir
    « Malus aucun seeder » ci-dessous.
 4. **SINGLE `#n`** avec `n` manquant → `GrabToQBittorrentAsync` pour cette issue. `SINGLE/?` et

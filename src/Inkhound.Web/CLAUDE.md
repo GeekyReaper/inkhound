@@ -20,6 +20,7 @@ Inkhound.Web/
 │   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque)
 │   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
 │   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
+│   ├── Dtos/DownloadItemDto.cs   # DTO d'une ligne de download, partagé QBittorrent/Issue/Volume
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace
@@ -104,6 +105,13 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog`) |
 | GET | `/api/bedetheque/catalog` | admin | État du catalogue local Bedetheque : `loaded`, `totalSeries`, `oldestFetchUtc`/`newestFetchUtc`, `refreshRunning`, `letters[27]` (`letter`, `count`, `fetchedAtUtc`) |
 | POST | `/api/bedetheque/catalog/refresh` | admin | Lance le job de refresh → `202 { jobId }`. Body `{ letterCount?, letters? }` (`letters` prioritaire, sinon rotation des `letterCount` plus anciennes, sinon les 27). `409` si un refresh est déjà en cours. |
+| GET | `/api/qbittorrent/downloads` | admin | Liste paginée des downloads (`?status=` répétable, `page`, `pageSize`). ⚠️ Le statut de chaque ligne est **réévalué depuis qBittorrent et persisté** à chaque lecture — c'est le seul endroit où `IssueDownload.Status` est rafraîchi |
+| GET | `/api/qbittorrent/downloads/stalled` | admin | Downloads bloqués (`?limit=`, défaut 5) — enrichis **puis** filtrés sur `Stalled` (section d'alerte du Dashboard) |
+| GET | `/api/issues/{id}/downloads` | admin | Downloads d'une issue (carte de sa page détail) |
+| GET | `/api/volumes/{id}/downloads` | admin | Downloads de toutes les issues d'un volume, en un appel (badges de la liste des issues) |
+| GET | `/api/issues/{id}/bans` | admin | Torrents bannis pour cette issue (carte « Banned torrents » de la page Issue) |
+| DELETE | `/api/issues/bans/{banId}` | admin | Lève un ban (204, 404 si inconnu) — le torrent est de nouveau scoré normalement |
+| DELETE | `/api/qbittorrent/downloads/{id}` | admin | Supprime un download. `?removeTorrent=` (défaut false) retire aussi le torrent de qBittorrent ; `?ban=` (**défaut true**) mémorise le couple (issue, torrent) dans `IssueTorrentBans`. Réponse `{ torrentRemoved, deletedCount, banCount }` |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 | GET | `/api/dashboard/stats` | auth | Agrégats du Dashboard : KPI globaux, stats par library, volumes récents, et `mostWanted` (issues `MISSING` proches de compléter leur volume — voir `Inkhound.Core/CLAUDE.md`) |
 

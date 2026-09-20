@@ -313,6 +313,24 @@ public class DbStorageService : BaseService<DbStorageOption>
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS IX_BedethequeCatalogSeries_Letter ON BedethequeCatalogSeries(Letter)");
 
+        // IssueTorrentBans ajouté en septembre 2026 — couple (Issue, Torrent) banni à la suppression
+        // d'un téléchargement : les résultats Prowlarr correspondants sont scorés 0 (voir
+        // Scoring/TorrentBanIndex). Purgé en cascade avec les issues du volume/library supprimés.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS IssueTorrentBans (
+                Id           TEXT NOT NULL PRIMARY KEY,
+                IssueId      TEXT NOT NULL,
+                TorrentHash  TEXT NOT NULL DEFAULT '',
+                TorrentTitle TEXT NOT NULL DEFAULT '',
+                DownloadUrl  TEXT NOT NULL DEFAULT '',
+                TrackerName  TEXT NULL,
+                CreatedAt    TEXT NOT NULL DEFAULT '',
+                Reason       TEXT NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_IssueTorrentBans_IssueId ON IssueTorrentBans(IssueId)");
+
         // Backfill Volumes.DateAdded (septembre 2026) — seul AddVolumeManuallyAsync le renseignait ;
         // les volumes ajoutés via ComicVine, Bedetheque ou synchronisation filesystem avaient tous
         // DateAdded == default, empêchant le tri "Recently added" du dashboard de les départager (ces

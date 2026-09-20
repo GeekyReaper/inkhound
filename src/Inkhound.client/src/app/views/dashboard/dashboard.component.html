@@ -1,4 +1,4 @@
-<c-container class="py-4">
+﻿<c-container class="py-4">
 
   @if (loading()) {
     <c-row>
@@ -202,7 +202,55 @@
       </c-col>
     </c-row>
 
-    <!-- 6. Téléchargements en cours -->
+    <!-- 6. Téléchargements bloqués — section d'alerte, masquée s'il n'y en a aucun -->
+    @if (stalledDownloads().length > 0) {
+      <c-row class="mt-4">
+        <c-col xs="12">
+          <c-card class="border-danger">
+            <c-card-body>
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">
+                  <svg cIcon name="cilWarning" class="text-danger me-2"></svg>
+                  Stalled downloads
+                  <span class="text-body-secondary fw-normal fs-6 ms-2">({{ stalledDownloads().length }})</span>
+                </h5>
+                <button cButton color="link" size="sm" class="p-0" [routerLink]="['/downloads']">
+                  View all
+                </button>
+              </div>
+
+              <p class="text-body-secondary small">
+                These downloads have no seeder left and will not progress on their own — search for
+                another torrent, or delete them.
+              </p>
+
+              @for (item of stalledDownloads(); track item.id) {
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                  <div class="text-truncate me-2">
+                    @if (stalledLink(item); as link) {
+                      <a [routerLink]="link" class="text-decoration-none">
+                        {{ item.volumeTitle ?? item.torrentTitle }}
+                        @if (item.issueNumber !== null) {
+                          <span class="text-body-secondary small ms-1">#{{ item.issueNumber }}</span>
+                        }
+                      </a>
+                    } @else {
+                      <span>{{ item.volumeTitle ?? item.torrentTitle }}</span>
+                    }
+                    <div class="text-body-secondary text-truncate" style="font-size: 0.75rem;">
+                      {{ item.torrentTitle || item.torrentHash }}
+                    </div>
+                  </div>
+                  <c-badge color="danger">Stalled</c-badge>
+                </div>
+              }
+            </c-card-body>
+          </c-card>
+        </c-col>
+      </c-row>
+    }
+
+    <!-- 7. Téléchargements en cours -->
     <c-row class="mt-4">
       <c-col xs="12">
         <c-card>

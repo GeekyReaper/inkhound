@@ -12,13 +12,39 @@ public class ScoringVolumePackTests
         => new() { Title = "Sillage", Year = year, CountOfIssues = countOfIssues };
 
     private static List<Issue> MakeMissingIssues(int count)
-        => Enumerable.Range(1, count).Select(n => new Issue { IssueNumber = n }).ToList();
+        => Enumerable.Range(1, count).Select(n => new Issue { Id = Guid.NewGuid(), IssueNumber = n }).ToList();
 
     private static ProwlarrSearchResult MakeResult(string title, long sizeBytes)
         => new(title, null, sizeBytes, 10, 2, 0, "guid", 1, "Indexer", "torrent", null, null);
 
     private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, int seeders)
         => new(title, null, sizeBytes, seeders, 2, 0, "guid", 1, "Indexer", "torrent", null, null);
+
+    private static ProwlarrSearchResult MakeResult(string title, long sizeBytes, string? downloadUrl)
+        => new(title, null, sizeBytes, 10, 2, 0, "guid", 1, "Indexer", "torrent", downloadUrl, null);
+
+    [Fact]
+    public void ScoringIndexerResult_PackBanniPourUneIssueDuVolume_ScoreZero()
+    {
+        var volume = MakeVolume(year: 1996);
+        var missingIssues = MakeMissingIssues(24);
+        var pack = MakeResult("Sillage.Tomes.01.a.24.FRENCH.CBZ-NoTAG", 900L * Mb, "https://tracker/download/abc");
+
+        // Ban posé par une seule issue du volume : il écarte le pack entier.
+        var bans = TorrentBanIndex.From([new IssueTorrentBan
+        {
+            Id = Guid.NewGuid(),
+            IssueId = missingIssues[3].Id,
+            DownloadUrl = "https://tracker/download/abc",
+            CreatedAt = DateTime.UtcNow
+        }]);
+
+        var scored = ScoringVolumePack.ScoringIndexerResult(volume, missingIssues, pack, bans);
+
+        Assert.True(scored.Banned);
+        Assert.Equal(0f, scored.Score);
+        Assert.True(ScoringVolumePack.ScoringIndexerResult(volume, missingIssues, pack).Score > 0f);
+    }
 
     [Fact]
     public void ScoringIndexerResult_PackCouvrantPlusDIssues_ScoreHautQueSingle()

@@ -27,6 +27,8 @@
 //   5. Icône date + "dd/MM HH:mm"                          (droite)
 //   ───────────────── séparateur ─────────────────
 //   6. Boutons d'action edit / delete                      (droite)
+// La colonne 1 est absente quand `showVolume` est false (page Issue) : les `order` restent
+// cohérents, la carte commence alors directement par le nom du torrent.
 @media (max-width: 767.98px) {
   .table-stack {
     td.col-title    { order: 1; }

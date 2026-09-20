@@ -20,7 +20,9 @@ public record ScoredSearchResultVolumePack(
     ScoreDetailsVolumePack Details,
     TorrentAnalysis Analysis,
     int CoveredIssueCount,
-    int TotalMissingIssueCount);
+    int TotalMissingIssueCount,
+    // Le torrent est banni pour au moins une issue du volume (voir TorrentBanIndex) : Score vaut 0.
+    bool Banned = false);
 
 // Score un résultat Prowlarr par rapport à un Volume entier (pas une Issue précise) : contrairement à
 // ScoringTorrent (favorise un SINGLE qui matche exactement une issue ciblée), ce scorer favorise le
@@ -39,7 +41,8 @@ public static class ScoringVolumePack
     public static ScoredSearchResultVolumePack ScoringIndexerResult(
         Volume volume,
         List<Issue> missingIssues,
-        ProwlarrSearchResult result)
+        ProwlarrSearchResult result,
+        TorrentBanIndex? bans = null)
     {
         var analysis = TorrentTypeAnalyzer.Analyze(result.Title, result.Size, volume.CountOfIssues);
         var covered  = CountCoveredIssues(analysis, missingIssues);
@@ -55,27 +58,32 @@ public static class ScoringVolumePack
         var coverageBonus = MaxCoverageBonus * covered / Math.Max(1, missingIssues.Count);
 
         // Un torrent sans seeder resterait bloqué en Stalled : malus appliqué après le clamp,
-        // comme dans ScoringTorrent.
-        var total = ScoringTorrent.ApplyNoSeederPenalty(
-            Math.Clamp(
-                titleMatch + yearMatch + authorMatch + publisherMatch
-                + sizePlausibility + seederScore + formatScore + coverageBonus,
-                0f, 100f),
-            result);
+        // comme dans ScoringTorrent. Le ban (score forcé à 0) vient en dernier — ici le périmètre
+        // est le volume entier : un ban posé sur N'IMPORTE LAQUELLE de ses issues écarte le torrent.
+        var banned = ScoringTorrent.IsBanned(result, bans);
+        var total = ScoringTorrent.ApplyBan(
+            ScoringTorrent.ApplyNoSeederPenalty(
+                Math.Clamp(
+                    titleMatch + yearMatch + authorMatch + publisherMatch
+                    + sizePlausibility + seederScore + formatScore + coverageBonus,
+                    0f, 100f),
+                result),
+            banned);
 
         var details = new ScoreDetailsVolumePack(
             titleMatch, yearMatch, authorMatch, publisherMatch,
             sizePlausibility, seederScore, formatScore, coverageBonus);
 
-        return new ScoredSearchResultVolumePack(result, total, details, analysis, covered, missingIssues.Count);
+        return new ScoredSearchResultVolumePack(result, total, details, analysis, covered, missingIssues.Count, banned);
     }
 
     public static List<ScoredSearchResultVolumePack> ScoreAndSort(
         Volume volume,
         List<Issue> missingIssues,
-        List<ProwlarrSearchResult> results)
+        List<ProwlarrSearchResult> results,
+        TorrentBanIndex? bans = null)
         => results
-            .Select(r => ScoringIndexerResult(volume, missingIssues, r))
+            .Select(r => ScoringIndexerResult(volume, missingIssues, r, bans))
             .OrderByDescending(r => r.Score)
             .ToList();
 

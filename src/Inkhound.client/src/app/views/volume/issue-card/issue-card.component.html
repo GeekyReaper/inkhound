@@ -26,6 +26,6 @@
     }
   </c-card-body>
   <c-card-footer class="p-2">
-    <span [class]="statusBadgeClass()" style="font-size: 0.65rem;">{{ issue().status }}</span>
+    <span [class]="statusBadgeClass()" style="font-size: 0.65rem;" [title]="statusTitle()">{{ statusLabel() }}</span>
   </c-card-footer>
 </c-card>

@@ -28,6 +28,7 @@ import {
 import { IconDirective } from '@coreui/icons-angular';
 import { AGE_RATINGS, AgeRating, AgeRatingOption, ImportScanFile, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { Issue, IssueCategory, IssueService } from '../../core/services/issue.service';
+import { DownloadStatus, QBittorrentService } from '../../core/services/qbittorrent.service';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
 import { FileIssueMatcherComponent } from '../file-issue-matcher/file-issue-matcher.component';
@@ -72,6 +73,7 @@ export class VolumeComponent {
   private volumeService = inject(VolumeService);
   private issueService  = inject(IssueService);
   private libraryService = inject(LibraryService);
+  private qbService     = inject(QBittorrentService);
   private hub           = inject(HubService);
   private pageJobs      = inject(PageJobService);
   readonly #destroyRef  = inject(DestroyRef);
@@ -146,6 +148,10 @@ export class VolumeComponent {
 
   // Bloc "Issues" : uniquement les tomes Standard. Bloc "Extra" : le reste, groupé par catégorie
   // dans un ordre fixe, catégories absentes omises — voir EXTRA_CATEGORY_ORDER.
+  // Statut du téléchargement en cours par issue (vide si aucune issue n'est DOWNLOADING) —
+  // distingue une issue qui télécharge d'une issue bloquée, voir IssueCardComponent.
+  downloadStatusByIssue = signal<Map<string, DownloadStatus>>(new Map());
+
   standardIssues = computed(() => this.issues().filter(i => i.category === 'Standard'));
   extraGroups = computed(() => {
     const extra = this.issues().filter(i => i.category !== 'Standard');
@@ -256,9 +262,41 @@ export class VolumeComponent {
     this.issueService.getByVolume(volumeId)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  issues => { this.issues.set(issues.sort((a, b) => a.issueNumber - b.issueNumber)); this.issuesLoading.set(false); },
+        next:  issues => {
+          this.issues.set(issues.sort((a, b) => a.issueNumber - b.issueNumber));
+          this.issuesLoading.set(false);
+          this.loadDownloadStatuses(volumeId, issues);
+        },
         error: ()     => { this.issuesLoading.set(false); }
       });
+  }
+
+  // Statut de téléchargement par issue — un seul appel pour tout le volume, et seulement s'il y a
+  // quelque chose en cours (chaque appel interroge qBittorrent en direct).
+  private loadDownloadStatuses(volumeId: string, issues: Issue[]): void {
+    if (!issues.some(i => i.status === 'DOWNLOADING')) {
+      this.downloadStatusByIssue.set(new Map());
+      return;
+    }
+
+    this.qbService.getVolumeDownloads(volumeId)
+      .pipe(takeUntilDestroyed(this.#destroyRef))
+      .subscribe({
+        next: items => {
+          // Une issue peut avoir plusieurs lignes (PACK relancé) : la plus récente fait foi, et
+          // l'endpoint les renvoie déjà triées par date décroissante.
+          const map = new Map<string, DownloadStatus>();
+          for (const item of items) {
+            if (!map.has(item.issueId)) map.set(item.issueId, item.status);
+          }
+          this.downloadStatusByIssue.set(map);
+        },
+        error: () => { /* indicateur secondaire : le badge reste celui de l'issue */ }
+      });
+  }
+
+  downloadStatusFor(issueId: string): DownloadStatus | null {
+    return this.downloadStatusByIssue().get(issueId) ?? null;
   }
 
   goBack(): void {

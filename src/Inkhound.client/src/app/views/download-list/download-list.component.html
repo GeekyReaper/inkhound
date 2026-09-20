@@ -1,0 +1,216 @@
+@if (deleteNotice()) {
+  <c-alert color="info" [dismissible]="true" (visibleChange)="!$event && dismissNotice()">
+    {{ deleteNotice() }}
+  </c-alert>
+}
+
+<div class="table-responsive">
+  <table cTable [hover]="true" class="mb-0 table-stack">
+    <thead>
+      <tr>
+        @if (showVolume()) {
+          <th>Volume / Issue</th>
+        }
+        <th class="col-identity">Torrent</th>
+        <th style="width: 100px;">Status</th>
+        <th style="width: 140px;">Progress</th>
+        <th style="width: 90px;">Speed</th>
+        <th style="width: 80px;">ETA</th>
+        <th style="width: 85px;">Size</th>
+        <th style="width: 110px;">Added</th>
+        <th style="width: 90px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (item of items(); track item.id) {
+        <tr>
+          @if (showVolume()) {
+            <td class="align-middle col-full col-title">
+              <span class="dl-vol fw-semibold small">{{ item.volumeTitle ?? '—' }}</span>
+              @if (item.issueNumber !== null) {
+                <span class="dl-sep">|</span>
+                <span class="dl-issue text-body-secondary small">#{{ item.issueNumber }}@if (item.issueTitle) { — {{ item.issueTitle }} }</span>
+              }
+            </td>
+          }
+          <td class="align-middle text-break small col-identity">
+            {{ item.torrentTitle || item.torrentHash || '—' }}
+          </td>
+          <td class="align-middle col-status">
+            <c-badge [color]="statusBadgeColor(item.status)">{{ item.status }}</c-badge>
+          </td>
+          <td class="align-middle col-full col-progress">
+            @if (item.progress !== null) {
+              <c-progress class="mb-1" style="height: 6px;">
+                <c-progress-bar
+                  [color]="item.status === 'Finished' ? 'success' : 'primary'"
+                  [value]="item.progress * 100">
+                </c-progress-bar>
+              </c-progress>
+              <div class="text-body-secondary" style="font-size: 0.7rem;">
+                {{ item.progress * 100 | number:'1.0-0' }}%
+              </div>
+            } @else {
+              <span class="text-body-secondary small">Tracking...</span>
+            }
+          </td>
+          <td class="align-middle text-nowrap small col-speed">{{ formatSpeed(item.dlspeed) }}</td>
+          <td class="align-middle text-nowrap small col-eta">{{ formatEta(item.eta) }}</td>
+          <td class="align-middle text-nowrap small col-size">{{ formatSize(item.size) }}</td>
+          <td class="align-middle text-nowrap small col-added">
+            <span class="dl-meta">
+              <svg cIcon name="cilCalendar" size="sm" class="dl-meta-icon"></svg>
+              {{ formatAdded(item.addedAt) }}
+            </span>
+          </td>
+          <td class="align-middle text-nowrap col-full col-actions">
+            @if (canProcess(item)) {
+              <button cButton color="secondary" variant="ghost" size="sm"
+                      [disabled]="processingIds().has(item.id)"
+                      (click)="processOne(item)"
+                      title="Process">
+                @if (processingIds().has(item.id)) {
+                  <c-spinner size="sm"></c-spinner>
+                } @else {
+                  <svg cIcon name="cilCloudDownload" size="sm"></svg>
+                }
+              </button>
+            }
+            @if (item.status === 'NotFound') {
+              <button cButton color="secondary" variant="ghost" size="sm"
+                      (click)="openEditModal(item)"
+                      title="Fix hash">
+                <svg cIcon name="cilPencil" size="sm"></svg>
+              </button>
+            }
+            <button cButton color="danger" variant="ghost" size="sm"
+                    (click)="requestDelete(item)"
+                    title="Delete">
+              <svg cIcon name="cilTrash" size="sm"></svg>
+            </button>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+<!-- Modale « Fix download » : corriger le hash d'un torrent orphelin (NotFound) -->
+<c-modal
+  [visible]="editModalVisible()"
+  (visibleChange)="onEditModalVisibleChange($event)"
+  backdrop="static">
+
+  <c-modal-header>
+    <h5 cModalTitle>Fix download</h5>
+    <button cButtonClose (click)="closeEditModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+    @if (editingItem(); as item) {
+      <p class="text-body-secondary small">
+        <strong>{{ item.torrentTitle || item.torrentHash || 'This download' }}</strong>
+        could not be matched to any torrent in QBittorrent. Enter the correct hash below.
+      </p>
+
+      @if (editError()) {
+        <c-alert color="danger" class="mb-3">{{ editError() }}</c-alert>
+      }
+
+      <div class="mb-2">
+        <label cLabel for="editHash">Torrent hash</label>
+        <input cFormControl id="editHash" type="text" [value]="editHashInput()"
+               (input)="editHashInput.set($any($event.target).value)"
+               placeholder="40-character QBittorrent torrent hash" />
+      </div>
+    }
+  </c-modal-body>
+
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" (click)="closeEditModal()">
+      Cancel
+    </button>
+    <button cButton color="primary" [disabled]="!editHashInput().trim() || editSaving()" (click)="saveHash()">
+      @if (editSaving()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Verifying...
+      } @else {
+        Save hash
+      }
+    </button>
+  </c-modal-footer>
+
+</c-modal>
+
+<!-- Modale de confirmation de suppression d'un download (tout état) -->
+<c-modal
+  [visible]="deleteModalVisible()"
+  (visibleChange)="onDeleteModalVisibleChange($event)"
+  backdrop="static">
+
+  <c-modal-header>
+    <h5 cModalTitle>Delete download</h5>
+    <button cButtonClose [disabled]="deleting()" (click)="closeDeleteModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+    @if (deleteTarget(); as item) {
+      <p class="mb-2">
+        Delete the download for
+        <strong>{{ item.volumeTitle || item.torrentTitle || 'this item' }}</strong>@if (item.issueNumber !== null) { (issue #{{ item.issueNumber }})}?
+      </p>
+      <p class="text-body-secondary small">
+        The issue goes back to MISSING if nothing else is downloading it.
+      </p>
+
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="delRemoveTorrent"
+               [checked]="deleteRemoveTorrent()"
+               (change)="deleteRemoveTorrent.set($any($event.target).checked)" />
+        <label class="form-check-label" for="delRemoveTorrent">
+          Also remove the torrent and its downloaded files from qBittorrent
+        </label>
+      </div>
+
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="delBan"
+               [checked]="deleteBan()"
+               (change)="deleteBan.set($any($event.target).checked)" />
+        <label class="form-check-label" for="delBan">
+          Ban this torrent for this issue — future Prowlarr searches will score it 0.
+          You can lift the ban from the issue page.
+        </label>
+      </div>
+
+      @if (item.sharedWith > 0) {
+        <c-alert [color]="deleteRemoveTorrent() ? 'warning' : 'info'" class="mt-3 mb-0">
+          @if (deleteRemoveTorrent()) {
+            This torrent is shared with {{ item.sharedWith }} other download(s). Removing it from
+            qBittorrent will delete {{ item.sharedWith }} additional download(s) too.
+          } @else {
+            {{ item.sharedWith }} other download(s) use this torrent — they stay untouched.
+          }
+        </c-alert>
+      }
+
+      @if (deleteError()) {
+        <c-alert color="danger" class="mt-3 mb-0">{{ deleteError() }}</c-alert>
+      }
+    }
+  </c-modal-body>
+
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" [disabled]="deleting()" (click)="closeDeleteModal()">
+      Cancel
+    </button>
+    <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+      @if (deleting()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Deleting...
+      } @else {
+        Delete
+      }
+    </button>
+  </c-modal-footer>
+
+</c-modal>

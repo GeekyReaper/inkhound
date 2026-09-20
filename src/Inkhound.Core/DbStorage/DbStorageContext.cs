@@ -18,6 +18,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<IssueDownload> IssueDownloads => Set<IssueDownload>();
 
+    public DbSet<IssueTorrentBan> IssueTorrentBans => Set<IssueTorrentBan>();
+
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     public DbSet<User> Users => Set<User>();
@@ -56,6 +58,12 @@ public class DbStorageContext : DbContext
         modelBuilder.Entity<IssueDownload>()
             .Property(d => d.Status)
             .HasConversion<string>();
+
+        // Bans de torrents — lus par issue (page détail) et par volume (scoring d'une recherche).
+        // Pas d'index unique : selon l'indexer, URL et hash peuvent être vides, seul le titre
+        // identifiant alors le torrent.
+        modelBuilder.Entity<IssueTorrentBan>()
+            .HasIndex(b => b.IssueId);
 
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Login)

@@ -68,11 +68,16 @@
                 </thead>
                 <tbody>
                   @for (item of pagedResults(); track item.result.guid) {
-                    <tr [class.row-no-seed]="hasNoSeed(item.result)">
+                    <tr [class.row-no-seed]="hasNoSeed(item.result)" [class.row-banned]="item.banned">
                       <td class="align-middle" data-label="Score">
-                        <span [class]="'badge bg-' + scoreColor(item.score)">
-                          {{ item.score | number:'1.0-0' }}
-                        </span>
+                        <div class="d-flex flex-column align-items-start gap-1">
+                          <span [class]="'badge bg-' + scoreColor(item.score)">
+                            {{ item.score | number:'1.0-0' }}
+                          </span>
+                          @if (item.banned) {
+                            <span class="badge bg-danger text-nowrap" [title]="bannedTitle()">Banned</span>
+                          }
+                        </div>
                       </td>
                       <td class="align-middle" data-label="Indexer">
                         <div class="d-flex flex-column gap-1">

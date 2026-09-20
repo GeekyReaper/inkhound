@@ -505,6 +505,7 @@ public partial class InkhoundManager : BaseServiceManager
         var volumeIds = volumes.Select(v => v.Id).ToList();
         var issueIds  = await ctx.Issues.Where(i => volumeIds.Contains(i.VolumeId)).Select(i => i.Id).ToListAsync();
         ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => issueIds.Contains(d.IssueId)));
+        ctx.IssueTorrentBans.RemoveRange(ctx.IssueTorrentBans.Where(b => issueIds.Contains(b.IssueId)));
         ctx.Issues.RemoveRange(ctx.Issues.Where(i => volumeIds.Contains(i.VolumeId)));
         ctx.Volumes.RemoveRange(volumes);
         ctx.SelectedIndexers.RemoveRange(ctx.SelectedIndexers.Where(s => s.LibraryId == id));
@@ -545,6 +546,7 @@ public partial class InkhoundManager : BaseServiceManager
 
         var issueIds = await ctx.Issues.Where(i => i.VolumeId == id).Select(i => i.Id).ToListAsync();
         ctx.IssueDownloads.RemoveRange(ctx.IssueDownloads.Where(d => issueIds.Contains(d.IssueId)));
+        ctx.IssueTorrentBans.RemoveRange(ctx.IssueTorrentBans.Where(b => issueIds.Contains(b.IssueId)));
         ctx.Issues.RemoveRange(ctx.Issues.Where(i => i.VolumeId == id));
         ctx.Volumes.Remove(volume);
         await ctx.SaveChangesAsync();
@@ -3299,12 +3301,17 @@ public partial class InkhoundManager : BaseServiceManager
 
             var merged = await SearchProwlarrCascadeAsync(job, prowlarr, queries, indexerIds, saved);
 
-            var results = ScoringTorrent.ScoreAndSort(volume, issue, merged);
+            var bans = await LoadBanIndexForIssueAsync(issue.Id);
+            var results = ScoringTorrent.ScoreAndSort(volume, issue, merged, bans);
 
             if (results.Count == 0)
                 JobSendTrace("[Prowlarr] No results across all queries", ETraceLevel.WARNING);
             else
                 JobSendTrace($"[Prowlarr] {results.Count} result(s) scored and sorted across {queries.Count} quer{(queries.Count == 1 ? "y" : "ies")} attempted");
+
+            var bannedCount = results.Count(r => r.Banned);
+            if (bannedCount > 0)
+                JobSendTrace($"[Prowlarr] {bannedCount} result(s) banned for this issue — scored 0", ETraceLevel.WARNING);
 
             _prowlarrResults[job.JobId] = results;
             EndJob(true);
@@ -3382,12 +3389,17 @@ public partial class InkhoundManager : BaseServiceManager
 
             var merged = await SearchProwlarrCascadeAsync(job, prowlarr, queries, indexerIds, saved);
 
-            var results = ScoringVolumePack.ScoreAndSort(volume, missingIssues, merged);
+            var bans = await LoadBanIndexForVolumeAsync(volume.Id);
+            var results = ScoringVolumePack.ScoreAndSort(volume, missingIssues, merged, bans);
 
             if (results.Count == 0)
                 JobSendTrace("[Prowlarr] No results across all queries", ETraceLevel.WARNING);
             else
                 JobSendTrace($"[Prowlarr] {results.Count} result(s) scored and sorted across {queries.Count} quer{(queries.Count == 1 ? "y" : "ies")} attempted");
+
+            var bannedCount = results.Count(r => r.Banned);
+            if (bannedCount > 0)
+                JobSendTrace($"[Prowlarr] {bannedCount} result(s) banned for an issue of this volume — scored 0", ETraceLevel.WARNING);
 
             _prowlarrVolumeResults[job.JobId] = results;
             EndJob(true);
@@ -3847,10 +3859,71 @@ public partial class InkhoundManager : BaseServiceManager
         };
     }
 
+    // Statuts d'un download encore "en vie" : ceux dont l'état peut encore évoluer côté QBittorrent
+    // (par opposition à Done, terminé et importé). Sert aux vues ciblées ci-dessous.
+    private static readonly DownloadStatus[] ActiveDownloadStatuses =
+    [
+        DownloadStatus.Downloading, DownloadStatus.Stalled, DownloadStatus.Paused,
+        DownloadStatus.Finished, DownloadStatus.Syncing, DownloadStatus.Error,
+        DownloadStatus.Unknown, DownloadStatus.NotFound
+    ];
+
+    /// <summary>
+    /// Downloads d'une issue (carte « Download » de sa page détail), enrichis — donc avec un statut
+    /// à jour. Plusieurs lignes possibles : un PACK peut avoir été relancé, ou plusieurs torrents
+    /// visés successivement.
+    /// </summary>
+    public async Task<List<DownloadItemData>> GetIssueDownloadsAsync(Guid issueId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var downloads = await ctx.IssueDownloads
+            .Where(d => d.IssueId == issueId)
+            .OrderByDescending(d => d.AddedAt)
+            .ToListAsync(ct);
+        return await EnrichDownloadsAsync(ctx, downloads, ct);
+    }
+
+    /// <summary>
+    /// Downloads de toutes les issues d'un volume (badges de la liste des issues) — une seule
+    /// requête QBittorrent groupée, jamais une par carte. <c>IssueDownload</c> n'a pas de
+    /// <c>VolumeId</c> : la portée passe par une jointure sur <c>Issues</c>.
+    /// </summary>
+    public async Task<List<DownloadItemData>> GetVolumeDownloadsAsync(Guid volumeId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var downloads = await (from d in ctx.IssueDownloads
+                               join i in ctx.Issues on d.IssueId equals i.Id
+                               where i.VolumeId == volumeId
+                               orderby d.AddedAt descending
+                               select d).ToListAsync(ct);
+        return await EnrichDownloadsAsync(ctx, downloads, ct);
+    }
+
+    /// <summary>
+    /// Downloads actuellement bloqués (section d'alerte du Dashboard). On charge les lignes encore
+    /// actives, on les enrichit, PUIS on filtre sur <see cref="DownloadStatus.Stalled"/> : filtrer
+    /// en SQL renverrait l'état du dernier enrichissement (le statut n'est recalculé qu'ici), donc
+    /// raterait un torrent qui vient de perdre ses seeders.
+    /// </summary>
+    public async Task<List<DownloadItemData>> GetStalledDownloadsAsync(int limit, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var downloads = await ctx.IssueDownloads
+            .Where(d => ActiveDownloadStatuses.Contains(d.Status))
+            .OrderByDescending(d => d.AddedAt)
+            .ToListAsync(ct);
+
+        var enriched = await EnrichDownloadsAsync(ctx, downloads, ct);
+        return enriched
+            .Where(d => d.Download.Status == DownloadStatus.Stalled)
+            .Take(Math.Max(1, limit))
+            .ToList();
+    }
+
     // Complète chaque IssueDownload avec son Issue/Volume et son état QBittorrent live, en
     // persistant le statut mappé si besoin. Partagé entre GetDownloadsAsync (liste complète,
-    // usage interne), GetDownloadsPageAsync (page affichée à l'utilisateur) et
-    // UpdateDownloadHashAsync. Prend le DbStorageContext du GetDb() de la méthode APPELANTE — chaque
+    // usage interne), GetDownloadsPageAsync (page affichée à l'utilisateur), les vues ciblées
+    // ci-dessus (issue / volume / stalled) et UpdateDownloadHashAsync. Prend le DbStorageContext du GetDb() de la méthode APPELANTE — chaque
     // appel à GetDb() retourne une instance différente (voir son commentaire), donc appeler GetDb()
     // ici forcerait un SaveChangesAsync() sur un contexte qui n'a jamais chargé/suivi les entités
     // mutées ci-dessous, et la persistance échouerait silencieusement (les valeurs restent correctes
@@ -3934,8 +4007,36 @@ public partial class InkhoundManager : BaseServiceManager
             result.Add(new DownloadItemData(dl, issue, volume, torrent, sharedWith));
         }
 
-        await ctx.SaveChangesAsync(ct);
+        await SaveEnrichedStatusesAsync(ctx, ct);
         return result;
+    }
+
+    // La persistance du statut enrichi est du best-effort : une ligne peut disparaître entre son
+    // chargement et l'écriture (suppression d'un download depuis une autre requête pendant le
+    // polling 10 s des pages qui les affichent — page Downloads, page Issue). EF lève alors une
+    // DbUpdateConcurrencyException pour un UPDATE qui n'affecte aucune ligne, ce qui ferait échouer
+    // un GET par ailleurs parfaitement valide : la réponse en cours reste correcte, seule
+    // l'écriture des lignes disparues n'a plus de sens.
+    // SaveChanges étant transactionnel, on détache les entités en conflit puis on retente une fois
+    // pour ne pas perdre au passage le statut des lignes toujours présentes.
+    private static async Task SaveEnrichedStatusesAsync(DbStorageContext ctx, CancellationToken ct)
+    {
+        if (!ctx.ChangeTracker.HasChanges()) return;
+
+        try
+        {
+            await ctx.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            foreach (var entry in ex.Entries)
+                entry.State = EntityState.Detached;
+
+            if (ex.Entries.Count == 0 || !ctx.ChangeTracker.HasChanges()) return;
+
+            try { await ctx.SaveChangesAsync(ct); }
+            catch (DbUpdateConcurrencyException) { /* une autre ligne a disparu entre-temps */ }
+        }
     }
 
     private static DownloadStatus MapQBittorrentState(string state) => state.ToLowerInvariant() switch
@@ -4017,15 +4118,19 @@ public partial class InkhoundManager : BaseServiceManager
     // removeTorrent : supprime aussi le torrent (et ses fichiers déjà téléchargés) de QBittorrent ;
     // dans ce cas, tous les downloads jumeaux (même hash, PACK multi-issues) sont supprimés eux aussi
     // — le frontend prévient l'utilisateur au moment de la confirmation.
+    // ban : mémorise le couple (Issue, Torrent) dans IssueTorrentBans pour que les recherches
+    // Prowlarr suivantes le scorent 0 (voir TorrentBanIndex) — un ban par ligne supprimée, donc
+    // aussi pour les jumelles d'un PACK.
     // Chaque Issue impactée redevient MISSING si elle était DOWNLOADING et que plus aucune ligne
     // restante ne la télécharge.
-    // DeletedCount : nombre de lignes IssueDownload effectivement supprimées.
-    public async Task<(bool Success, string? Error, bool TorrentRemoved, int DeletedCount)> DeleteDownloadAsync(
-        Guid downloadId, bool removeTorrent, CancellationToken ct = default)
+    // DeletedCount : nombre de lignes IssueDownload effectivement supprimées ; BanCount : nombre de
+    // bans réellement créés (les doublons d'un ban existant ne sont pas recréés).
+    public async Task<(bool Success, string? Error, bool TorrentRemoved, int DeletedCount, int BanCount)> DeleteDownloadAsync(
+        Guid downloadId, bool removeTorrent, bool ban = true, CancellationToken ct = default)
     {
         var ctx = GetDb();
         var download = await ctx.IssueDownloads.FindAsync([downloadId], ct);
-        if (download is null) return (false, "Download not found.", false, 0);
+        if (download is null) return (false, "Download not found.", false, 0, 0);
 
         var hash = download.TorrentHash;
 
@@ -4062,9 +4167,92 @@ public partial class InkhoundManager : BaseServiceManager
             }
         }
 
+        var banCount = ban ? await AddTorrentBansAsync(ctx, toRemove, "Download deleted", ct) : 0;
+
         ctx.IssueDownloads.RemoveRange(toRemove);
         await ctx.SaveChangesAsync(ct);
-        return (true, null, torrentRemoved, toRemove.Count);
+        return (true, null, torrentRemoved, toRemove.Count, banCount);
+    }
+
+    // Crée un ban par download supprimé, en ignorant ceux déjà couverts par un ban existant de la
+    // même issue (même URL, ou à défaut même hash, ou à défaut même titre — mêmes clés que
+    // TorrentBanIndex). Ne sauvegarde pas : l'appelant commit avec le reste de son unité de travail.
+    private static async Task<int> AddTorrentBansAsync(
+        DbStorageContext ctx, List<IssueDownload> downloads, string reason, CancellationToken ct)
+    {
+        var issueIds = downloads.Select(d => d.IssueId).Distinct().ToList();
+        var existing = await ctx.IssueTorrentBans.Where(b => issueIds.Contains(b.IssueId)).ToListAsync(ct);
+
+        var created = 0;
+        foreach (var download in downloads)
+        {
+            var alreadyBanned = existing.Any(b => b.IssueId == download.IssueId && SameTorrent(b, download));
+            if (alreadyBanned) continue;
+
+            var newBan = new IssueTorrentBan
+            {
+                Id = Guid.NewGuid(),
+                IssueId = download.IssueId,
+                TorrentHash = download.TorrentHash,
+                TorrentTitle = download.TorrentTitle,
+                DownloadUrl = download.DownloadUrl,
+                TrackerName = download.TrackerName,
+                CreatedAt = DateTime.UtcNow,
+                Reason = reason
+            };
+            ctx.IssueTorrentBans.Add(newBan);
+            existing.Add(newBan);   // évite un doublon entre deux lignes jumelles du même lot
+            created++;
+        }
+        return created;
+    }
+
+    private static bool SameTorrent(IssueTorrentBan ban, IssueDownload download)
+    {
+        if (!string.IsNullOrEmpty(download.DownloadUrl) && !string.IsNullOrEmpty(ban.DownloadUrl))
+            return string.Equals(ban.DownloadUrl, download.DownloadUrl, StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(download.TorrentHash) && !string.IsNullOrEmpty(ban.TorrentHash))
+            return string.Equals(ban.TorrentHash, download.TorrentHash, StringComparison.OrdinalIgnoreCase);
+        return !string.IsNullOrEmpty(download.TorrentTitle)
+            && string.Equals(ban.TorrentTitle, download.TorrentTitle, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Bans de torrents d'une issue, du plus récent au plus ancien (page détail de l'issue).</summary>
+    public async Task<List<IssueTorrentBan>> GetIssueBansAsync(Guid issueId, CancellationToken ct = default)
+        => await GetDb().IssueTorrentBans
+            .Where(b => b.IssueId == issueId)
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync(ct);
+
+    /// <summary>Lève un ban ; <c>false</c> si l'identifiant est inconnu.</summary>
+    public async Task<bool> DeleteIssueBanAsync(Guid banId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var ban = await ctx.IssueTorrentBans.FindAsync([banId], ct);
+        if (ban is null) return false;
+
+        ctx.IssueTorrentBans.Remove(ban);
+        await ctx.SaveChangesAsync(ct);
+        OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Issue>(ban.IssueId));
+        return true;
+    }
+
+    /// <summary>Index des torrents bannis pour une issue — périmètre d'une recherche par issue.</summary>
+    public async Task<TorrentBanIndex> LoadBanIndexForIssueAsync(Guid issueId, CancellationToken ct = default)
+        => TorrentBanIndex.From(await GetDb().IssueTorrentBans.Where(b => b.IssueId == issueId).ToListAsync(ct));
+
+    /// <summary>
+    /// Index des torrents bannis pour TOUTES les issues d'un volume — périmètre d'une recherche par
+    /// volume : un torrent banni sur n'importe quelle issue du volume est écarté du pack.
+    /// </summary>
+    public async Task<TorrentBanIndex> LoadBanIndexForVolumeAsync(Guid volumeId, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
+        var bans = await (from b in ctx.IssueTorrentBans
+                          join i in ctx.Issues on b.IssueId equals i.Id
+                          where i.VolumeId == volumeId
+                          select b).ToListAsync(ct);
+        return TorrentBanIndex.From(bans);
     }
 
     public async Task LaunchJobProcessDownloads(ProcessDownloadsJobParameters parameters)

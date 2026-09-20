@@ -2,6 +2,7 @@ using Inkhound.Core;
 using Inkhound.Core.Analysis;
 using Inkhound.Core.Models;
 using Inkhound.Core.QBittorrent;
+using Inkhound.Web.Controllers.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -39,45 +40,8 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
         bool Found, string State, double Progress, int NumComplete, int NumSeeds,
         long Dlspeed, long Eta, bool MetadataReady, IEnumerable<TorrentFileDto> Files);
 
-    private record DownloadItemDto(
-        Guid Id,
-        Guid IssueId,
-        string TorrentHash,
-        string TorrentTitle,
-        string? TrackerName,
-        string Status,
-        DateTime AddedAt,
-        DateTime? UpdatedAt,
-        int? IssueNumber,
-        string? IssueTitle,
-        string? VolumeTitle,
-        double? Progress,
-        long? Dlspeed,
-        long? Eta,
-        long? Size,
-        int SharedWith);
-
-    // TorrentTitle vient de l'item stocké (d.Download.TorrentTitle), pas d'une lecture live QBittorrent
-    // (d.Torrent?.Name) : l'identité du download reste affichable même si QBittorrent ne retrouve plus
-    // le torrent (hash orphelin, torrent supprimé...). Progress/Dlspeed/Eta/Size restent des indicateurs
-    // live optionnels, absents quand QBittorrent ne retrouve pas le torrent.
-    private static DownloadItemDto ToDto(DownloadItemData d) => new(
-        d.Download.Id,
-        d.Download.IssueId,
-        d.Download.TorrentHash,
-        d.Download.TorrentTitle,
-        d.Download.TrackerName,
-        d.Download.Status.ToString(),
-        d.Download.AddedAt,
-        d.Download.UpdatedAt,
-        d.Issue?.IssueNumber,
-        d.Issue?.Title,
-        d.Volume?.Title,
-        d.Torrent?.Progress,
-        d.Torrent?.Dlspeed,
-        d.Torrent?.Eta,
-        d.Torrent?.Size,
-        d.SharedWith);
+    // DTO partagé avec les pages Issue / Volume / Dashboard — voir Controllers/Dtos/DownloadItemDto.cs.
+    private static DownloadItemDto ToDto(DownloadItemData d) => DownloadItemDto.From(d);
 
     // GET /api/qbittorrent/categories
     [HttpGet("categories")]
@@ -198,6 +162,15 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
             result.TotalItems, result.TotalPages, result.HasNext, result.HasPrev));
     }
 
+    // GET /api/qbittorrent/downloads/stalled?limit=5 — téléchargements bloqués (section d'alerte du
+    // Dashboard). Le statut est enrichi avant filtrage, donc à jour.
+    [HttpGet("downloads/stalled")]
+    public async Task<IActionResult> GetStalledDownloads([FromQuery] int limit = 5)
+    {
+        var items = await manager.GetStalledDownloadsAsync(limit);
+        return Ok(items.Select(ToDto));
+    }
+
     // POST /api/qbittorrent/downloads/process
     [HttpPost("downloads/process")]
     public IActionResult ProcessDownloads()
@@ -231,10 +204,12 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     }
 
     // DELETE /api/qbittorrent/downloads/{id}?removeTorrent=true
+    // ban (défaut true) : mémorise le couple (Issue, Torrent) pour que les recherches Prowlarr
+    // suivantes le scorent 0 — voir InkhoundManager.DeleteDownloadAsync.
     [HttpDelete("downloads/{id:guid}")]
-    public async Task<IActionResult> DeleteDownload(Guid id, [FromQuery] bool removeTorrent = false)
+    public async Task<IActionResult> DeleteDownload(Guid id, [FromQuery] bool removeTorrent = false, [FromQuery] bool ban = true)
     {
-        var (success, error, torrentRemoved, deletedCount) = await manager.DeleteDownloadAsync(id, removeTorrent);
-        return success ? Ok(new { torrentRemoved, deletedCount }) : NotFound(new { message = error });
+        var (success, error, torrentRemoved, deletedCount, banCount) = await manager.DeleteDownloadAsync(id, removeTorrent, ban);
+        return success ? Ok(new { torrentRemoved, deletedCount, banCount }) : NotFound(new { message = error });
     }
 }

@@ -1,6 +1,7 @@
 using Inkhound.Core;
 using Inkhound.Core.Models;
 using Inkhound.Core.Sources;
+using Inkhound.Web.Controllers.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -134,6 +135,33 @@ public class IssueController(InkhoundManager manager) : ControllerBase
         var (success, error) = await manager.DeleteIssueFileAsync(issueId);
         return success ? NoContent() : BadRequest(new { message = error });
     }
+
+    // GET /api/issues/{issueId}/downloads — téléchargements de cette issue (carte de sa page détail).
+    [HttpGet("/api/issues/{issueId:guid}/downloads")]
+    public async Task<IActionResult> GetDownloads(Guid issueId)
+    {
+        var items = await manager.GetIssueDownloadsAsync(issueId);
+        return Ok(items.Select(DownloadItemDto.From));
+    }
+
+    private record IssueBanDto(
+        Guid Id, Guid IssueId, string TorrentTitle, string? TrackerName,
+        string DownloadUrl, string TorrentHash, DateTime CreatedAt, string? Reason);
+
+    // GET /api/issues/{issueId}/bans — torrents bannis pour cette issue (carte de la page Issue).
+    [HttpGet("/api/issues/{issueId:guid}/bans")]
+    public async Task<IActionResult> GetBans(Guid issueId)
+    {
+        var bans = await manager.GetIssueBansAsync(issueId);
+        return Ok(bans.Select(b => new IssueBanDto(
+            b.Id, b.IssueId, b.TorrentTitle, b.TrackerName,
+            b.DownloadUrl, b.TorrentHash, b.CreatedAt, b.Reason)));
+    }
+
+    // DELETE /api/issues/bans/{banId} — lève un ban ; le torrent redevient scoré normalement.
+    [HttpDelete("/api/issues/bans/{banId:guid}")]
+    public async Task<IActionResult> DeleteBan(Guid banId)
+        => await manager.DeleteIssueBanAsync(banId) ? NoContent() : NotFound();
 
     // GET /api/volumes/{volumeId}/issues
     [HttpGet]

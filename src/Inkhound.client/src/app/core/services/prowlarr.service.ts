@@ -61,6 +61,8 @@ export interface ScoredSearchResult {
   result: ProwlarrSearchResult;
   score: number;
   details: ScoreDetails;
+  // Torrent banni pour l'issue recherchée (suppression d'un download précédent) → score 0.
+  banned: boolean;
 }
 
 export interface ScoreDetailsVolumePack {
@@ -80,6 +82,8 @@ export interface ScoredSearchResultVolumePack {
   details: ScoreDetailsVolumePack;
   coveredIssueCount: number;
   totalMissingIssueCount: number;
+  // Torrent banni pour au moins une issue du volume → score 0.
+  banned: boolean;
 }
 
 export interface ProwlarrHistoryItem {

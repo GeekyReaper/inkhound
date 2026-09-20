@@ -12,6 +12,12 @@ $stack-breakpoint-down: 767.98px;
   opacity: 0.55;
 }
 
+// Torrent banni pour cette issue (ou une issue du volume) : même traitement visuel, la cellule
+// Score restant pleinement lisible puisqu'elle porte le badge "Banned" qui explique le score 0.
+.row-banned td:not(.col-actions):not([data-label='Score']) {
+  opacity: 0.55;
+}
+
 // Cellule Type : badge (SINGLE/PACK) + son label ("#5", "1...13"). Empilés en desktop, faute
 // de largeur de colonne (90px).
 //
