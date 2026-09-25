@@ -8,7 +8,8 @@ namespace Foundation.Core.Chatbot;
 /// </summary>
 public sealed record ChatbotRuntimeStatus
 {
-    public required bool Enabled { get; init; }
+    /// <summary>Le bot est-il configuré pour démarrer automatiquement au lancement de l'application.</summary>
+    public required bool StartAtStartup { get; init; }
     public required bool Running { get; init; }
     public required string ServiceName { get; init; }
     public string? BotUserId { get; init; }

@@ -90,6 +90,45 @@ public sealed class GoogleVisionProvider : IVisionProvider
         }
     }
 
+    public async Task<DependencyCheck> CheckAvailabilityAsync(CancellationToken cancellationToken = default)
+    {
+        if (_http is null || string.IsNullOrWhiteSpace(_settings.ApiKey))
+        {
+            return DependencyCheck.Failed($"{ProviderName} : aucune clé API configurée.");
+        }
+
+        // GET du modèle configuré : valide joignabilité, clé ET existence du modèle, sans consommer
+        // de tokens — un nom de modèle erroné se voit donc ici plutôt qu'à la première commande.
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get, $"{GoogleVisionSettings.BaseUrl}/{_settings.Model}");
+        request.Headers.Add("x-goog-api-key", _settings.ApiKey);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return DependencyCheck.Success;
+            }
+
+            var reason = response.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden => "clé API refusée",
+                System.Net.HttpStatusCode.NotFound => $"modèle \"{_settings.Model}\" inconnu",
+                _ => $"HTTP {(int)response.StatusCode}",
+            };
+            return DependencyCheck.Failed($"{ProviderName} injoignable ({reason}).");
+        }
+        catch (HttpRequestException ex)
+        {
+            return DependencyCheck.Failed($"{ProviderName} injoignable : {ex.Message}");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return DependencyCheck.Failed($"{ProviderName} injoignable : délai dépassé.");
+        }
+    }
+
     public UsageStatisticsSnapshot GetUsageSnapshot() => _usageTracker.GetSnapshot();
 
     private GoogleGenerateContentRequestDto BuildRequestBody(VisionRequest request)

@@ -65,16 +65,10 @@ export class ChatbotSettingsComponent implements OnInit {
   readonly runningLabel = computed(() => {
     const s = this.status();
     if (!s) return '—';
-    if (s.running) return 'En cours';
-    return s.enabled ? 'Arrêté (le module est pourtant activé)' : 'Arrêté';
+    return s.running ? 'En cours' : 'Arrêté';
   });
 
-  readonly runningColor = computed(() => {
-    const s = this.status();
-    if (!s) return 'secondary';
-    if (s.running) return 'success';
-    return s.enabled ? 'danger' : 'secondary';
-  });
+  readonly runningColor = computed(() => this.status()?.running ? 'success' : 'secondary');
 
   readonly visionSummary = computed(() => {
     const s = this.status();

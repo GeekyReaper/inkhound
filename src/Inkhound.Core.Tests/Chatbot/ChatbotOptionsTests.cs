@@ -7,7 +7,7 @@ public class ChatbotOptionsTests
 {
     private static ChatbotOptions Configured() => new()
     {
-        Enabled = true,
+        StartAtStartup = true,
         HomeServerUrl = "https://matrix.example.org",
         AccessToken = "token",
         RoomId = "!room:example.org",
@@ -16,14 +16,25 @@ public class ChatbotOptionsTests
     };
 
     [Fact]
-    public void A_disabled_module_is_always_valid()
+    public void An_unconfigured_module_is_invalid()
     {
-        // Sinon le badge de la page Modules resterait INVALID en permanence sur un bot
-        // volontairement éteint, dont la configuration incomplète est de toute façon inerte.
-        var options = new ChatbotOptions { Enabled = false };
+        // La validité ne dépend pas du démarrage automatique : l'état du module répond à « la
+        // configuration est-elle exploitable ? », pas à « le bot tourne-t-il ? ».
+        var options = new ChatbotOptions { StartAtStartup = false };
 
-        Assert.True(options.IsValid(out var errors));
-        Assert.Empty(errors);
+        Assert.False(options.IsValid(out var errors));
+        Assert.NotEmpty(errors);
+    }
+
+    [Fact]
+    public void Validity_does_not_depend_on_StartAtStartup()
+    {
+        var autoStart = Configured();
+        var manualStart = Configured();
+        manualStart.StartAtStartup = false;
+
+        Assert.True(autoStart.IsValid(out _));
+        Assert.True(manualStart.IsValid(out _));
     }
 
     [Fact]
@@ -34,7 +45,7 @@ public class ChatbotOptionsTests
     }
 
     [Fact]
-    public void An_enabled_module_requires_a_room_id()
+    public void A_configured_module_requires_a_room_id()
     {
         var options = Configured();
         options.RoomId = "";
@@ -98,7 +109,7 @@ public class ChatbotOptionsTests
         var target = new ChatbotOptions();
         target.LoadOptions(source.GetOptions(), out _);
 
-        Assert.True(target.Enabled);
+        Assert.True(target.StartAtStartup);
         Assert.Equal("https://matrix.example.org", target.HomeServerUrl);
         Assert.Equal("!room:example.org", target.RoomId);
         Assert.Equal(45, target.SyncTimeoutSeconds);
@@ -114,7 +125,7 @@ public class ChatbotOptionsTests
         var names = new ChatbotOptions().GetOptions().Select(o => o.Name).ToList();
 
         Assert.Equal(names.Count, names.Distinct().Count());
-        Assert.Contains(nameof(ChatbotOptions.Enabled), names);
+        Assert.Contains(nameof(ChatbotOptions.StartAtStartup), names);
         Assert.Contains(nameof(ChatbotOptions.CoverUserAgent), names);
     }
 }

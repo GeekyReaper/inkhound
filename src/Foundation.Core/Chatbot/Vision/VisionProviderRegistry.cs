@@ -40,6 +40,25 @@ public sealed class VisionProviderRegistry(IEnumerable<IVisionProvider> provider
             ?? throw new ProviderNotConfiguredException("(aucun provider par défaut configuré)");
     }
 
+    /// <summary>
+    /// Teste l'accessibilité du provider sélectionné (ou du provider par défaut). Ne lève jamais :
+    /// un provider inconnu ou non configuré est un échec de vérification, pas une exception.
+    /// </summary>
+    public async Task<DependencyCheck> CheckAvailabilityAsync(string? providerName = null, CancellationToken ct = default)
+    {
+        IVisionProvider provider;
+        try
+        {
+            provider = Resolve(providerName);
+        }
+        catch (Exception ex) when (ex is UnknownProviderException or ProviderNotConfiguredException)
+        {
+            return DependencyCheck.Failed(ex.Message);
+        }
+
+        return await provider.CheckAvailabilityAsync(ct);
+    }
+
     public IReadOnlyList<VisionProviderInfo> ListProviders() =>
         [.. _providersByName.Values
             .Select(p => new VisionProviderInfo(p.Name, p.IsConfigured, p.Model))

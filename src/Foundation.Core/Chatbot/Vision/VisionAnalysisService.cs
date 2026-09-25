@@ -12,6 +12,10 @@ public sealed class VisionAnalysisService(VisionProviderRegistry registry, Visio
 
     public bool HasConfiguredProvider => registry.HasConfiguredProvider;
 
+    /// <inheritdoc cref="VisionProviderRegistry.CheckAvailabilityAsync"/>
+    public Task<DependencyCheck> CheckAvailabilityAsync(string? providerName = null, CancellationToken ct = default) =>
+        registry.CheckAvailabilityAsync(providerName, ct);
+
     public async Task<VisionResult> AnalyzeAsync(
         byte[] content,
         string mediaType,

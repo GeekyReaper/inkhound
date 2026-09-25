@@ -92,6 +92,41 @@ public sealed class AnthropicVisionProvider : IVisionProvider
         }
     }
 
+    public async Task<DependencyCheck> CheckAvailabilityAsync(CancellationToken cancellationToken = default)
+    {
+        if (_http is null || string.IsNullOrWhiteSpace(_settings.ApiKey))
+        {
+            return DependencyCheck.Failed($"{ProviderName} : aucune clé API configurée.");
+        }
+
+        // GET /v1/models : valide joignabilité et clé sans consommer de tokens.
+        using var request = new HttpRequestMessage(HttpMethod.Get, AnthropicVisionSettings.ModelsUrl);
+        request.Headers.Add("x-api-key", _settings.ApiKey);
+        request.Headers.Add("anthropic-version", AnthropicVisionSettings.ApiVersion);
+
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return DependencyCheck.Success;
+            }
+
+            var reason = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                ? "clé API refusée"
+                : $"HTTP {(int)response.StatusCode}";
+            return DependencyCheck.Failed($"{ProviderName} injoignable ({reason}).");
+        }
+        catch (HttpRequestException ex)
+        {
+            return DependencyCheck.Failed($"{ProviderName} injoignable : {ex.Message}");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return DependencyCheck.Failed($"{ProviderName} injoignable : délai dépassé.");
+        }
+    }
+
     public UsageStatisticsSnapshot GetUsageSnapshot() => _usageTracker.GetSnapshot();
 
     private AnthropicMessageRequestDto BuildRequestBody(VisionRequest request)

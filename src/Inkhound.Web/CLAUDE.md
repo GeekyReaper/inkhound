@@ -115,7 +115,7 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | DELETE | `/api/issues/bans/{banId}` | admin | Lève un ban (204, 404 si inconnu) — le torrent est de nouveau scoré normalement |
 | DELETE | `/api/qbittorrent/downloads/{id}` | admin | Supprime un download. `?removeTorrent=` (défaut false) retire aussi le torrent de qBittorrent ; `?ban=` (**défaut true**) mémorise le couple (issue, torrent) dans `IssueTorrentBans`. Réponse `{ torrentRemoved, deletedCount, banCount }` |
 | GET | `/api/chatbot/status` | admin | État d'exécution du module Chatbot (connexion Matrix, compteurs, usage du modèle vision). Tout est en mémoire — les compteurs repartent de zéro à chaque redémarrage |
-| POST | `/api/chatbot/start`, `/api/chatbot/stop` | admin | Démarre/arrête la boucle de synchronisation **sans** modifier l'option `Enabled` : contrôle ponctuel, qu'une sauvegarde des options du module réappliquera. La configuration passe par `/api/options` comme pour tout module |
+| POST | `/api/chatbot/start`, `/api/chatbot/stop` | admin | Démarre/arrête la boucle de synchronisation, effet immédiat. Ne modifie **pas** l'option `StartAtStartup`, qui ne pilote que le lancement automatique au démarrage de l'application. La configuration passe par `/api/options` comme pour tout module |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 | GET | `/api/dashboard/stats` | auth | Agrégats du Dashboard : KPI globaux, stats par library, volumes récents, et `mostWanted` (issues `MISSING` proches de compléter leur volume — voir `Inkhound.Core/CLAUDE.md`) |
 

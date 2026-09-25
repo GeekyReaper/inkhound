@@ -148,7 +148,7 @@ métier BD n'y entre : les commandes `!bd-scan` / `!bd-search` / `!ocr-bd` viven
 ```
 Chatbot/
 ├── BaseChatbotService.cs      # abstract : BaseService<TOptions> — cycle de vie + boucle /sync + dispatch
-├── ChatbotOptionsBase.cs      # options socle : Enabled, Matrix, Vision
+├── ChatbotOptionsBase.cs      # options socle : StartAtStartup, Matrix, Vision
 ├── ChatbotContext.cs          # composition root passée aux commandes (remplace le conteneur DI)
 ├── ChatbotRuntimeStatus.cs    # état d'exécution exposé à la couche Web
 ├── IChatTrace.cs              # Debug/Info/Warn/Error — remplace ILogger<T>
@@ -180,8 +180,14 @@ besoin du catalogue complet dont elle fait elle-même partie.
 
 `LoadOptions` → `ApplyRuntimeAsync()` sous `SemaphoreSlim` : arrêt, reconstruction complète du
 runtime (HttpClients, client Matrix, providers vision, commandes, catalogue), puis redémarrage si
-`Enabled` **et** options valides. Le même chemin sert au boot (`AutomaticLoadServices`) et à la
-sauvegarde à chaud depuis la page Modules.
+`StartAtStartup` **et** options valides. Le même chemin sert au boot (`AutomaticLoadServices`) et à
+la sauvegarde à chaud depuis la page Modules.
+
+**`StartAtStartup` ne pilote que le démarrage automatique**, pas l'activation du module : il n'y a
+pas d'interrupteur « module désactivé » dans ce socle. Un bot configuré mais laissé à l'arrêt reste
+un module pleinement configuré — son état continue de refléter la santé de ses dépendances (voir
+ci-dessous), et il se démarre à la demande depuis sa page. `StartAsync`/`StopAsync` ne touchent
+jamais à cette option.
 
 La boucle `/sync` est un `Task.Run` + long-poll, **pas un `BackgroundService`** (la solution n'en
 contient aucun, cf. `MonitoringLoopAsync` et le scheduler). Points de vigilance :
@@ -196,9 +202,31 @@ contient aucun, cf. `MonitoringLoopAsync` et le scheduler). Points de vigilance 
 - `_since` est remis à `null` à l'arrêt : au redémarrage on repart du présent, sans rejouer
   l'historique de la room.
 
-`CheckInternalState()` : `Enabled=false` → `OK` (un module éteint n'est pas une anomalie ; `EState`
-n'a pas de valeur `DISABLED`), devrait tourner mais ne tourne pas → `ERROR`, `/whoami` jamais abouti
-ou long-poll figé (> 3 × `SyncTimeoutSeconds`) ou aucun provider vision configuré → `WARNING`.
+### État du module = santé des dépendances, pas état de marche du bot
+
+`CheckInternalState()` **ne regarde ni `StartAtStartup` ni `IsRunning`** : il teste l'accessibilité
+réelle des deux dépendances externes, en parallèle et sous un timeout de 10 s.
+
+| Dépendance | Test | Ce qu'il valide |
+|---|---|---|
+| Matrix | `GET /_matrix/client/v3/account/whoami` | homeserver joignable + token accepté |
+| Provider vision | `GET /v1/models` (Anthropic) ou `GET /v1beta/models/{model}` (Google) | API joignable + clé acceptée + **modèle existant** (Google), sans consommer un seul token |
+
+Les deux répondent → `OK`. L'une échoue → `ERROR`, avec le motif en trace (`token d'accès refusé`,
+`modèle "x" inconnu`, `HTTP 503`, `délai dépassé`…). Un bot volontairement arrêté dont les
+dépendances répondent est donc `OK` : l'état dit « la configuration est-elle exploitable ? », pas
+« le bot tourne-t-il ? » — cette seconde question est celle du badge Démarré/Arrêté de la page
+dédiée, alimenté par `ChatbotRuntimeStatus`.
+
+Pour la même raison, **`IsValid` ne dépend pas non plus de `StartAtStartup`** : un module non
+configuré est `INVALID`, qu'il démarre automatiquement ou non, comme tout autre module d'Inkhound.
+
+`StateRefreshDelay` est à **5 minutes** : le healthcheck du manager tourne toutes les 30 s, mais
+chaque recalcul coûte ici deux appels réseau. Le bouton « Check now » de la page Modules force un
+recalcul immédiat (`GetState(force: true)` contourne ce délai).
+
+`DependencyCheck` (`Chatbot/DependencyCheck.cs`) est le résultat commun de ces tests — `IVisionProvider`
+l'expose via `CheckAvailabilityAsync`, et le socle l'utilise aussi pour Matrix.
 
 ### Contraintes du protocole
 

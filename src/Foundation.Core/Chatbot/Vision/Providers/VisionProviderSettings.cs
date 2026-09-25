@@ -15,6 +15,9 @@ public sealed record AnthropicVisionSettings
     // Non exposés en options : aucune raison de laisser l'utilisateur les modifier.
     public const string BaseUrl = "https://api.anthropic.com/v1/messages";
     public const string ApiVersion = "2023-06-01";
+
+    /// <summary>Endpoint de test d'accessibilité — gratuit, ne consomme aucun token.</summary>
+    public const string ModelsUrl = "https://api.anthropic.com/v1/models";
 }
 
 /// <inheritdoc cref="AnthropicVisionSettings"/>

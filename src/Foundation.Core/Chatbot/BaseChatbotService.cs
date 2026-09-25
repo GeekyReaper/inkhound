@@ -36,6 +36,10 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
 
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
+    // Borne les appels du healthcheck : les HttpClient du runtime ont un timeout calibré pour une
+    // analyse d'image (100 s par défaut), bien trop long pour un test d'accessibilité.
+    private static readonly TimeSpan DependencyCheckTimeout = TimeSpan.FromSeconds(10);
+
     private readonly SemaphoreSlim _runtimeLock = new(1, 1);
     private readonly Queue<string> _processedEventIds = new();
     private readonly HashSet<string> _processedEventIdSet = [];
@@ -67,6 +71,11 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
         Trace = new ServiceChatTrace(this);
         _visionRegistry = new VisionProviderRegistry([_googleProvider, _anthropicProvider]);
         Vision = new VisionAnalysisService(_visionRegistry, _visionCache, Trace);
+
+        // Le healthcheck du manager tourne toutes les 30 s, mais l'état repose ici sur deux appels
+        // réseau réels (homeserver + API du modèle) : on espace les recalculs, comme le font
+        // WebshareProxyService et BedethequeSourceService.
+        StateRefreshDelay = TimeSpan.FromMinutes(5);
     }
 
     // ---------------------------------------------------------------- état public
@@ -147,7 +156,7 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
         return ok;
     }
 
-    /// <summary>Démarre le bot sans toucher à l'option <c>Enabled</c> (contrôle ponctuel depuis l'UI).</summary>
+    /// <summary>Démarre le bot sans toucher à l'option <c>StartAtStartup</c> (contrôle ponctuel depuis l'UI).</summary>
     public async Task StartAsync()
     {
         await _runtimeLock.WaitAsync();
@@ -163,7 +172,7 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
         }
     }
 
-    /// <summary>Arrête le bot sans toucher à l'option <c>Enabled</c>.</summary>
+    /// <summary>Arrête le bot sans toucher à l'option <c>StartAtStartup</c>.</summary>
     public async Task StopAsync()
     {
         await _runtimeLock.WaitAsync();
@@ -179,7 +188,7 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
 
     public ChatbotRuntimeStatus GetStatus() => new()
     {
-        Enabled = Options.Enabled,
+        StartAtStartup = Options.StartAtStartup,
         Running = IsRunning,
         ServiceName = GetServiceName(),
         BotUserId = BotUserId,
@@ -219,17 +228,17 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
             await StopCoreAsync();
             BuildRuntime();
 
-            if (Options.Enabled && Options.IsValid(out _))
+            if (Options.StartAtStartup && Options.IsValid(out _))
             {
                 await StartCoreAsync();
             }
-            else if (Options.Enabled)
+            else if (Options.StartAtStartup)
             {
                 SendTrace("Chatbot non démarré : la configuration est incomplète ou invalide.", ETraceLevel.WARNING);
             }
             else
             {
-                SendTrace("Chatbot désactivé (option Enabled à false).", ETraceLevel.INFO);
+                SendTrace("Chatbot en attente d'un démarrage manuel (StartAtStartup à false).", ETraceLevel.INFO);
             }
         }
         finally
@@ -631,17 +640,37 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
 
     // ---------------------------------------------------------------- santé
 
+    /// <summary>
+    /// Santé du module = accessibilité de ses <b>dépendances</b> (homeserver Matrix et modèle
+    /// vision), et non état de marche du bot.
+    /// </summary>
+    /// <remarks>
+    /// Un bot volontairement arrêté dont les deux dépendances répondent est <c>OK</c> : l'état
+    /// répond à « la configuration est-elle exploitable ? », pas à « le bot tourne-t-il ? » — cette
+    /// dernière question est celle du badge Démarré/Arrêté de la page dédiée. Les deux appels sont
+    /// menés en parallèle et bornés par <see cref="DependencyCheckTimeout"/> ; leur fréquence est
+    /// limitée par <c>StateRefreshDelay</c>, le healthcheck du manager tournant toutes les 30 s.
+    /// </remarks>
     protected override async Task<EState> CheckInternalState()
     {
-        if (!Options.Enabled) return EState.OK;
-        if (!IsRunning) return EState.ERROR;
-        if (BotUserId is null) return EState.WARNING;
+        using var cts = new CancellationTokenSource(DependencyCheckTimeout);
 
-        // Un long-poll figé bien au-delà de sa durée nominale signale une connexion morte.
-        var staleAfter = TimeSpan.FromSeconds(Math.Max(1, Options.SyncTimeoutSeconds) * 3);
-        if (LastSyncUtc is { } lastSync && DateTime.UtcNow - lastSync > staleAfter) return EState.WARNING;
+        var matrixCheck = CheckMatrixAsync(cts.Token);
+        var visionCheck = Vision.CheckAvailabilityAsync(Options.VisionProvider, cts.Token);
+        await Task.WhenAll(matrixCheck, visionCheck);
 
-        if (!_visionRegistry.HasConfiguredProvider) return EState.WARNING;
+        var matrix = await matrixCheck;
+        var vision = await visionCheck;
+
+        var failures = new List<string>();
+        if (!matrix.Ok) failures.Add(matrix.Error!);
+        if (!vision.Ok) failures.Add(vision.Error!);
+
+        if (failures.Count > 0)
+        {
+            SendTrace($"Dépendances indisponibles — {string.Join(" / ", failures)}", ETraceLevel.ERROR);
+            return EState.ERROR;
+        }
 
         var (derived, info) = await CheckDerivedStateAsync();
         if (info is not null)
@@ -650,6 +679,40 @@ public abstract class BaseChatbotService<TOptions> : BaseService<TOptions>, IDis
         }
 
         return derived;
+    }
+
+    /// <summary>
+    /// Valide le homeserver et le token via /whoami. Le client Matrix n'existe que si l'URL du
+    /// homeserver est exploitable, d'où le premier test.
+    /// </summary>
+    private async Task<DependencyCheck> CheckMatrixAsync(CancellationToken ct)
+    {
+        if (_matrix is null)
+        {
+            return DependencyCheck.Failed("Matrix : homeserver non configuré.");
+        }
+
+        try
+        {
+            var userId = await _matrix.WhoAmIAsync(ct);
+            BotUserId = userId;
+            return DependencyCheck.Success;
+        }
+        catch (MatrixApiException ex)
+        {
+            var reason = ex.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                ? "token d'accès refusé"
+                : ex.Message;
+            return DependencyCheck.Failed($"Matrix injoignable ({reason}).");
+        }
+        catch (HttpRequestException ex)
+        {
+            return DependencyCheck.Failed($"Matrix injoignable : {ex.Message}");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return DependencyCheck.Failed("Matrix injoignable : délai dépassé.");
+        }
     }
 
     // ---------------------------------------------------------------- libération

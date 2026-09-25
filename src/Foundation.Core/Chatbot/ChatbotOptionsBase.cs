@@ -18,8 +18,12 @@ public abstract class ChatbotOptionsBase : IOptionList
     public const string ProviderGoogle = "Google";
     public const string ProviderAnthropic = "Anthropic";
 
-    /// <summary>Active le bot. À false, aucune connexion n'est ouverte vers le homeserver.</summary>
-    public bool Enabled { get; set; } = false;
+    /// <summary>
+    /// Démarre le bot automatiquement au lancement de l'application. À false, le module reste
+    /// configuré (et son état continue de refléter la santé de ses dépendances), mais aucune
+    /// connexion n'est ouverte tant que le démarrage n'est pas demandé depuis la page du module.
+    /// </summary>
+    public bool StartAtStartup { get; set; } = false;
 
     /// <summary>URL du homeserver Matrix, par exemple https://matrix.exemple.org.</summary>
     public string HomeServerUrl { get; set; } = string.Empty;
@@ -58,17 +62,13 @@ public abstract class ChatbotOptionsBase : IOptionList
     public string SelectedVisionApiKey => VisionProvider == ProviderAnthropic ? AnthropicApiKey : GoogleApiKey;
 
     /// <summary>
-    /// Un module désactivé est toujours valide : une configuration incomplète sur un bot
-    /// volontairement éteint est inerte et ne doit pas afficher un badge INVALID permanent.
+    /// La validation ne dépend <b>pas</b> de <see cref="StartAtStartup"/> : l'état du module répond à
+    /// « la configuration est-elle exploitable ? », pas à « le bot tourne-t-il ? ». Un module non
+    /// configuré est donc INVALID même désactivé, comme tout autre module d'Inkhound.
     /// </summary>
     public virtual bool IsValid(out List<string> errors)
     {
         errors = [];
-
-        if (!Enabled)
-        {
-            return true;
-        }
 
         if (string.IsNullOrWhiteSpace(HomeServerUrl) ||
             !Uri.TryCreate(HomeServerUrl, UriKind.Absolute, out var uri) ||
@@ -99,7 +99,7 @@ public abstract class ChatbotOptionsBase : IOptionList
 
     public virtual List<OptionDefinition> GetOptions() =>
     [
-        new() { Name = nameof(Enabled), Section = SectionGeneral, SortOrder = 0, Value = Enabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Start the Matrix bot and listen to the configured room.", Mandatory = false },
+        new() { Name = nameof(StartAtStartup), Section = SectionGeneral, SortOrder = 0, Value = StartAtStartup.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Start the Matrix bot automatically when the application starts. The bot can also be started and stopped manually from the Chatbot page.", Mandatory = false },
 
         new() { Name = nameof(HomeServerUrl), Section = SectionMatrix, SortOrder = 10, Value = HomeServerUrl, ValueType = EValueType.STRING, DefaultValue = "", Description = "Matrix homeserver URL, e.g. https://matrix.example.org.", Mandatory = false },
         new() { Name = nameof(AccessToken), Section = SectionMatrix, SortOrder = 20, Value = AccessToken, ValueType = EValueType.PASSWORD, DefaultValue = "", Description = "Access token of the bot account.", Mandatory = false },
@@ -127,7 +127,7 @@ public abstract class ChatbotOptionsBase : IOptionList
         {
             switch (option.Name)
             {
-                case nameof(Enabled): Enabled = option.GetBool(); break;
+                case nameof(StartAtStartup): StartAtStartup = option.GetBool(); break;
                 case nameof(HomeServerUrl): HomeServerUrl = option.Value; break;
                 case nameof(AccessToken): AccessToken = option.Value; break;
                 case nameof(RoomId): RoomId = option.Value; break;

@@ -7,7 +7,10 @@
     <strong>
       Chatbot
       @if (serviceState(); as state) {
-        <c-badge [color]="stateColor()" class="ms-2">{{ state }}</c-badge>
+        <!-- Ce badge reflète la santé des dépendances (Matrix + modèle vision), pas le fait que
+             le bot tourne — cette information-là est la ligne « Exécution » ci-dessous. -->
+        <c-badge [color]="stateColor()" class="ms-2"
+                 title="Accessibilité du homeserver Matrix et du modèle vision">{{ state }}</c-badge>
       }
     </strong>
     <div class="d-flex gap-2">
@@ -31,8 +34,8 @@
         <c-col md="6" xl="4">
           <h6 class="text-medium-emphasis text-uppercase small">Connexion</h6>
           <ul class="list-unstyled mb-0 small">
-            <li>État : <c-badge [color]="runningColor()">{{ runningLabel() }}</c-badge></li>
-            <li>Module activé : {{ s.enabled ? 'oui' : 'non' }}</li>
+            <li>Exécution : <c-badge [color]="runningColor()">{{ runningLabel() }}</c-badge></li>
+            <li>Démarrage automatique : {{ s.startAtStartup ? 'oui' : 'non' }}</li>
             <li>Identité du bot : {{ s.botUserId ?? '—' }}</li>
             <li>Homeserver : {{ s.homeServerUrl ?? '—' }}</li>
             <li>Room : {{ s.roomId ?? '—' }}</li>
@@ -84,8 +87,8 @@
         </button>
       </div>
       <p class="text-medium-emphasis small mt-2 mb-0">
-        Démarrer et arrêter ici ne modifie pas l'option « Enabled » : une sauvegarde des options du
-        module réappliquera la valeur enregistrée.
+        Démarrer et arrêter ici agit immédiatement et ne modifie pas l'option
+        « Start at startup », qui ne pilote que le lancement automatique de l'application.
       </p>
     }
   </c-card-body>

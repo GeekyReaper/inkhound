@@ -23,7 +23,7 @@ export interface VisionUsageSnapshot {
  * repartent de zéro à chaque redémarrage, rien n'est persisté.
  */
 export interface ChatbotStatus {
-  enabled: boolean;              // valeur de l'option, indépendante de l'exécution réelle
+  startAtStartup: boolean;       // option : démarrage automatique au lancement de l'application
   running: boolean;              // la boucle de synchronisation Matrix tourne
   serviceName: string;
   botUserId: string | null;      // renseigné après /whoami
@@ -50,8 +50,8 @@ export class ChatbotService {
     return this.http.get<ChatbotStatus>('/api/chatbot/status');
   }
 
-  // Démarrage/arrêt ponctuels : ne modifient pas l'option Enabled, qu'une sauvegarde des options
-  // du module réappliquera.
+  // Démarrage/arrêt ponctuels : ne modifient pas l'option StartAtStartup, qui ne pilote que le
+  // lancement automatique de l'application.
   start() {
     return this.http.post<ChatbotStatus>('/api/chatbot/start', {});
   }

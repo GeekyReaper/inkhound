@@ -31,7 +31,7 @@ Inkhound.sln
 | Auth | JWT (clé auto-générée, PBKDF2) |
 | Base de données | SQLite (EF Core via DbStorageContext) |
 | Métadonnées BD | ComicVine API |
-| Chatbot | Matrix/Synapse (client HTTP maison) — module activable |
+| Chatbot | Matrix/Synapse (client HTTP maison) — démarrage auto ou manuel |
 | Analyse d'image | LLM cloud Anthropic / Google (client HTTP maison, clés en options) |
 | Lecture | Kavita (instance locale) |
 | Déploiement | Docker single-unit |

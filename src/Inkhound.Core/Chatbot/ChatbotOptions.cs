@@ -27,13 +27,7 @@ public class ChatbotOptions : ChatbotOptionsBase
 
     public override bool IsValid(out List<string> errors)
     {
-        var valid = base.IsValid(out errors);
-
-        // Comme pour le socle : un module désactivé n'est jamais invalide.
-        if (!Enabled)
-        {
-            return valid;
-        }
+        base.IsValid(out errors);
 
         if (SearchPageSize < 1)
             errors.Add($"{nameof(SearchPageSize)} must be at least 1.");
