@@ -732,13 +732,15 @@ Dépendances npm : `cronstrue`, `cron-parser`.
 `app-file-issue-matcher` (`views/file-issue-matcher/`) — tableau générique d'appariement
 **fichiers ↔ issues d'un volume** : auto-appariement par numéro détecté (issues `MISSING` de
 catégorie `Standard` uniquement — les hors-séries/omnibus ne s'assignent qu'à la main),
-`<select>` manuel par ligne (toutes les issues, `DOWNLOADING` désactivées, une issue prise ailleurs
-disparaît des autres listes), coché ⟺ une issue est assignée.
+`<select>` manuel par ligne (toutes les issues, `DOWNLOADING` désactivées sauf
+`allowDownloadingIssues`, une issue prise ailleurs disparaît des autres listes), coché ⟺ une issue
+est assignée.
 
 ```typescript
 // Inputs
 files  = input.required<MatchableFile[]>();  // { name; size; detectedIssueNumber: number | null }
 issues = input.required<Issue[]>();
+allowDownloadingIssues = input(false);   // true → une issue DOWNLOADING peut être assignée à la main
 // Sélection courante — lue par le parent via viewChild(FileIssueMatcherComponent).selection()
 selection = computed<{ fileIndex: number; issueId: string }[]>();  // fileIndex = position dans files()
 ```
@@ -746,7 +748,11 @@ selection = computed<{ fileIndex: number; issueId: string }[]>();  // fileIndex 
 Purement présentationnel (aucun appel réseau). Utilisé par :
 - `ProwlarrSearchComponent` — revue des fichiers d'un PACK torrent avant `apply-selection`.
 - `VolumeComponent` — revue de l'import d'un dossier (`GET .../import/scan` → matcher →
-  `POST .../import { fileIssueMap }`).
+  `POST .../import { fileIssueMap }`). Seul consommateur à passer `allowDownloadingIssues`
+  (`true`) : importer un fichier local sur une issue en cours de téléchargement est légitime, le
+  backend abandonne alors le suivi du download (sans toucher au torrent ni créer de ban). Côté
+  Prowlarr l'option reste à `false` — relancer un grab sur une issue déjà `DOWNLOADING` n'a pas de
+  sens.
 
 ## Pattern SCSS réutilisable : tableau responsive `.table-stack`
 

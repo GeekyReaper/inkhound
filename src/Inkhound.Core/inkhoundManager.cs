@@ -3019,6 +3019,10 @@ public partial class InkhoundManager : BaseServiceManager
     {
         JobSendTrace($"[Import] {sourceFile.Name} → issue #{issue.IssueNumber}");
 
+        // L'issue peut être en cours de téléchargement : l'import la satisfait, le suivi du download
+        // n'a plus lieu d'être (voir la purge après conversion réussie, plus bas).
+        var wasDownloading = issue.Status == IssueStatus.DOWNLOADING;
+
         var archive = await ImportArchiveAsync(new ArchiveConverterPdfJobParameters
         {
             SourceFile = sourceFile.FullName,
@@ -3043,6 +3047,20 @@ public partial class InkhoundManager : BaseServiceManager
         issue.FileSizeBytes = (int)archive.Length;
         issue.Status = IssueStatus.DOWNLOADED;
         issue.DownloadedAt = DateTime.UtcNow;
+
+        // Issue servie par un import alors qu'un téléchargement était en cours → on abandonne le suivi
+        // de CE couple (issue, download) uniquement : le torrent reste dans qBittorrent avec ses
+        // fichiers, les lignes jumelles des autres issues du même torrent (PACK) sont conservées et
+        // aucun ban n'est créé (le torrent n'a pas démérité, on n'en a simplement plus besoin ici).
+        if (wasDownloading)
+        {
+            var tracked = await ctx.IssueDownloads.Where(d => d.IssueId == issue.Id).ToListAsync();
+            if (tracked.Count > 0)
+            {
+                ctx.IssueDownloads.RemoveRange(tracked);
+                JobSendTrace($"[Import] Issue #{issue.IssueNumber} was downloading — {tracked.Count} download tracking row(s) dropped (torrent and files kept)");
+            }
+        }
         // Persiste d'abord le statut de l'issue : le recalcul du compteur ci-dessous requête la base
         // et ne verrait pas cette issue si elle n'était pas encore sauvegardée.
         await ctx.SaveChangesAsync();

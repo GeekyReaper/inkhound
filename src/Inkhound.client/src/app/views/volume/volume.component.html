@@ -469,7 +469,7 @@
     } @else if (importScanFiles().length === 0) {
       <p class="text-body-secondary mb-0 small">No .cbz / .cbr / .pdf file found in this directory.</p>
     } @else {
-      <app-file-issue-matcher [files]="importScanFiles()" [issues]="issues()" />
+      <app-file-issue-matcher [files]="importScanFiles()" [issues]="issues()" [allowDownloadingIssues]="true" />
     }
   </c-modal-body>
   <c-modal-footer>

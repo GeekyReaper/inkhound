@@ -19,8 +19,8 @@ export interface FileIssueAssignment {
 /**
  * Tableau générique d'appariement fichiers ↔ issues d'un volume.
  * - auto-appariement par numéro de tome détecté (issues MISSING uniquement)
- * - `<select>` manuel par ligne (toutes les issues, DOWNLOADING désactivées, une issue prise
- *   ailleurs disparaît des autres listes)
+ * - `<select>` manuel par ligne (toutes les issues, DOWNLOADING désactivées sauf si
+ *   `allowDownloadingIssues`, une issue prise ailleurs disparaît des autres listes)
  * - « coché » ⟺ « une issue lui est assignée »
  * Le parent lit la sélection courante via `viewChild(FileIssueMatcherComponent).selection()`.
  */
@@ -35,6 +35,12 @@ export interface FileIssueAssignment {
 export class FileIssueMatcherComponent {
   files  = input.required<MatchableFile[]>();
   issues = input.required<Issue[]>();
+
+  // Autorise l'assignation manuelle d'une issue déjà DOWNLOADING. Faux par défaut (grab Prowlarr :
+  // relancer un téléchargement sur une issue déjà en cours n'a pas de sens) ; vrai pour l'import de
+  // fichiers locaux, où le fichier importé remplace le téléchargement en cours (le backend abandonne
+  // alors le suivi du download, sans toucher au torrent).
+  allowDownloadingIssues = input(false);
 
   // fileIndex (position dans files()) -> issueId
   private readonly fileAssignments = signal<Map<number, string>>(new Map());
@@ -131,7 +137,7 @@ export class FileIssueMatcherComponent {
   }
 
   isIssueSelectable(issue: Issue): boolean {
-    return issue.status !== 'DOWNLOADING';
+    return this.allowDownloadingIssues() || issue.status !== 'DOWNLOADING';
   }
 
   currentAssignment(index: number): string {

@@ -524,6 +524,13 @@ Le cœur « fichier → CBZ normalisé → dossier du volume → issue DOWNLOADE
 dans `ImportArchiveFileForIssueAsync(...)` (privé), partagé par `RunImportDirectoryJobAsync` et
 `RunImportIssueFileJobAsync` ; il s'appuie sur `ImportArchiveAsync` (pipeline pur, sans job).
 
+**Import sur une issue `DOWNLOADING`** : `ImportArchiveFileForIssueAsync` mémorise le statut avant
+bascule et, si l'issue était en cours de téléchargement, supprime **ses seules** lignes
+`IssueDownload` après la conversion réussie (le fichier importé rend le suivi caduc). Contrairement
+à `DeleteDownloadAsync` : qBittorrent n'est pas touché (torrent et fichiers conservés), les lignes
+jumelles des autres issues du même torrent (PACK) restent, et **aucun ban n'est créé** — le torrent
+n'a pas démérité, il n'est simplement plus nécessaire pour cette issue.
+
 Les paramètres sont des classes dédiées dans `Models/`, implémentant `IJobParameters` (Foundation.Core) avec une méthode `IsValid()`.
 
 Certaines méthodes `LaunchJobXxx` retournent le `JobContext` (setup synchrone + `_ = RunXxxJobAsync(job, …)`
