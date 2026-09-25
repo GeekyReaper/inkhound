@@ -1,4 +1,4 @@
-using Inkhound.Core.QBittorrent;
+﻿using Inkhound.Core.QBittorrent;
 
 namespace Inkhound.Web.Controllers.Dtos;
 
@@ -21,6 +21,7 @@ public record DownloadItemDto(
     int? IssueNumber,
     string? IssueTitle,
     string? VolumeTitle,
+    string? CoverUrl,
     double? Progress,
     long? Dlspeed,
     long? Eta,
@@ -47,9 +48,16 @@ public record DownloadItemDto(
         d.Issue?.IssueNumber,
         d.Issue?.Title,
         d.Volume?.Title,
+        CoverOf(d),
         d.Torrent?.Progress,
         d.Torrent?.Dlspeed,
         d.Torrent?.Eta,
         d.Torrent?.Size,
         d.SharedWith);
+
+    // Vignette de l'issue, à défaut celle du volume — les cartes du Dashboard affichent la
+    // couverture plutôt qu'une simple ligne de texte. Null si aucune des deux n'en a.
+    private static string? CoverOf(DownloadItemData d)
+        => d.Issue?.Image?.SmallUrl ?? d.Issue?.Image?.ThumbUrl
+           ?? d.Volume?.Image?.SmallUrl ?? d.Volume?.Image?.ThumbUrl;
 }

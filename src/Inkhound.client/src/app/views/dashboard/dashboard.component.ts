@@ -25,7 +25,8 @@ import { DashboardService, DashboardStats, DashboardMostWantedIssue, DashboardLi
 import { HubService } from '../../core/services/hub.service';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 import { VolumeStatus } from '../../core/services/volume.service';
-import { downloadStatusColor, formatSize } from '../../core/util/download-format';
+import { formatSize } from '../../core/util/download-format';
+import { DownloadCardComponent } from '../download-card/download-card.component';
 
 @Component({
   selector: 'app-dashboard',
@@ -35,7 +36,8 @@ import { downloadStatusColor, formatSize } from '../../core/util/download-format
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     ProgressComponent, ProgressBarComponent, ProgressStackedComponent, TooltipDirective,
-    WidgetStatCComponent, TemplateIdDirective, IconDirective, DatePipe, RouterLink
+    WidgetStatCComponent, TemplateIdDirective, IconDirective, DatePipe, RouterLink,
+    DownloadCardComponent
   ]
 })
 export class DashboardComponent {
@@ -44,8 +46,10 @@ export class DashboardComponent {
   private hub               = inject(HubService);
   readonly #destroyRef      = inject(DestroyRef);
 
+  // 'Stalled' est volontairement exclu : ces téléchargements ont leur propre section d'alerte
+  // juste au-dessus, les lister deux fois en cartes ferait doublon à l'écran.
   private readonly ACTIVE_DOWNLOAD_STATUSES: DownloadStatus[] =
-    ['Downloading', 'Stalled', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
+    ['Downloading', 'Paused', 'Finished', 'Syncing', 'Error', 'Unknown'];
 
   loading = signal(true);
   error   = signal<string | null>(null);
@@ -146,14 +150,7 @@ export class DashboardComponent {
     return 'primary';
   }
 
-  // Helpers partagés avec la page Downloads (core/util/download-format.ts).
-  readonly downloadStatusBadgeColor = downloadStatusColor;
+  // Helper partagé avec la page Downloads (core/util/download-format.ts). Le statut, le lien vers
+  // l'issue et la couleur du badge d'un téléchargement vivent dans app-download-card.
   readonly formatSize = formatSize;
-
-  // Lien vers la page de l'issue bloquée — null si le volume/la library parents ne sont pas connus
-  // (entité supprimée entre-temps) : la ligne reste affichée, simplement non cliquable.
-  stalledLink(item: DownloadItem): unknown[] | null {
-    if (!item.volumeId || !item.libraryId) return null;
-    return ['/library', item.libraryId, 'volume', item.volumeId, 'issue', item.issueId];
-  }
 }

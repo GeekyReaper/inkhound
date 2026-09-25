@@ -25,6 +25,8 @@ export interface DownloadItem {
   issueNumber: number | null;
   issueTitle: string | null;
   volumeTitle: string | null;
+  // Vignette de l'issue (à défaut celle du volume) — cartes du Dashboard.
+  coverUrl: string | null;
   progress: number | null;
   dlspeed: number | null;
   eta: number | null;
@@ -148,9 +150,6 @@ export class QBittorrentService {
     return this.http.put<DownloadItem>(`/api/qbittorrent/downloads/${id}/hash`, { hash });
   }
 
-  // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent. Si le torrent est
-  // partagé (PACK), tous les downloads jumeaux sont supprimés aussi (deletedCount les compte).
-  // torrentRemoved = le torrent a effectivement été retiré de QBittorrent.
   // Téléchargements de toutes les issues d'un volume — un seul appel pour la liste des issues
   // (badges DOWNLOADING / bloqué), jamais un par carte.
   getVolumeDownloads(volumeId: string) {
@@ -165,6 +164,9 @@ export class QBittorrentService {
     });
   }
 
+  // removeTorrent : supprime aussi le torrent + ses fichiers de QBittorrent. Si le torrent est
+  // partagé (PACK), tous les downloads jumeaux sont supprimés aussi (deletedCount les compte).
+  // torrentRemoved = le torrent a effectivement été retiré de QBittorrent.
   // ban : mémorise le couple (issue, torrent) pour que les recherches Prowlarr suivantes le scorent 0
   // (banCount = bans réellement créés, doublons exclus) — levable depuis la page de l'issue.
   deleteDownload(id: string, removeTorrent: boolean, ban = true) {

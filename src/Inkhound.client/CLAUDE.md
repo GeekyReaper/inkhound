@@ -185,11 +185,14 @@ src/
 │   │                            # OptionsService, SchedulerService, BedethequeCatalogService,
 │   │                            # FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
+│   │   ├── download-card/       # DownloadCardComponent — vignette d'un download (cover + badge statut)
 │   │   ├── download-list/       # DownloadListComponent — tableau + actions + modales d'un download,
 │   │   │                        #   partagé par la page Downloads et la page Issue (voir plus bas)
 │   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,
 │   │   │                        #   Stalled downloads — section d'alerte rouge listant les downloads
-│   │   │                        #   sans seeder, masquée si vide, lien vers la page de l'issue —
+│   │   │                        #   sans seeder, masquée si vide ; les deux sections downloads
+│   │   │                        #   s'affichent en grilles d'app-download-card (les Stalled sont
+│   │   │                        #   exclus de « Downloads in progress » pour éviter le doublon) —
 │   │   │                        #   Active jobs, Downloads — section « Most wanted » : cartes des issues
 │   │   │                        #   MISSING proches de compléter leur volume, clic → page détail issue)
 │   │   ├── library/             # LibraryShellComponent, LibraryComponent (liste volumes paginée +
@@ -619,6 +622,21 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
 
 `mode="file"` (émet le chemin complet du fichier sur *confirm*, `''` sur *cancel*) — utilisé par la
 page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`).
+
+## Composant réutilisable : DownloadCardComponent
+
+`app-download-card` (`views/download-card/`) — vignette d'un téléchargement : couverture de l'issue
+(`DownloadItem.coverUrl`, à défaut celle du volume), badge `#n` en haut-gauche, **badge de statut**
+en haut-droite (rouge pour `Stalled`, sinon `downloadStatusColor`), puis titre du volume et début du
+nom du torrent (tronqués, complets en infobulle). Cliquable vers la page de l'issue quand
+`volumeId`/`libraryId` sont connus.
+
+```html
+<c-col xs="6" sm="4" md="3" xl="2"><app-download-card [item]="item" /></c-col>
+```
+
+Utilisé par les deux sections du Dashboard (« Stalled downloads » et « Downloads in progress »),
+sur le même gabarit que les cartes « Most wanted » pour que la page se lise d'un coup d'œil.
 
 ## Composant réutilisable : DownloadListComponent
 

@@ -20,7 +20,8 @@ Inkhound.Web/
 │   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque)
 │   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
 │   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
-│   ├── Dtos/DownloadItemDto.cs   # DTO d'une ligne de download, partagé QBittorrent/Issue/Volume
+│   ├── Dtos/DownloadItemDto.cs   # DTO d'une ligne de download (dont CoverUrl : vignette de
+│   │                             #   l'issue, à défaut du volume), partagé QBittorrent/Issue/Volume
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
 ├── Auth/                         # JWT + schemes d'authentification (voir "Auth JWT" ci-dessous)
 ├── Hubs/AppHub.cs                # Hub SignalR — StateChanged, JobChanged, JobTrace

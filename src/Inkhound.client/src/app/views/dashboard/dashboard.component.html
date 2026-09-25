@@ -224,26 +224,13 @@
                 another torrent, or delete them.
               </p>
 
-              @for (item of stalledDownloads(); track item.id) {
-                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                  <div class="text-truncate me-2">
-                    @if (stalledLink(item); as link) {
-                      <a [routerLink]="link" class="text-decoration-none">
-                        {{ item.volumeTitle ?? item.torrentTitle }}
-                        @if (item.issueNumber !== null) {
-                          <span class="text-body-secondary small ms-1">#{{ item.issueNumber }}</span>
-                        }
-                      </a>
-                    } @else {
-                      <span>{{ item.volumeTitle ?? item.torrentTitle }}</span>
-                    }
-                    <div class="text-body-secondary text-truncate" style="font-size: 0.75rem;">
-                      {{ item.torrentTitle || item.torrentHash }}
-                    </div>
-                  </div>
-                  <c-badge color="danger">Stalled</c-badge>
-                </div>
-              }
+              <c-row class="g-3">
+                @for (item of stalledDownloads(); track item.id) {
+                  <c-col xs="6" sm="4" md="3" xl="2">
+                    <app-download-card [item]="item" />
+                  </c-col>
+                }
+              </c-row>
             </c-card-body>
           </c-card>
         </c-col>
@@ -273,17 +260,13 @@
             } @else if (recentDownloads().length === 0) {
               <p class="text-body-secondary mb-0">No download in progress.</p>
             } @else {
-              @for (item of recentDownloads(); track item.id) {
-                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
-                  <div class="text-truncate me-2">
-                    <span class="text-truncate">{{ item.volumeTitle ?? item.torrentTitle ?? '—' }}</span>
-                    @if (item.issueNumber !== null) {
-                      <span class="text-body-secondary small ms-1">#{{ item.issueNumber }}</span>
-                    }
-                  </div>
-                  <c-badge [color]="downloadStatusBadgeColor(item.status)">{{ item.status }}</c-badge>
-                </div>
-              }
+              <c-row class="g-3">
+                @for (item of recentDownloads(); track item.id) {
+                  <c-col xs="6" sm="4" md="3" xl="2">
+                    <app-download-card [item]="item" />
+                  </c-col>
+                }
+              </c-row>
             }
           </c-card-body>
         </c-card>

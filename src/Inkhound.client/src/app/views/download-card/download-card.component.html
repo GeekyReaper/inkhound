@@ -1,0 +1,29 @@
+<c-card class="h-100" [style.cursor]="link() ? 'pointer' : null" [routerLink]="link()">
+  <div class="position-relative rounded-top overflow-hidden" style="aspect-ratio: 2/3;">
+    @if (cover(); as imgUrl) {
+      <img [src]="imgUrl" [alt]="title()"
+           style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
+    } @else {
+      <div class="bg-body-secondary h-100 d-flex align-items-center justify-content-center">
+        <span class="text-body-tertiary">
+          @if (item().issueNumber !== null) { #{{ item().issueNumber }} } @else { ? }
+        </span>
+      </div>
+    }
+
+    @if (item().issueNumber !== null) {
+      <span class="position-absolute top-0 start-0 m-1 badge bg-dark bg-opacity-75"
+            style="font-size: 0.65rem;">#{{ item().issueNumber }}</span>
+    }
+    <c-badge [color]="badgeColor()" class="position-absolute top-0 end-0 m-1"
+             style="font-size: 0.65rem;">{{ item().status }}</c-badge>
+  </div>
+
+  <c-card-body class="p-2">
+    <div class="small fw-semibold lh-sm text-truncate" [title]="title()">{{ title() }}</div>
+    <div class="text-body-secondary text-truncate mt-1" style="font-size: 0.7rem;"
+         [title]="item().torrentTitle || item().torrentHash">
+      {{ item().torrentTitle || item().torrentHash }}
+    </div>
+  </c-card-body>
+</c-card>
