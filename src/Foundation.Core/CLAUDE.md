@@ -12,6 +12,7 @@ Tout ce qui est réutilisable indépendamment du domaine métier vit ici.
 - `Model/Context.cs` — `JobContext`, `Progression`, `ProgressionCallback`
 - `Model/Definition.cs` — `TraceDefinition`, `ETraceLevel`
 - `Model/State.cs` — modèle d'état générique (`StateService`, `StateServiceManager`, `EState`)
+- `Chatbot/` — socle générique de bot Matrix + analyse d'image par LLM (voir section dédiée)
 
 ---
 
@@ -135,9 +136,111 @@ Le service appelle `callback.UpdateTotal(n)` et `callback.Callback(progression)`
 
 ---
 
+---
+
+## Socle Chatbot (`Chatbot/`)
+
+Mécanique générique d'un bot **Matrix** exposé comme module (un `BaseService` de plus), portée
+depuis le projet `chatbot` et débarrassée de son conteneur d'injection de dépendances. Aucun type
+métier BD n'y entre : les commandes `!bd-scan` / `!bd-search` / `!ocr-bd` vivent dans
+`Inkhound.Core/Chatbot`.
+
+```
+Chatbot/
+├── BaseChatbotService.cs      # abstract : BaseService<TOptions> — cycle de vie + boucle /sync + dispatch
+├── ChatbotOptionsBase.cs      # options socle : Enabled, Matrix, Vision
+├── ChatbotContext.cs          # composition root passée aux commandes (remplace le conteneur DI)
+├── ChatbotRuntimeStatus.cs    # état d'exécution exposé à la couche Web
+├── IChatTrace.cs              # Debug/Info/Warn/Error — remplace ILogger<T>
+├── Matrix/                    # client HTTP de la Client-Server API (pas de SDK .NET mature)
+├── Features/                  # IChatFeature, CommandParser, FeatureCatalog, NumberedMenu,
+│   │                          #   RequestClosure, PendingDisambiguation(+Store), MessageFormatter
+│   └── Implementations/       # !ping, !echo, !help, !image-info + base d'analyse d'image
+└── Vision/                    # port réduit de DocuMind.Core : analyse d'image par LLM
+    └── Providers/             # Anthropic + Google (HttpClient + DTOs faits main, aucun SDK)
+```
+
+### Zéro `PackageReference` — c'est une contrainte, pas un hasard
+
+`Foundation.Core.csproj` ne référence **aucun** package NuGet et doit le rester. Le portage a donc
+écarté trois dépendances par construction :
+
+| Tentation | Remplacement |
+|---|---|
+| `Microsoft.Extensions.Caching.Memory` | `VisionAnalysisCache` réécrit sur `ConcurrentDictionary` (purge paresseuse + éviction du plus ancien) |
+| `Microsoft.Extensions.Logging.Abstractions` | `IChatTrace` → `BaseService.SendTrace` → SignalR |
+| `Microsoft.Extensions.Options` | POCO (`AnthropicVisionSettings`, `GoogleVisionSettings`) reconstruits depuis les options du module |
+
+De même, il n'y a **pas d'injection de dépendances** : les commandes sont construites explicitement
+par `CreateFeatures(ChatbotContext)`, méthode `virtual` que la classe dérivée surcharge — c'est LE
+point d'ancrage de la couche métier. `!help` est ajoutée **après** par le socle, puisqu'elle a
+besoin du catalogue complet dont elle fait elle-même partie.
+
+### Cycle de vie
+
+`LoadOptions` → `ApplyRuntimeAsync()` sous `SemaphoreSlim` : arrêt, reconstruction complète du
+runtime (HttpClients, client Matrix, providers vision, commandes, catalogue), puis redémarrage si
+`Enabled` **et** options valides. Le même chemin sert au boot (`AutomaticLoadServices`) et à la
+sauvegarde à chaud depuis la page Modules.
+
+La boucle `/sync` est un `Task.Run` + long-poll, **pas un `BackgroundService`** (la solution n'en
+contient aucun, cf. `MonitoringLoopAsync` et le scheduler). Points de vigilance :
+
+- **`ExecutionContext.SuppressFlow()`** autour du `Task.Run` : sans ça, un `LoadOptions` déclenché
+  depuis un job ferait hériter l'`AsyncLocal<JobContext>` à la boucle, et **toutes** les traces du
+  bot porteraient ce `JobId` à vie.
+- Les `HttpClient` ne sont libérés qu'**après** l'attente bornée de fin de boucle (`Task.WhenAny`
+  5 s) — jamais avant, la boucle pourrait encore s'en servir.
+- `StopCoreAsync` vide les menus en attente (`PendingDisambiguationStore.RemoveAll`) : leurs
+  closures capturent des services reconstruits au prochain chargement d'options.
+- `_since` est remis à `null` à l'arrêt : au redémarrage on repart du présent, sans rejouer
+  l'historique de la room.
+
+`CheckInternalState()` : `Enabled=false` → `OK` (un module éteint n'est pas une anomalie ; `EState`
+n'a pas de valeur `DISABLED`), devrait tourner mais ne tourne pas → `ERROR`, `/whoami` jamais abouti
+ou long-poll figé (> 3 × `SyncTimeoutSeconds`) ou aucun provider vision configuré → `WARNING`.
+
+### Contraintes du protocole
+
+- **Pas de chiffrement de bout en bout** : aucune bibliothèque Olm/Megolm mature en .NET. Les
+  `m.room.encrypted` sont comptés et ignorés avec un `WARNING`. **La room doit être non chiffrée**,
+  ce que la description de l'option `RoomId` signale — Element crée des rooms chiffrées par défaut.
+- **Jamais de `<table>`** dans le HTML des réponses : Element X iOS ne les rend pas du tout. Tout
+  passe par `<ul>` / `<ol>` (voir `NumberedMenu`).
+- Matrix n'a ni embeds ni réactions : les menus fonctionnent en « tapez un nombre », `a` pour
+  annuler. L'état conversationnel est porté par les **closures** de `PendingDisambiguation`, le
+  store ne connaît rien du métier.
+- `TryPeek` (et non `TryPop`) : une réponse hors bornes ne doit pas détruire le menu.
+
+### Vision (`Vision/`)
+
+Port réduit de `DocuMind.Core`. **Ce n'est pas un LLM local** : ce sont des appels HTTP vers
+Anthropic (`claude-sonnet-5`) et Google (`gemini-2.5-flash`), image en base64 inline, dont les clés
+API sont des options du module. Seul l'usage « analyser des octets déjà en mémoire avec un prompt »
+est conservé — les variantes URL/chemin de fichier et leur validation (anti-SSRF, path traversal,
+sniffing MIME) n'ont pas d'objet, l'image venant toujours de la media repository Matrix.
+
+> ⚠️ `VisionResult.Success` reflète le succès de l'appel HTTP, **pas** la présence de JSON :
+> `ExtractedJson` peut être `null` avec `Success == true` (le prompt est libre, rien n'impose un
+> format au modèle — `JsonExtractionHelper` fait une extraction best-effort en 3 passes).
+
+Les providers sont instanciés **une seule fois** et reconfigurés par `Reconfigure(http, settings)` :
+ils portent leur `UsageStatisticsTracker` en champ privé, qui doit survivre à chaque sauvegarde
+d'options — les reconstruire remettrait les compteurs d'usage à zéro.
+
+### Proxy
+
+Matrix et les API LLM sortent **en direct** (`useProxy: false` en dur) : le homeserver est
+généralement privé, un long-poll permanent brûlerait du quota pour rien, et une API publique
+authentifiée par clé ne gagne rien à passer par un proxy résidentiel. Seul le téléchargement des
+couvertures (couche métier) peut l'emprunter.
+
+---
+
 ## Règles strictes
 
 - **Zéro dépendance** vers `Inkhound.Core`, `Inkhound.Web` ou `Inkhound.client`
+- **Zéro `PackageReference`** dans `Foundation.Core.csproj` (voir section Chatbot)
 - Pas de référence à des entités métier (Volume, Issue, Library) — uniquement des abstractions
 - Pas de référence à des services externes (ComicVine, Kavita)
 - Tout type ajouté ici doit être générique et réutilisable hors contexte Inkhound

@@ -23,9 +23,26 @@ export class HubService {
   readonly jobs      = this._jobs.asReadonly();
   readonly jobTraces = this._jobTraces.asReadonly();
 
+  // Traces indexées par service, pour les modules qui tracent en continu hors de tout job (le
+  // Chatbot tourne en boucle permanente : ses traces n'ont pas de jobId et n'entreraient donc
+  // jamais dans _jobTraces). Historisées côté navigateur uniquement — rien n'est persisté serveur.
+  private static readonly SERVICE_TRACE_LIMIT = 500;
+  private static readonly SERVICE_TRACE_MAX_BYTES = 256_000;
+  private static readonly TRACKED_SERVICES = new Set(['Chatbot']);
+  private static readonly STORAGE_PREFIX = 'inkhound.serviceTraces.';
+  private static readonly PERSIST_DEBOUNCE_MS = 1000;
+
+  private readonly _serviceTraces = signal<Map<string, TraceDefinition[]>>(new Map());
+  readonly serviceTraces = this._serviceTraces.asReadonly();
+
+  private readonly persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   private connection: signalR.HubConnection | null = null;
 
   constructor() {
+    // Réhydratation hors de connect() : l'historique doit être lisible même déconnecté.
+    this.restoreServiceTraces();
+
     toObservable(this.auth.isAuthenticated).pipe(
       distinctUntilChanged()
     ).subscribe(authenticated => {
@@ -66,6 +83,11 @@ export class HubService {
           newMap.set(trace.jobId!, [...existing, trace].slice(-100));
           return newMap;
         });
+      }
+      // Volontairement pas dans un `else` : une trace d'un service suivi doit rejoindre sa console
+      // même si elle est par ailleurs rattachée à un job.
+      if (trace.serviceName && HubService.TRACKED_SERVICES.has(trace.serviceName)) {
+        this.appendServiceTrace(trace.serviceName, trace);
       }
     });
 
@@ -157,5 +179,86 @@ export class HubService {
     this.lastDataUpdated.set(null);
     this._jobs.set([]);
     this._jobTraces.set(new Map());
+    // Les traces de service ne sont PAS vidées : leur historique local survit à la déconnexion,
+    // c'est tout l'intérêt de la console du module. clearServiceTraces() est le seul effacement.
+  }
+
+  // ── Traces par service (historique local) ──────────────────────────────────
+
+  private appendServiceTrace(serviceName: string, trace: TraceDefinition): void {
+    this._serviceTraces.update(map => {
+      const newMap = new Map(map);
+      const existing = newMap.get(serviceName) ?? [];
+      newMap.set(serviceName, [...existing, trace].slice(-HubService.SERVICE_TRACE_LIMIT));
+      return newMap;
+    });
+    this.schedulePersist(serviceName);
+  }
+
+  /** Vide la console d'un service, en mémoire et dans le stockage local. */
+  clearServiceTraces(serviceName: string): void {
+    this._serviceTraces.update(map => {
+      const newMap = new Map(map);
+      newMap.delete(serviceName);
+      return newMap;
+    });
+
+    const timer = this.persistTimers.get(serviceName);
+    if (timer) { clearTimeout(timer); this.persistTimers.delete(serviceName); }
+
+    try {
+      localStorage.removeItem(HubService.STORAGE_PREFIX + serviceName);
+    } catch { /* stockage indisponible (navigation privée, site data bloqué) */ }
+  }
+
+  // Écriture débouncée : sérialiser 500 entrées à chaque message serait visible pendant une
+  // commande bavarde.
+  private schedulePersist(serviceName: string): void {
+    const existing = this.persistTimers.get(serviceName);
+    if (existing) clearTimeout(existing);
+
+    this.persistTimers.set(serviceName, setTimeout(() => {
+      this.persistTimers.delete(serviceName);
+      this.persistServiceTraces(serviceName);
+    }, HubService.PERSIST_DEBOUNCE_MS));
+  }
+
+  private persistServiceTraces(serviceName: string): void {
+    const key = HubService.STORAGE_PREFIX + serviceName;
+    let traces = this._serviceTraces().get(serviceName) ?? [];
+
+    try {
+      // Double borne : le nombre d'entrées ne dit rien de leur poids (une trace peut porter
+      // plusieurs lignes de message). On retire par moitié jusqu'à tenir sous la limite d'octets.
+      let payload = JSON.stringify(traces);
+      while (payload.length > HubService.SERVICE_TRACE_MAX_BYTES && traces.length > 1) {
+        traces = traces.slice(Math.ceil(traces.length / 2));
+        payload = JSON.stringify(traces);
+      }
+      localStorage.setItem(key, payload);
+    } catch (err) {
+      // Quota dépassé ou stockage inaccessible : on purge et on continue — jamais d'erreur vers l'UI.
+      console.warn('[Hub] Service trace persistence failed, clearing stored history', err);
+      try { localStorage.removeItem(key); } catch { /* rien de plus à tenter */ }
+    }
+  }
+
+  private restoreServiceTraces(): void {
+    const restored = new Map<string, TraceDefinition[]>();
+
+    HubService.TRACKED_SERVICES.forEach(serviceName => {
+      try {
+        const raw = localStorage.getItem(HubService.STORAGE_PREFIX + serviceName);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          restored.set(serviceName, parsed.slice(-HubService.SERVICE_TRACE_LIMIT));
+        }
+      } catch (err) {
+        console.warn('[Hub] Could not restore service traces for', serviceName, err);
+      }
+    });
+
+    if (restored.size > 0) this._serviceTraces.set(restored);
   }
 }

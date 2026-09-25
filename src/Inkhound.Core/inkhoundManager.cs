@@ -1,5 +1,6 @@
 using Inkhound.Core.ApiTokens;
 using Inkhound.Core.Bedetheque;
+using Inkhound.Core.Chatbot;
 using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
@@ -113,6 +114,11 @@ public partial class InkhoundManager : BaseServiceManager
         GetService<QBittorrentService, QBittorrentOptions>();
         GetService<ApiTokenService, ApiTokenOptions>();
         GetService<SchedulerService, SchedulerOptions>();
+
+        // La passerelle doit être attachée AVANT la boucle de chargement des options ci-dessous :
+        // c'est ce LoadOptions qui construit les commandes du bot et démarre la boucle Matrix si le
+        // module est activé, et elles ont besoin d'un accès au domaine.
+        GetService<ChatbotService, ChatbotOptions>().Attach(new InkhoundChatbotGateway(this));
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };

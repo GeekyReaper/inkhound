@@ -35,5 +35,10 @@ export const routes: Routes = [
     path: 'bedetheque',
     loadComponent: () => import('./bedetheque-catalog.component').then(m => m.BedethequeCatalogComponent),
     data: { title: 'Bedetheque catalog' }
+  },
+  {
+    path: 'chatbot',
+    loadComponent: () => import('./chatbot.component').then(m => m.ChatbotSettingsComponent),
+    data: { title: 'Chatbot' }
   }
 ];

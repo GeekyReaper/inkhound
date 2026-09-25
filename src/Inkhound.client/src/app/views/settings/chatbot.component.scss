@@ -1,0 +1,4 @@
+// Les listes de la fiche d'état restent lisibles sans puces ni marges héritées.
+ul.list-unstyled li + li {
+  margin-top: 0.15rem;
+}

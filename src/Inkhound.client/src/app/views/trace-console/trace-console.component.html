@@ -1,0 +1,16 @@
+@if (traces().length === 0) {
+  <p class="text-muted mb-0">{{ emptyText() }}</p>
+} @else {
+  <div class="job-console" #consoleEl [style.height]="height()">
+    @for (trace of traces(); track $index) {
+      <div [class]="'trace-line ' + traceLevelClass(trace.level)">
+        <span class="trace-ts">{{ trace.date | date:'HH:mm:ss' }}</span>
+        <span class="trace-level">[{{ trace.level }}]</span>
+        <span class="trace-svc">{{ trace.serviceName }}</span>
+        @for (msg of trace.message; track $index) {
+          <span class="trace-msg">{{ msg }}</span>
+        }
+      </div>
+    }
+  </div>
+}

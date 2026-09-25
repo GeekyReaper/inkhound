@@ -8,8 +8,9 @@ Automatise le cycle complet : déclaration d'intention → acquisition → norma
 ```
 Inkhound.sln
 └── src/
-    ├── Foundation.Core      # Abstractions génériques réutilisables (BaseService, RateLimiter, modèles d'état)
-    ├── Inkhound.Core        # Domaine métier : ComicVine, Kavita, BlobStorage, ArchiveGenerator, modèles
+    ├── Foundation.Core      # Abstractions génériques réutilisables (BaseService, RateLimiter, modèles d'état,
+    │                        #   socle Chatbot : bot Matrix + analyse d'image par LLM) — zéro PackageReference
+    ├── Inkhound.Core        # Domaine métier : ComicVine, Kavita, BlobStorage, ArchiveGenerator, Chatbot, modèles
     ├── Inkhound.Web         # ASP.NET Core MVC + SignalR — API REST + Hub + Auth JWT + SPA host
     ├── Inkhound.client      # Angular SPA — frontend (CoreUI)
     └── Inkhound.Console     # Console runner (jobs manuels / debug)
@@ -30,6 +31,8 @@ Inkhound.sln
 | Auth | JWT (clé auto-générée, PBKDF2) |
 | Base de données | SQLite (EF Core via DbStorageContext) |
 | Métadonnées BD | ComicVine API |
+| Chatbot | Matrix/Synapse (client HTTP maison) — module activable |
+| Analyse d'image | LLM cloud Anthropic / Google (client HTTP maison, clés en options) |
 | Lecture | Kavita (instance locale) |
 | Déploiement | Docker single-unit |
 

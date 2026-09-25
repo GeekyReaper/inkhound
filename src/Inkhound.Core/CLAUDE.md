@@ -51,6 +51,13 @@ Inkhound.Core/
 ├── ComicArchiveGenerator/  # Génération CBZ + injection ComicInfo.xml
 │   ├── ArchiveService.cs
 │   └── ArchiveOption.cs
+├── Chatbot/             # Module Chatbot — commandes BD du bot Matrix (voir section dédiée)
+│   ├── ChatbotService.cs            # : BaseChatbotService<ChatbotOptions> (Foundation.Core)
+│   ├── ChatbotOptions.cs            # socle d'options + réglages BD
+│   ├── IInkhoundChatbotGateway.cs / InkhoundChatbotGateway.cs  # appels in-process au manager
+│   ├── ChatbotGatewayException.cs
+│   ├── Services/        # BdSeriesLookupService, BdLookupOutcome, InkhoundLibraryService
+│   └── Features/        # !bd-scan, !bd-search, !ocr-bd + flows de présentation et d'ajout
 ├── Blob/                # Gestion fichiers binaires (non utilisé)
 │   └── BlobService.cs
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
@@ -709,6 +716,61 @@ déclenchement) est **en mémoire** — repart à vide après redémarrage.
 `GetSchedulerStatus()` → `SchedulerStatus` (enabled / cron / lastRunUtc / nextRunUtc / running par
 tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
 « Run now »), `ArgumentException` si clé inconnue. Exposés par `SchedulerController` (`Inkhound.Web`).
+
+---
+
+## Module Chatbot (`Chatbot/`)
+
+Bot **Matrix** (pas Discord) exposant `!bd-scan`, `!bd-search` et `!ocr-bd`, porté depuis le projet
+`chatbot`. Toute la mécanique de chat et l'analyse d'image vivent dans `Foundation.Core/Chatbot`
+(voir son CLAUDE.md) ; ici ne restent que les commandes métier.
+
+### Enregistrement — l'ordre est critique
+
+```csharp
+// inkhoundManager.cs, dans AutomaticLoadServices(), AVANT la boucle de chargement des options
+GetService<ChatbotService, ChatbotOptions>().Attach(new InkhoundChatbotGateway(this));
+```
+
+`BaseServiceManager.GetService<T,K>()` contraint `T : ..., new()` : impossible d'injecter le manager
+par constructeur, d'où `Attach`. Et c'est la boucle `LoadOptions` qui construit les commandes puis
+démarre la boucle Matrix — attacher après laisserait le bot démarrer sans accès au domaine.
+
+### `IInkhoundChatbotGateway` — la frontière métier
+
+Remplace l'`IInkhoundClient` HTTP du bot d'origine : plus d'appel REST, plus de header `X-Api-Key`,
+et surtout plus de **polling du job de recherche** (`POST /api/volumes/search` puis attente jusqu'à
+60 s) — `SearchVolumesAsync(name, page, pageSize, job: null, ct)` accepte un `job` optionnel et
+fonctionne en agrégateur silencieux. Les DTO du bot ont été abandonnés au profit des types du
+domaine (`SourceVolume`, `SourceIssue`, `Library`, `Volume`, `AgeRating`), ce qui supprime une
+couche de mapping entière.
+
+> **Contrat d'erreur** : la passerelle enveloppe chaque appel et ne laisse remonter que
+> `ChatbotGatewayException` — le domaine lève sinon des `InvalidOperationException` (source
+> inconnue) et des `FormatException` (`AddVolumeFromSourceAsync` fait un `int.Parse(sourceId)`).
+> `OperationCanceledException` n'est **jamais** avalée : l'arrêt du bot doit interrompre la commande
+> en cours. Testé par `InkhoundChatbotGatewayTests`.
+
+### Parcours d'une commande
+
+`!bd-scan` = OCR de la couverture (prompt `BdCoverAnalysis.Prompt`, JSON à clés imposées) puis même
+parcours que `!bd-search` : `BdSeriesLookupService` (recherche → filtrage par numéro/titre d'album
+sur les 8 premiers candidats → résolution, avec repli sur le 1er résultat) puis `BdSeriesResultFlow`
+(couvertures ré-uploadées sur le homeserver, fiche série, liste d'albums, menu des autres résultats)
+et `BdAddToLibraryFlow` (librairie → classification d'âge → confirmation → ajout).
+
+Le téléchargement des couvertures exige un **User-Agent** (`CoverUserAgent`) : Bédéthèque renvoie
+403 sans. C'est le seul appel du bot qui peut passer par le proxy (`UseProxyForCovers`).
+
+`BdAgeRatings` a été rebranché sur l'enum `AgeRating` du domaine ; le bot d'origine envoyait des
+chaînes, dont `"AdultsOnly"` — qui ne correspond à aucun membre (le vrai est `AdultsOnly18Plus`).
+
+### Pas de table, pas de migration
+
+Les options vont dans la table `Options` existante (service `"Chatbot"`), les traces ne sont pas
+persistées, le cache vision et les menus en attente vivent en mémoire. **Aucune migration à ajouter
+dans `ApplyPendingMigrationsAsync`** — ne pas céder à la tentation d'historiser les échanges du bot
+en base.
 
 ---
 

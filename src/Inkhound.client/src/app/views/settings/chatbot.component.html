@@ -1,0 +1,114 @@
+@if (error()) {
+  <c-alert color="danger">{{ error() }}</c-alert>
+}
+
+<c-card class="mb-4">
+  <c-card-header class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <strong>
+      Chatbot
+      @if (serviceState(); as state) {
+        <c-badge [color]="stateColor()" class="ms-2">{{ state }}</c-badge>
+      }
+    </strong>
+    <div class="d-flex gap-2">
+      <button cButton color="secondary" variant="outline" size="sm"
+              [disabled]="isLoading()" (click)="load()">
+        <svg cIcon name="cilReload" size="sm"></svg>
+        Rafraîchir
+      </button>
+      <a cButton color="secondary" variant="outline" size="sm" routerLink="/settings">
+        <svg cIcon name="cilSettings" size="sm"></svg>
+        Configurer
+      </a>
+    </div>
+  </c-card-header>
+
+  <c-card-body>
+    @if (isLoading() && !status()) {
+      <c-spinner />
+    } @else if (status(); as s) {
+      <c-row class="g-4">
+        <c-col md="6" xl="4">
+          <h6 class="text-medium-emphasis text-uppercase small">Connexion</h6>
+          <ul class="list-unstyled mb-0 small">
+            <li>État : <c-badge [color]="runningColor()">{{ runningLabel() }}</c-badge></li>
+            <li>Module activé : {{ s.enabled ? 'oui' : 'non' }}</li>
+            <li>Identité du bot : {{ s.botUserId ?? '—' }}</li>
+            <li>Homeserver : {{ s.homeServerUrl ?? '—' }}</li>
+            <li>Room : {{ s.roomId ?? '—' }}</li>
+            <li>Démarré : {{ s.startedUtc ? (s.startedUtc | smartDate) : '—' }}</li>
+            <li>Dernier sync : {{ s.lastSyncUtc ? (s.lastSyncUtc | smartDate) : '—' }}</li>
+          </ul>
+        </c-col>
+
+        <c-col md="6" xl="4">
+          <h6 class="text-medium-emphasis text-uppercase small">Activité</h6>
+          <ul class="list-unstyled mb-0 small">
+            <li>Événements traités : {{ s.handledEventCount }}</li>
+            <li>Événements chiffrés ignorés : {{ s.encryptedEventCount }}</li>
+            <li>Menus en attente : {{ s.pendingMenuCount }}</li>
+            <li>Commandes : {{ s.commands.length ? s.commands.join(', ') : '—' }}</li>
+          </ul>
+          @if (s.encryptedEventCount > 0) {
+            <c-alert color="warning" class="mt-2 py-2 small mb-0">
+              Des messages chiffrés ont été reçus : ce bot ne gère pas le chiffrement de bout en
+              bout et ne peut pas les lire. La room doit être non chiffrée.
+            </c-alert>
+          }
+        </c-col>
+
+        <c-col md="6" xl="4">
+          <h6 class="text-medium-emphasis text-uppercase small">Analyse d'image</h6>
+          <ul class="list-unstyled mb-0 small">
+            <li>Provider : {{ visionSummary() }}</li>
+            <li>Clé configurée : {{ s.visionConfigured ? 'oui' : 'non' }}</li>
+            <li>Entrées en cache : {{ s.visionCacheEntries }}</li>
+            @if (s.visionUsage; as usage) {
+              <li>Requêtes (1 min / 24 h) : {{ usage.requestsLastMinute }} / {{ usage.requestsLastDay }}</li>
+              <li>Tokens (1 min / 24 h) : {{ usage.tokensLastMinute }} / {{ usage.tokensLastDay }}</li>
+            }
+          </ul>
+        </c-col>
+      </c-row>
+
+      <hr />
+
+      <div class="d-flex gap-2 flex-wrap">
+        <button cButton color="success" [disabled]="isBusy() || s.running" (click)="start()">
+          <svg cIcon name="cilMediaPlay" size="sm"></svg>
+          Démarrer
+        </button>
+        <button cButton color="danger" variant="outline" [disabled]="isBusy() || !s.running" (click)="stop()">
+          <svg cIcon name="cilMediaPause" size="sm"></svg>
+          Arrêter
+        </button>
+      </div>
+      <p class="text-medium-emphasis small mt-2 mb-0">
+        Démarrer et arrêter ici ne modifie pas l'option « Enabled » : une sauvegarde des options du
+        module réappliquera la valeur enregistrée.
+      </p>
+    }
+  </c-card-body>
+</c-card>
+
+<c-card>
+  <c-card-header class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <strong>Console</strong>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-medium-emphasis small">{{ traces().length }} / {{ traceLimit }}</span>
+      <button cButton color="secondary" variant="outline" size="sm"
+              [disabled]="traces().length === 0" (click)="clearTraces()">
+        <svg cIcon name="cilTrash" size="sm"></svg>
+        Vider l'historique
+      </button>
+    </div>
+  </c-card-header>
+  <c-card-body>
+    <app-trace-console [traces]="traces()" height="60vh"
+                       emptyText="Aucune trace pour l'instant. Les traces apparaissent ici dès que le bot reçoit un message." />
+    <p class="text-medium-emphasis small mt-2 mb-0">
+      Historique local à ce navigateur, non persisté côté serveur : il survit au rechargement de la
+      page mais n'est visible que depuis ce poste.
+    </p>
+  </c-card-body>
+</c-card>

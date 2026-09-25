@@ -275,6 +275,7 @@ src/
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service — accordéon CoreUI (`alwaysOpen`, plusieurs panneaux ouverts), état/formulaire par module (`ModuleEntry`), chargement paresseux à la 1re ouverture |
 | `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) |
+| `/settings/chatbot` | `ChatbotSettingsComponent` | Module Chatbot (bot Matrix) : fiche d'état (`GET /api/chatbot/status`, rafraîchie toutes les 10 s), boutons Démarrer/Arrêter, et **console de traces temps réel** avec historique local (voir « Traces par service » plus bas). La configuration se fait depuis `/settings` (accordéon Modules) |
 | `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
@@ -515,7 +516,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | Service | Signals exposés | Méthodes principales |
 |---|---|---|
 | `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
-| `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces` | `ensureConnected()`, `disconnect()` |
+| `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces`, `serviceTraces` | `ensureConnected()`, `disconnect()`, `clearServiceTraces(name)` |
+| `ChatbotService` | — | `getStatus()`, `start()`, `stop()` — `/api/chatbot`, page `/settings/chatbot` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()`, `refresh()`, `patchVolumesStatus(id, 'PAUSED' \| 'MONITORED')` (boutons « Pause all » / « Resume all » de la page Library, affichés selon `monitoredCount()` / `pausedCount()`) |
 | `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `patchStatus(id, 'MONITORED' \| 'PAUSED')` (bouton Pause/Resume de la page Volume, masqué si `COMPLETED`), `delete(id, deleteFiles?)`, `importFromDirectory()` |
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()`, `getDownloads(issueId)` (carte « Download » de la page Issue), `getBans(issueId)` / `deleteBan(banId)` (carte « Banned torrents ») |
@@ -537,7 +539,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `ManagerStateChanged` | `managerState` | Changement d'état d'un service |
 | `ManagerHealthcheck` | `managerState` | Healthcheck périodique |
 | `ManagerJobChanged` | `currentJob`, `jobs` | Mise à jour d'un job |
-| `ManagerTrace` | `lastTrace`, `jobTraces` | Log de trace (par job) |
+| `ManagerTrace` | `lastTrace`, `jobTraces`, `serviceTraces` | Log de trace — bufferisé par job, et par service pour les modules suivis (voir « Traces par service ») |
 | `ManagerDataUpdated` | `lastDataUpdated` | Entité modifiée côté serveur (Volume, Issue, Library…) |
 
 > `lastDataUpdated.dataType` se termine par `'Volume'`, `'Issue'` ou `'Library'` — utiliser `.endsWith()` pour filtrer.
@@ -564,6 +566,41 @@ jamais retransmis. `HubService` compense via un filet de rattrapage HTTP :
   donc rien à changer pour bénéficier de la resync.
 - Un `404` (job expiré côté serveur, au-delà de `JobRetention`) libère la page via
   `pageJobs.clear()` plutôt que de la laisser bloquée indéfiniment.
+
+### HubService — traces par service (console du module Chatbot)
+
+`_jobTraces` est indexé **par jobId** : il ne capte rien d'un module qui trace en continu hors de
+tout job — c'est le cas du Chatbot, dont la boucle `/sync` est permanente et dont les traces
+arrivent avec `jobId === null`. `HubService` tient donc un **second buffer indexé par
+`serviceName`**, exposé par le signal `serviceTraces` :
+
+- `TRACKED_SERVICES` (aujourd'hui `{'Chatbot'}`) filtre ce qui est bufferisé — inutile de garder
+  les traces de tous les services.
+- Le dispatch se fait **après** le bloc `if (trace.jobId)` et **pas** dans un `else` : une trace
+  d'un service suivi doit rejoindre sa console même si elle est par ailleurs rattachée à un job.
+- **Historisation 100 % client** : `localStorage`, clé `inkhound.serviceTraces.<service>`, écriture
+  **débouncée à 1 s** (sérialiser 500 entrées à chaque message serait visible pendant une commande
+  bavarde). Double borne **500 entrées et ~256 Ko** — le nombre d'entrées ne dit rien de leur poids,
+  une trace pouvant porter plusieurs lignes ; au-delà on retire par moitié depuis le début.
+  `QuotaExceededError` et stockage inaccessible (navigation privée, site data bloqué) sont
+  attrapés : purge silencieuse, jamais d'erreur vers l'UI.
+- Réhydratation dans le **constructeur** du service, pas dans `connect()` : l'historique doit être
+  lisible même déconnecté.
+- `disconnect()` ne vide **pas** ces traces (contrairement à `_jobTraces`) — c'est tout l'intérêt de
+  l'historique. `clearServiceTraces(name)` est le seul effacement, branché sur le bouton « Vider ».
+
+Rien n'est persisté côté serveur : cet historique est local à ce navigateur, et la page le dit.
+
+### Composant réutilisable : TraceConsoleComponent
+
+`app-trace-console` (`views/trace-console/`) — console monospace purement présentationnelle : rendu
+des `TraceDefinition[]`, coloration par niveau (`traceLevelClass`) et autoscroll. Extraite de
+`job-console-modal`, qui la consomme désormais, pour être partagée avec la page Chatbot : deux
+sources de traces différentes, un seul rendu.
+
+```html
+<app-trace-console [traces]="traces()" height="60vh" emptyText="Aucune trace pour l'instant." />
+```
 
 ### LibraryViewStateService — persistance de la vue Library
 

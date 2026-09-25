@@ -63,6 +63,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-book' }
   },
   {
+    name: 'Chatbot',
+    url: '/settings/chatbot',
+    iconComponent: { name: 'cil-speech' }
+  },
+  {
     title: true,
     name: 'Access'
   },
