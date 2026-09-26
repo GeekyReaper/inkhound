@@ -114,6 +114,7 @@ export class NewsComponent {
   // ── Lightbox ──────────────────────────────────────────────────────────────
   readonly lightboxImages = signal<LightboxImage[]>([]);
   readonly lightboxOpen   = signal(false);
+  readonly lightboxLink   = signal<unknown[] | null>(null);
 
   // ── Scroll ────────────────────────────────────────────────────────────────
   // Position à restaurer une fois la liste de l'onglet rendue — posée uniquement quand on
@@ -279,6 +280,7 @@ export class NewsComponent {
     const url = item.coverLargeUrl ?? item.coverUrl;
     if (!url) return;
     this.lightboxImages.set([{ url, thumbUrl: item.coverUrl, caption: newsItemLabel(item) }]);
+    this.lightboxLink.set(['/news/album', item.albumId]);
     this.lightboxOpen.set(true);
   }
 

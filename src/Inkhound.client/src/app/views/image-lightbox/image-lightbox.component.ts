@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import {
   ButtonCloseDirective,
   ButtonDirective,
   ModalBodyComponent,
   ModalComponent,
+  ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective
 } from '@coreui/angular';
@@ -18,11 +20,12 @@ export interface LightboxImage {
 
 // Visionneuse plein écran (couvertures, planches, versos) : grand format avec repli automatique
 // sur la miniature si l'image haute résolution est introuvable, navigation ‹ › (et flèches du
-// clavier) quand plusieurs images sont fournies.
+// clavier) quand plusieurs images sont fournies. `link` (optionnel) ajoute un bouton de navigation
+// (ex. « Details » vers la page d'un album) : la modale est fermée avant de naviguer.
 @Component({
   selector: 'app-image-lightbox',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective, ButtonDirective, IconDirective],
+  imports: [ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective, ButtonDirective, IconDirective],
   templateUrl: './image-lightbox.component.html',
   host: { '(document:keydown)': 'onKeydown($event)' }
 })
@@ -31,6 +34,11 @@ export class ImageLightboxComponent {
   readonly startIndex = input(0);
   readonly visible    = input(false);
   readonly closed     = output<void>();
+  /** Route du bouton d'action (ex. détail de l'album) — aucun bouton si null. */
+  readonly link       = input<unknown[] | null>(null);
+  readonly linkLabel  = input('Details');
+
+  private readonly router = inject(Router);
 
   readonly index    = signal(0);
   // Grand format en échec pour l'image courante → on affiche la miniature.
@@ -61,6 +69,13 @@ export class ImageLightboxComponent {
   onError(): void {
     const img = this.current();
     if (!this.fallback() && img?.thumbUrl && img.thumbUrl !== img.url) this.fallback.set(true);
+  }
+
+  followLink(): void {
+    const link = this.link();
+    if (!link) return;
+    this.closed.emit();
+    this.router.navigate(link);
   }
 
   onKeydown(event: KeyboardEvent): void {

@@ -1,7 +1,7 @@
 @let i = item();
 <c-card class="h-100">
-  <div class="position-relative rounded-top overflow-hidden news-cover" style="aspect-ratio: 2/3;"
-       role="button" [title]="'Enlarge ' + label()" (click)="zoom.emit(i)">
+  <a class="d-block position-relative rounded-top overflow-hidden news-cover" style="aspect-ratio: 2/3;"
+     [routerLink]="['/news/album', i.albumId]" [title]="label()">
     @if (i.coverUrl; as cover) {
       <img [src]="cover" [alt]="label()" loading="lazy"
            style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
@@ -24,10 +24,7 @@
         <svg cIcon name="cil-check" size="sm" class="me-1"></svg>In library
       </c-badge>
     }
-    <span class="news-zoom position-absolute bottom-0 end-0 m-1 badge bg-dark bg-opacity-75">
-      <svg cIcon name="cil-zoom"></svg>
-    </span>
-  </div>
+  </a>
 
   <c-card-body class="p-2 d-flex flex-column">
     <a [routerLink]="['/news/album', i.albumId]" class="small fw-semibold lh-sm text-body text-decoration-none news-title"
@@ -55,8 +52,9 @@
         <svg cIcon name="cil-library" size="sm"></svg>
       </a>
     }
-    <a cButton color="secondary" variant="ghost" size="sm" [routerLink]="['/news/album', i.albumId]" title="Details">
-      <svg cIcon name="cil-info" size="sm"></svg>
-    </a>
+    <button cButton color="secondary" variant="ghost" size="sm" title="Enlarge the cover"
+            [disabled]="!i.coverUrl" (click)="zoom.emit(i)">
+      <svg cIcon name="cil-zoom" size="sm"></svg>
+    </button>
   </c-card-footer>
 </c-card>

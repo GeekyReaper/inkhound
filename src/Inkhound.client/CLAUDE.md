@@ -277,7 +277,7 @@ src/
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |
 | `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
-| `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → `ImageLightboxComponent` ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`). « Add » est **grisé** si la série est déjà en bibliothèque (icône « Open in library » à côté), détail via l'icône `cil-info`. Onglet, semaine du top ventes, filtres/mois/page des nouveautés et scroll par onglet persistés par `NewsViewStateService` (voir ci-dessous) |
+| `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → page détail ; loupe → `ImageLightboxComponent` avec bouton « Details » (input `link`) ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`). « Add » est **grisé** si la série est déjà en bibliothèque (icône « Open in library » à côté). Onglet, semaine du top ventes, filtres/mois/page des nouveautés et scroll par onglet persistés par `NewsViewStateService` (voir ci-dessous) |
 | `/news/album/:albumId` | `NewsAlbumComponent` | Détail live d'un album : cover + visuels (planche d'extrait, verso) en visionneuse, fiche album, fiche série + grille de ses albums (liens vers leur propre détail), Add / Open in library |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
@@ -698,7 +698,7 @@ navigue vers la library, News reste sur place et marque l'item « In library ».
 
 `views/image-lightbox/` — `c-modal` xl : `images: LightboxImage[]` (`url` grand format, `thumbUrl`
 repli), `startIndex`, `visible`, output `closed`. Si le grand format échoue (`(error)`), bascule sur la
-miniature avec une mention. Navigation ‹ › et flèches clavier quand plusieurs images.
+miniature avec une mention. Navigation ‹ › et flèches clavier quand plusieurs images. Inputs optionnels `link` / `linkLabel` : bouton de pied de modale qui ferme la visionneuse puis navigue (ex. « Details » d'un album News).
 
 ## Composant réutilisable : DownloadCardComponent
 

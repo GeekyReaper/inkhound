@@ -5,9 +5,10 @@ import { BadgeComponent, ButtonDirective, CardBodyComponent, CardComponent, Card
 import { IconDirective } from '@coreui/icons-angular';
 import { NEWS_CATEGORIES, NewsItem, newsItemLabel } from '../../../core/services/news.service';
 
-// Vignette d'un item News (top ventes ou nouveauté) : couverture cliquable (agrandissement),
-// rang + évolution pour le top ventes, série / n° / titre, éditeur et date de sortie, résumé, puis
-// « In library » (lien vers le volume) ou « Add » (workflow d'ajout classique, géré par la page).
+// Vignette d'un item News (top ventes ou nouveauté) : couverture cliquable (page détail), rang +
+// évolution pour le top ventes, série / n° / titre, éditeur et date de sortie, résumé, puis « Add »
+// (workflow d'ajout classique, géré par la page ; grisé si la série est déjà en bibliothèque) et une
+// loupe qui agrandit la couverture (visionneuse avec bouton « Details »).
 @Component({
   selector: 'app-news-card',
   changeDetection: ChangeDetectionStrategy.OnPush,

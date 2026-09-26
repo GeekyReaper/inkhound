@@ -36,4 +36,11 @@
       <div class="small text-body-secondary text-center mt-2">High-resolution image unavailable — showing the thumbnail.</div>
     }
   </c-modal-body>
+  @if (link()) {
+    <c-modal-footer>
+      <button cButton color="primary" (click)="followLink()">
+        <svg cIcon name="cil-info" class="me-1"></svg>{{ linkLabel() }}
+      </button>
+    </c-modal-footer>
+  }
 </c-modal>

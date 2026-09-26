@@ -118,6 +118,7 @@
 <app-image-lightbox
   [images]="lightboxImages()"
   [visible]="lightboxOpen()"
+  [link]="lightboxLink()"
   (closed)="lightboxOpen.set(false)" />
 
 <app-volume-add-dialog

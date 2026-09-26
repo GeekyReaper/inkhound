@@ -1,13 +1,12 @@
 .news-cover {
-  cursor: zoom-in;
+  cursor: pointer;
 
-  .news-zoom {
-    opacity: 0;
-    transition: opacity 0.15s ease-in-out;
+  img {
+    transition: transform 0.2s ease-in-out;
   }
 
-  &:hover .news-zoom {
-    opacity: 1;
+  &:hover img {
+    transform: scale(1.03);
   }
 }
 
