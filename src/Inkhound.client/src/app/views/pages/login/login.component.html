@@ -1,38 +1,42 @@
-<div class="bg-light dark:bg-transparent min-vh-100 d-flex flex-row align-items-center">
-  <c-container breakpoint="md">
-    <c-row class="justify-content-center">
-      <c-col lg="6" md="8">
-        <c-card class="p-4">
-          <c-card-body>
-            <form cForm (ngSubmit)="submit()">
-              <h1>Login</h1>
-              <p class="text-body-secondary">Sign in to your account</p>
+<div class="login-page min-vh-100 d-flex align-items-center justify-content-center px-3 py-5">
+  <c-card class="login-card w-100" data-coreui-theme="dark">
+    <c-card-body class="p-4 p-sm-5">
+      <div class="text-center mb-4">
+        <img src="assets/images/inkhound-logo-withtext.svg" alt="InkHound" class="login-logo" />
+        <p class="login-tagline mt-3 mb-0">Your BD, comics &amp; manga library — hunted, sorted, ready to read.</p>
+      </div>
 
-              @if (error()) {
-                <div class="alert alert-danger">{{ error() }}</div>
-              }
+      <form cForm (ngSubmit)="submit()">
+        @if (error(); as e) {
+          <c-alert color="danger" class="py-2">{{ e }}</c-alert>
+        }
 
-              <c-input-group class="mb-3">
-                <span cInputGroupText>
-                  <svg cIcon name="cilUser"></svg>
-                </span>
-                <input cFormControl placeholder="Username" [ngModel]="login()" (ngModelChange)="login.set($event)" name="login" />
-              </c-input-group>
+        <c-input-group class="mb-3">
+          <span cInputGroupText>
+            <svg cIcon name="cilUser"></svg>
+          </span>
+          <input cFormControl placeholder="Username" name="login" autocomplete="username" autofocus
+                 [ngModel]="login()" (ngModelChange)="login.set($event)" />
+        </c-input-group>
 
-              <c-input-group class="mb-4">
-                <span cInputGroupText>
-                  <svg cIcon name="cilLockLocked"></svg>
-                </span>
-                <input cFormControl placeholder="Password" type="password" [ngModel]="password()" (ngModelChange)="password.set($event)" name="password" />
-              </c-input-group>
+        <c-input-group class="mb-4">
+          <span cInputGroupText>
+            <svg cIcon name="cilLockLocked"></svg>
+          </span>
+          <input cFormControl placeholder="Password" type="password" name="password" autocomplete="current-password"
+                 [ngModel]="password()" (ngModelChange)="password.set($event)" />
+        </c-input-group>
 
-              <button cButton color="primary" class="px-4 w-100" type="submit" [disabled]="loading()">
-                {{ loading() ? 'Signing in…' : 'Login' }}
-              </button>
-            </form>
-          </c-card-body>
-        </c-card>
-      </c-col>
-    </c-row>
-  </c-container>
+        <button cButton color="primary" class="w-100 login-submit" type="submit" [disabled]="loading()">
+          @if (loading()) {
+            <c-spinner size="sm" class="me-2"></c-spinner>Signing in…
+          } @else {
+            Sign in
+          }
+        </button>
+      </form>
+
+      <div class="login-footer text-center mt-4">InkHound — self-hosted comics pipeline</div>
+    </c-card-body>
+  </c-card>
 </div>

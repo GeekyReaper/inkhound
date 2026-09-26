@@ -1,0 +1,80 @@
+// Page de login InkHound : fond illustré plein écran (assets/images/login-background.svg, bleu de
+// marque #06468d) et carte vitrée centrée. Identique en thème clair et sombre — la carte force
+// data-coreui-theme="dark" pour que les champs CoreUI restent lisibles sur le verre bleu.
+
+.login-page {
+  background: #021e40 url('/assets/images/login-background.svg') center / cover no-repeat;
+}
+
+.login-card {
+  max-width: 420px;
+  background: rgba(4, 28, 62, 0.55);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 1rem;
+  box-shadow: 0 1.5rem 3.5rem rgba(1, 12, 30, 0.55);
+  animation: login-card-in 0.45s ease-out both;
+
+  .form-control,
+  .input-group-text {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .form-control:focus {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.login-logo {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+}
+
+.login-tagline {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.9rem;
+}
+
+.login-submit {
+  // Bleu de marque plutôt que le primaire CoreUI (violet).
+  --cui-btn-bg: #0b5cb8;
+  --cui-btn-border-color: #0b5cb8;
+  --cui-btn-hover-bg: #0a4f9e;
+  --cui-btn-hover-border-color: #0a4f9e;
+  --cui-btn-active-bg: #06468d;
+  --cui-btn-active-border-color: #06468d;
+  --cui-btn-disabled-bg: #0b5cb8;
+  --cui-btn-disabled-border-color: #0b5cb8;
+  --cui-btn-color: #fff;
+  --cui-btn-hover-color: #fff;
+  --cui-btn-active-color: #fff;
+  --cui-btn-disabled-color: rgba(255, 255, 255, 0.75);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding-block: 0.6rem;
+}
+
+.login-footer {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.75rem;
+}
+
+@keyframes login-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card {
+    animation: none;
+  }
+}
