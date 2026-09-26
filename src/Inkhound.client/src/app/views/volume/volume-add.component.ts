@@ -3,7 +3,7 @@ import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Va
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { switchMap } from 'rxjs/operators';
 import {
   AlertComponent,
   ButtonCloseDirective,
@@ -19,7 +19,6 @@ import {
   FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
-  ModalFooterComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
   NavComponent,
@@ -51,6 +50,7 @@ import { PageJobService } from '../../core/services/page-job.service';
 import { Library, libraryPageKey, LibraryService } from '../../core/services/library.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { LanguageFlagComponent } from '../language-flag/language-flag.component';
+import { AddedVolume, VolumeAddDialogComponent } from './volume-add-dialog/volume-add-dialog.component';
 
 @Component({
   selector: 'app-volume-add',
@@ -65,8 +65,7 @@ import { LanguageFlagComponent } from '../language-flag/language-flag.component'
     NavComponent, NavItemComponent, NavLinkDirective,
     FormControlDirective, FormLabelDirective, FormSelectDirective,
     FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
-    ModalFooterComponent,
-    JobPanelComponent, LanguageFlagComponent, RouterLink
+    JobPanelComponent, LanguageFlagComponent, RouterLink, VolumeAddDialogComponent
   ]
 })
 export class VolumeAddComponent {
@@ -115,7 +114,6 @@ export class VolumeAddComponent {
   selected         = signal<VolumeSearchResult | null>(null);
   adding           = signal(false);
   ageRatingModalVisible = signal(false);
-  selectedAgeRating     = signal<AgeRating | ''>('');
   issuesModalVolume = signal<VolumeSearchResult | null>(null);
   issuesPage        = signal<PageResult<SourceIssue> | null>(null);
   issuesLoading     = signal(false);
@@ -263,7 +261,6 @@ export class VolumeAddComponent {
 
   onAdd(): void {
     if (!this.selected()) return;
-    this.selectedAgeRating.set('');
     this.ageRatingModalVisible.set(true);
   }
 
@@ -271,35 +268,12 @@ export class VolumeAddComponent {
     this.ageRatingModalVisible.set(false);
   }
 
-  confirmAdd(): void {
-    const sel = this.selected();
-    const libraryId = this.libraryId();
-    if (!sel || !libraryId) return;
-
+  // Volume créé par la modale : le peuplement des issues continue en tâche de fond — on associe
+  // son job à la page Library qu'on rejoint, pour y afficher sa progression (cf. LibraryComponent).
+  onVolumeAdded(added: AddedVolume): void {
     this.ageRatingModalVisible.set(false);
-    this.adding.set(true);
-    const ageRating = this.selectedAgeRating();
-
-    this.volumeService.addFromSource(libraryId, sel.source, sel.sourceId)
-      .pipe(
-        switchMap(res => {
-          const patch$ = ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0);
-          return patch$.pipe(map(() => res));
-        }),
-        takeUntilDestroyed(this.#destroyRef)
-      )
-      .subscribe({
-        next:  res => {
-          // Le peuplement des issues continue en tâche de fond — on associe son job à la page
-          // Library qu'on rejoint, pour y afficher sa progression (cf. LibraryComponent).
-          this.pageJobs.register(libraryPageKey(libraryId), res.jobId);
-          this.router.navigate(['/library', libraryId]);
-        },
-        error: err => {
-          this.error.set(err?.error?.message ?? 'Failed to add volume.');
-          this.adding.set(false);
-        }
-      });
+    this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
+    this.router.navigate(['/library', added.libraryId]);
   }
 
   // ── Manual form methods ───────────────────────────────────────────────────

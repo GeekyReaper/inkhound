@@ -175,6 +175,21 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return ParseCatalogPage(doc, letter, DateTime.UtcNow);
     }
 
+    /// <summary>
+    /// Charge et parse une page arbitraire du site (chemin relatif à <c>BaseUrl</c>) ou d'un site
+    /// frère derrière le même Cloudflare (URL absolue, ex. <c>https://www.bdgest.com/top/ventes</c>).
+    /// Même chemin HTTP que le reste du service — rate limiter, FlareSolverr, détection de blocage
+    /// (<see cref="BedethequeBlockedException"/>) — pour les modules qui scrapent d'autres pages
+    /// (News) sans dupliquer la pile réseau.
+    /// </summary>
+    public async Task<HtmlDocument> GetDocumentAsync(string url, CancellationToken ct = default)
+    {
+        var html = await GetHtmlAsync(url, referer: Options.BaseUrl, ct: ct);
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        return doc;
+    }
+
     // Structure de page : <ul class="nav-liste"><li><span class="ico"><img src="…/flags/France.png"></span>
     // <a href="…/serie-{id}-BD-…"><span class="libelle">Titre</span></a></li>…
     internal static List<BedethequeCatalogEntry> ParseCatalogPage(HtmlDocument doc, string letter, DateTime fetchedAtUtc)
@@ -662,8 +677,46 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
         return new BdAlbum(id, titre, numAlbum, serieId, serieTitre, $"{Options.BaseUrl}{serieHref}",
             auteurs, editeur, string.IsNullOrEmpty(collection) ? null : collection, annee, ean, description, coverUrl,
-            depotLegal, planches, genreAlbum, note, nombreVotes, url);
+            depotLegal, planches, genreAlbum, note, nombreVotes, url, Images: ParseAlbumImages(doc, id));
     }
+
+    /// <summary>
+    /// Visuels de l'album (couverture, planche d'extrait, verso) — liens <c>a.browse-couvertures</c>,
+    /// <c>a.browse-planches</c>, <c>a.browse-versos</c> (href = grand format <c>/media/…</c>, img =
+    /// miniature <c>/cache/thb_…</c>). La page album liste aussi les autres éditions du même album
+    /// ("Toutes les éditions de cet album") avec leurs propres visuels : la recherche est donc
+    /// circonscrite au <c>&lt;li&gt;</c> de l'édition demandée (ancre <c>&lt;a name="{id}"&gt;</c>).
+    /// </summary>
+    internal static List<BdImage> ParseAlbumImages(HtmlDocument doc, int id)
+    {
+        var scope = doc.DocumentNode.SelectSingleNode($"//ul[contains(@class,'liste-albums')]/li[.//a[@name='{id}']]");
+        if (scope is null) return [];
+
+        var results = new List<BdImage>();
+        foreach (var (cssClass, kind) in new[] { ("browse-couvertures", "Cover"), ("browse-planches", "Plate"), ("browse-versos", "Back") })
+        {
+            var links = scope.SelectNodes($".//a[contains(@class,'{cssClass}')]");
+            if (links is null) continue;
+            foreach (var link in links)
+            {
+                var url = link.GetAttributeValue("href", string.Empty);
+                if (string.IsNullOrEmpty(url) || results.Any(r => r.Url == url)) continue;
+                var thumb = link.SelectSingleNode(".//img")?.GetAttributeValue("src", string.Empty);
+                results.Add(new BdImage(kind, string.IsNullOrEmpty(thumb) ? url : thumb, url));
+            }
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// URL grand format d'une couverture à partir de sa miniature : <c>/cache/thb_couv/X.jpg</c> →
+    /// <c>/media/Couvertures/X.jpg</c> (même nom de fichier, suffixe de hash compris — vérifié sur le
+    /// site). Toute autre URL est renvoyée telle quelle.
+    /// </summary>
+    public static string? ToLargeCoverUrl(string? thumbUrl)
+        => string.IsNullOrEmpty(thumbUrl)
+            ? thumbUrl
+            : thumbUrl.Replace("/cache/thb_couv/", "/media/Couvertures/", StringComparison.OrdinalIgnoreCase);
 
     private static string? ExtractLangueFromFlag(string flagPath)
     {

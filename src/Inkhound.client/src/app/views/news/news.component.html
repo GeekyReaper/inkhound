@@ -1,0 +1,129 @@
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <c-nav variant="tabs" class="flex-grow-1">
+    <c-nav-item>
+      <a cNavLink [active]="tab() === 'top-sales'" (click)="selectTab('top-sales')" style="cursor:pointer">
+        <svg cIcon name="cil-star" class="me-1"></svg>Top Sales
+      </a>
+    </c-nav-item>
+    <c-nav-item>
+      <a cNavLink [active]="tab() === 'releases'" (click)="selectTab('releases')" style="cursor:pointer">
+        <svg cIcon name="cil-newspaper" class="me-1"></svg>New Releases
+      </a>
+    </c-nav-item>
+  </c-nav>
+  <button cButton color="primary" variant="outline" [disabled]="!!activeJobId()" (click)="refresh()"
+          title="Scrape the feeds now and enrich a batch of albums">
+    <svg cIcon name="cil-reload" class="me-1"></svg>Refresh
+  </button>
+</div>
+
+@if (activeJobId(); as jobId) {
+  <div class="mb-3"><app-job-panel [jobId]="jobId" /></div>
+}
+
+@if (error(); as e) {
+  <c-alert color="danger">{{ e }}</c-alert>
+}
+
+@if (tab() === 'top-sales') {
+  @let ts = topSales();
+  @if (ts && ts.periods.length > 0) {
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <label for="newsWeek" class="text-body-secondary small mb-0">Week of</label>
+      <select cSelect id="newsWeek" sizing="sm" style="max-width: 12rem;"
+              [value]="ts.period ?? ''" (change)="loadTopSales($any($event.target).value)">
+        @for (p of ts.periods; track p) {
+          <option [value]="p" [selected]="p === ts.period">{{ p | date: 'dd/MM/yyyy' }}</option>
+        }
+      </select>
+      <span class="text-body-secondary small">Weekly best-selling albums (BDGest)</span>
+    </div>
+  }
+
+  @if (topSalesLoading()) {
+    <div class="text-center py-5"><c-spinner></c-spinner></div>
+  } @else if (ts && ts.items.length > 0) {
+    <c-row class="g-3">
+      @for (item of ts.items; track item.albumId) {
+        <c-col xs="6" sm="4" md="3" xl="2">
+          <app-news-card [item]="item" [busy]="resolving() === item.albumId"
+                         (zoom)="openCover($event)" (add)="onAdd($event)" />
+        </c-col>
+      }
+    </c-row>
+  } @else if (ts) {
+    <c-alert color="info">
+      No top sales yet — click <strong>Refresh</strong>, or enable the <strong>News</strong> task in
+      <a routerLink="/settings/scheduler">Settings › Scheduler</a> to fetch the feeds periodically.
+    </c-alert>
+  }
+} @else {
+  @let rel = releases();
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <c-button-group size="sm" role="group" aria-label="Category">
+      <button cButton color="secondary" [variant]="category() === null ? undefined : 'outline'" (click)="setCategory(null)">All</button>
+      @for (c of categories; track c.value) {
+        <button cButton color="secondary" [variant]="category() === c.value ? undefined : 'outline'" (click)="setCategory(c.value)">{{ c.label }}</button>
+      }
+    </c-button-group>
+    @if (rel && rel.months.length > 0) {
+      <select cSelect sizing="sm" style="max-width: 12rem;" aria-label="Month"
+              [value]="month() ?? ''" (change)="setMonth($any($event.target).value)">
+        <option value="">All months</option>
+        @for (m of rel.months; track m) {
+          <option [value]="m" [selected]="m === month()">{{ monthDate(m) | date: 'MMMM yyyy' }}</option>
+        }
+      </select>
+    }
+    @if (rel) {
+      <span class="text-body-secondary small ms-auto">{{ rel.page.totalItems }} album(s)</span>
+    }
+  </div>
+
+  @if (releasesLoading()) {
+    <div class="text-center py-5"><c-spinner></c-spinner></div>
+  } @else if (rel && rel.page.items.length > 0) {
+    <c-row class="g-3">
+      @for (item of rel.page.items; track item.albumId) {
+        <c-col xs="6" sm="4" md="3" xl="2">
+          <app-news-card [item]="item" [busy]="resolving() === item.albumId"
+                         (zoom)="openCover($event)" (add)="onAdd($event)" />
+        </c-col>
+      }
+    </c-row>
+
+    @if (rel.page.totalPages > 1) {
+      <c-pagination aria-label="New releases pagination" class="mt-4 d-flex justify-content-center">
+        <c-page-item [disabled]="!rel.page.hasPrev">
+          <a cPageLink (click)="goToPage(rel.page.pageNumber - 1)" style="cursor:pointer">‹</a>
+        </c-page-item>
+        @for (p of visiblePages(); track p) {
+          <c-page-item [active]="p === rel.page.pageNumber">
+            <a cPageLink (click)="goToPage(p)" style="cursor:pointer">{{ p }}</a>
+          </c-page-item>
+        }
+        <c-page-item [disabled]="!rel.page.hasNext">
+          <a cPageLink (click)="goToPage(rel.page.pageNumber + 1)" style="cursor:pointer">›</a>
+        </c-page-item>
+      </c-pagination>
+    }
+  } @else if (rel) {
+    <c-alert color="info">
+      No new releases @if (category() || month()) { for this filter } yet — click <strong>Refresh</strong>, or enable the
+      <strong>News</strong> task in <a routerLink="/settings/scheduler">Settings › Scheduler</a>.
+    </c-alert>
+  }
+}
+
+<app-image-lightbox
+  [images]="lightboxImages()"
+  [visible]="lightboxOpen()"
+  (closed)="lightboxOpen.set(false)" />
+
+<app-volume-add-dialog
+  [visible]="addTarget() !== null"
+  [source]="$any(addTarget()?.provider ?? null)"
+  [sourceId]="addSeriesId()"
+  [title]="addTitle()"
+  (added)="onVolumeAdded($event)"
+  (closed)="closeAddDialog()" />

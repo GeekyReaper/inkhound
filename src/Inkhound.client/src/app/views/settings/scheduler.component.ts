@@ -56,7 +56,10 @@ export class SchedulerSettingsComponent implements OnInit {
     autoSearchMinScore: new FormControl(70, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(100)] }),
     bedethequeCatalogEnabled: new FormControl(false, { nonNullable: true }),
     bedethequeCatalogCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
-    bedethequeCatalogLetterCount: new FormControl(3, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(27)] })
+    bedethequeCatalogLetterCount: new FormControl(3, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(27)] }),
+    newsEnabled: new FormControl(false, { nonNullable: true }),
+    newsCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
+    newsEnrichBatchSize: new FormControl(5, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(50)] })
   });
 
   ngOnInit(): void {
@@ -124,7 +127,10 @@ export class SchedulerSettingsComponent implements OnInit {
       autoSearchMinScore: s.autoSearchMinScore,
       bedethequeCatalogEnabled: s.bedethequeCatalog.enabled,
       bedethequeCatalogCron: s.bedethequeCatalog.cron,
-      bedethequeCatalogLetterCount: s.bedethequeCatalogLetterCount
+      bedethequeCatalogLetterCount: s.bedethequeCatalogLetterCount,
+      newsEnabled: s.news.enabled,
+      newsCron: s.news.cron,
+      newsEnrichBatchSize: s.newsEnrichBatchSize
     });
   }
 }

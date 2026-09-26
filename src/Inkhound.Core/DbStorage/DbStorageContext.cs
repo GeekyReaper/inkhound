@@ -1,6 +1,7 @@
 using Foundation.Core.Model;
 using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.Models;
+using Inkhound.Core.News;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,6 +26,10 @@ public class DbStorageContext : DbContext
     public DbSet<User> Users => Set<User>();
 
     public DbSet<BedethequeCatalogEntry> BedethequeCatalog => Set<BedethequeCatalogEntry>();
+
+    public DbSet<NewsAlbum> NewsAlbums => Set<NewsAlbum>();
+
+    public DbSet<NewsEntry> NewsEntries => Set<NewsEntry>();
 
     public DbStorageContext(DbContextOptions<DbStorageContext> options) : base(options) { }
 
@@ -76,6 +81,21 @@ public class DbStorageContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).ValueGeneratedNever();
             entity.HasIndex(e => e.Letter);
+        });
+
+        // Module News — albums vus dans les flux (clé source + id d'album) et leurs apparitions
+        // par période (historique). Enums stockés en texte, comme ailleurs.
+        modelBuilder.Entity<NewsAlbum>(entity =>
+        {
+            entity.HasKey(a => new { a.Provider, a.AlbumId });
+            entity.Property(a => a.Category).HasConversion<string>();
+            entity.HasIndex(a => a.SeriesId);
+        });
+
+        modelBuilder.Entity<NewsEntry>(entity =>
+        {
+            entity.Property(e => e.Feed).HasConversion<string>();
+            entity.HasIndex(e => new { e.Provider, e.Feed, e.Period, e.AlbumId }).IsUnique();
         });
 
         // Authors serialized as JSON column

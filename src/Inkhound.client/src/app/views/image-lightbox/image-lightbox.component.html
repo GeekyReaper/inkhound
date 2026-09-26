@@ -1,0 +1,39 @@
+<c-modal
+  [visible]="visible()"
+  (visibleChange)="!$event && closed.emit()"
+  size="xl"
+  alignment="center">
+  <c-modal-header>
+    <h5 cModalTitle class="text-truncate">
+      {{ current()?.caption }}
+      @if (images().length > 1) {
+        <span class="text-body-secondary fw-normal fs-6 ms-2">{{ index() + 1 }} / {{ images().length }}</span>
+      }
+    </h5>
+    <button cButtonClose (click)="closed.emit()"></button>
+  </c-modal-header>
+  <c-modal-body class="p-2">
+    <div class="position-relative d-flex align-items-center justify-content-center bg-body-tertiary rounded"
+         style="min-height: 50vh;">
+      @if (src(); as s) {
+        <a [href]="s" target="_blank" rel="noopener" title="Open original">
+          <img [src]="s" [alt]="current()?.caption ?? ''" (error)="onError()"
+               style="max-width: 100%; max-height: 80vh; object-fit: contain;" />
+        </a>
+      }
+      @if (images().length > 1) {
+        <button cButton color="dark" variant="ghost" class="position-absolute top-50 start-0 translate-middle-y ms-1"
+                aria-label="Previous image" (click)="move(-1)">
+          <svg cIcon name="cil-chevron-left" size="xl"></svg>
+        </button>
+        <button cButton color="dark" variant="ghost" class="position-absolute top-50 end-0 translate-middle-y me-1"
+                aria-label="Next image" (click)="move(1)">
+          <svg cIcon name="cil-chevron-right" size="xl"></svg>
+        </button>
+      }
+    </div>
+    @if (fallback()) {
+      <div class="small text-body-secondary text-center mt-2">High-resolution image unavailable — showing the thumbnail.</div>
+    }
+  </c-modal-body>
+</c-modal>

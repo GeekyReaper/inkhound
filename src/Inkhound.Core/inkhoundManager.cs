@@ -4,6 +4,7 @@ using Inkhound.Core.Chatbot;
 using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.ComicVine;
 using Inkhound.Core.Models;
+using Inkhound.Core.News;
 using Inkhound.Core.Security;
 using Inkhound.Core.Sources;
 using Foundation.Core.Model;
@@ -116,7 +117,7 @@ public partial class InkhoundManager : BaseServiceManager
         GetService<WebshareProxyService, WebshareProxyOptions>();
         var databaseService = GetService<DbStorageService, DbStorageOption>();
         var comicVine = GetService<ComicVineSourceService, ComicVineOptions>();
-        GetService<BedethequeSourceService, BedethequeOptions>();
+        var bedetheque = GetService<BedethequeSourceService, BedethequeOptions>();
         var archiveService = GetService<ArchiveService, ArchiveOption>();
         var kavitaService = GetService<KavitaService, KavitaOptions>();
         GetService<ProwlarrService, ProwlarrOptions>();
@@ -128,6 +129,10 @@ public partial class InkhoundManager : BaseServiceManager
         // c'est ce LoadOptions qui construit les commandes du bot et démarre la boucle Matrix si le
         // module est activé, et elles ont besoin d'un accès au domaine.
         GetService<ChatbotService, ChatbotOptions>().Attach(new InkhoundChatbotGateway(this));
+
+        // Module News : la source d'actualité réutilise la pile HTTP et les caches de Bedetheque ;
+        // son état reflète celui de Bedetheque (état en cache, aucune requête supplémentaire).
+        GetService<NewsService, NewsOptions>().Attach(new BedethequeNewsProvider(bedetheque), () => bedetheque.CurrentState);
 
         // Load database options and initialize database
         var databaseoption = new DbStorageOption { Path = _dbPath, UseInMemory = false };

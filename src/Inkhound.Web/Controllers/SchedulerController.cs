@@ -14,12 +14,13 @@ namespace Inkhound.Web.Controllers;
 [Authorize(Roles = "admin")]
 public class SchedulerController(InkhoundManager manager) : ControllerBase
 {
-    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des quatre tâches.</summary>
+    /// <summary>Corps de <c>PUT /api/scheduler</c> — nouvelle configuration des cinq tâches.</summary>
     public record SchedulerConfigRequest(
         bool ProcessDownloadsEnabled, string ProcessDownloadsCron,
         bool RollingRefreshEnabled, string RollingRefreshCron, int RollingRefreshBatchSize,
         bool AutoSearchEnabled, string AutoSearchCron, int AutoSearchBatchSize, int AutoSearchMinScore,
-        bool BedethequeCatalogEnabled, string BedethequeCatalogCron, int BedethequeCatalogLetterCount);
+        bool BedethequeCatalogEnabled, string BedethequeCatalogCron, int BedethequeCatalogLetterCount,
+        bool NewsEnabled = false, string? NewsCron = null, int NewsEnrichBatchSize = 5);
 
     // GET /api/scheduler — état courant (config + dernier / prochain déclenchement).
     [HttpGet]
@@ -33,6 +34,7 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
         var rollingCron = (request.RollingRefreshCron ?? string.Empty).Trim();
         var autoSearchCron = (request.AutoSearchCron ?? string.Empty).Trim();
         var catalogCron = (request.BedethequeCatalogCron ?? string.Empty).Trim();
+        var newsCron = (request.NewsCron ?? string.Empty).Trim();
 
         if (request.ProcessDownloadsEnabled && !InkhoundManager.IsValidCronExpression(processCron))
             return BadRequest(new { message = "Import downloads: invalid 5-field cron expression." });
@@ -58,6 +60,12 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
         if (request.BedethequeCatalogEnabled && request.BedethequeCatalogLetterCount < 1)
             return BadRequest(new { message = "Bedetheque catalog: letters per run must be at least 1." });
 
+        if (request.NewsEnabled && !InkhoundManager.IsValidCronExpression(newsCron))
+            return BadRequest(new { message = "News: invalid 5-field cron expression." });
+
+        if (request.NewsEnrichBatchSize < 0)
+            return BadRequest(new { message = "News: albums enriched per run must be at least 0." });
+
         var updates = new Dictionary<string, string>
         {
             ["ProcessDownloadsEnabled"]    = request.ProcessDownloadsEnabled.ToString().ToLowerInvariant(),
@@ -71,8 +79,13 @@ public class SchedulerController(InkhoundManager manager) : ControllerBase
             ["AutoSearchMinScore"]         = request.AutoSearchMinScore.ToString(),
             ["BedethequeCatalogEnabled"]   = request.BedethequeCatalogEnabled.ToString().ToLowerInvariant(),
             ["BedethequeCatalogCron"]      = catalogCron,
-            ["BedethequeCatalogLetterCount"] = request.BedethequeCatalogLetterCount.ToString()
+            ["BedethequeCatalogLetterCount"] = request.BedethequeCatalogLetterCount.ToString(),
+            ["NewsEnabled"]                = request.NewsEnabled.ToString().ToLowerInvariant(),
+            ["NewsEnrichBatchSize"]        = request.NewsEnrichBatchSize.ToString()
         };
+
+        if (!string.IsNullOrEmpty(newsCron))
+            updates["NewsCron"] = newsCron;
 
         var success = await manager.UpdateOptionsForService("Scheduler", updates);
         if (!success)

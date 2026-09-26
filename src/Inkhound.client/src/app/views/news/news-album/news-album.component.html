@@ -1,0 +1,188 @@
+<div class="mb-3">
+  <a routerLink="/news" class="text-decoration-none small">
+    <svg cIcon name="cil-chevron-left" size="sm" class="me-1"></svg>Back to News
+  </a>
+</div>
+
+@if (loading()) {
+  <div class="text-center py-5"><c-spinner></c-spinner></div>
+} @else if (error(); as e) {
+  <c-alert color="danger">{{ e }}</c-alert>
+} @else if (detail(); as d) {
+  @let a = d.album;
+
+  <c-row class="g-4 mb-4">
+    <!-- Couverture + visuels -->
+    <c-col md="4" lg="3">
+      @if (cover(); as c) {
+        <img [src]="c.thumbUrl" [alt]="label()" role="button" class="img-fluid rounded shadow-sm w-100"
+             style="cursor: zoom-in;" title="Enlarge" (click)="openImage(c)" />
+      } @else {
+        <div class="bg-body-secondary rounded d-flex align-items-center justify-content-center" style="aspect-ratio: 2/3;">
+          <svg cIcon name="cil-image" size="3xl" class="text-body-tertiary"></svg>
+        </div>
+      }
+    </c-col>
+
+    <!-- Fiche album -->
+    <c-col md="8" lg="9">
+      <div class="text-body-secondary small">
+        @if (d.series) { {{ d.series.title }} } @else { {{ a.seriesTitle }} }
+      </div>
+      <h3 class="mb-2">
+        @if (a.albumNumber) { <span class="text-body-secondary">#{{ a.albumNumber }}</span> }
+        {{ a.albumTitle || a.seriesTitle }}
+      </h3>
+
+      <div class="d-flex flex-wrap gap-1 mb-3">
+        @if (a.genre) { <c-badge color="info">{{ a.genre }}</c-badge> }
+        @for (ap of d.appearances; track ap.feed + ap.period) {
+          @if (ap.feed === 'TopSales') {
+            <c-badge color="warning">Top Sales #{{ ap.rank }} · {{ ap.period | date: 'dd/MM/yyyy' }}</c-badge>
+          }
+        }
+        @if (d.library) { <c-badge color="success"><svg cIcon name="cil-check" size="sm" class="me-1"></svg>In library</c-badge> }
+      </div>
+
+      <dl class="row small mb-3">
+        @if (a.authors.length > 0) {
+          <dt class="col-sm-3 text-body-secondary">Authors</dt>
+          <dd class="col-sm-9">
+            @for (au of a.authors; track $index) {
+              {{ au.name }}@if (au.role) { <span class="text-body-secondary"> ({{ au.role }})</span> }@if (!$last) {, }
+            }
+          </dd>
+        }
+        @if (a.publisher) {
+          <dt class="col-sm-3 text-body-secondary">Publisher</dt>
+          <dd class="col-sm-9">{{ a.publisher }}@if (a.collection) { <span class="text-body-secondary"> — {{ a.collection }}</span> }</dd>
+        }
+        @if (d.item?.releaseDate || a.legalDeposit || a.year) {
+          <dt class="col-sm-3 text-body-secondary">Release</dt>
+          <dd class="col-sm-9">
+            @if (d.item?.releaseDate) { {{ d.item!.releaseDate | date: 'dd/MM/yyyy' }} }
+            @else if (a.legalDeposit) { {{ a.legalDeposit }} }
+            @else { {{ a.year }} }
+          </dd>
+        }
+        @if (a.pages) {
+          <dt class="col-sm-3 text-body-secondary">Pages</dt>
+          <dd class="col-sm-9">{{ a.pages }}</dd>
+        }
+        @if (a.ean) {
+          <dt class="col-sm-3 text-body-secondary">EAN</dt>
+          <dd class="col-sm-9">{{ a.ean }}</dd>
+        }
+        @if (a.rating !== null) {
+          <dt class="col-sm-3 text-body-secondary">Rating</dt>
+          <dd class="col-sm-9">{{ a.rating | number: '1.1-1' }} / 5 <span class="text-body-secondary">({{ a.ratingCount ?? 0 }} votes)</span></dd>
+        }
+      </dl>
+
+      @if (a.description || d.item?.description) {
+        <p class="mb-3" style="white-space: pre-line;">{{ a.description || d.item?.description }}</p>
+      }
+
+      <div class="d-flex flex-wrap gap-2">
+        @if (libraryLink(); as link) {
+          <a cButton color="success" [routerLink]="link"><svg cIcon name="cil-library" class="me-1"></svg>Open in library</a>
+        } @else {
+          <button cButton color="primary" (click)="addOpen.set(true)"><svg cIcon name="cil-plus" class="me-1"></svg>Add series</button>
+        }
+        @if (a.url) {
+          <a cButton color="secondary" variant="outline" [href]="a.url" target="_blank" rel="noopener">
+            <svg cIcon name="cil-external-link" class="me-1"></svg>Bedetheque
+          </a>
+        }
+      </div>
+    </c-col>
+  </c-row>
+
+  <!-- Planches d'extrait / verso -->
+  @if (previews().length > 0) {
+    <c-card class="mb-4">
+      <c-card-header><strong>Preview</strong></c-card-header>
+      <c-card-body>
+        <div class="d-flex flex-wrap gap-3">
+          @for (img of previews(); track img.url) {
+            <figure class="mb-0 text-center">
+              <img [src]="img.thumbUrl" [alt]="kindLabel(img.kind)" role="button" class="rounded shadow-sm"
+                   style="height: 220px; cursor: zoom-in;" (click)="openImage(img)" />
+              <figcaption class="small text-body-secondary mt-1">{{ kindLabel(img.kind) }}</figcaption>
+            </figure>
+          }
+        </div>
+      </c-card-body>
+    </c-card>
+  }
+
+  <!-- Série -->
+  @if (d.series; as s) {
+    <c-card class="mb-4">
+      <c-card-header class="d-flex align-items-center justify-content-between">
+        <strong>Series — {{ s.title }}</strong>
+        @if (s.url) {
+          <a [href]="s.url" target="_blank" rel="noopener" class="small"><svg cIcon name="cil-external-link" size="sm"></svg></a>
+        }
+      </c-card-header>
+      <c-card-body>
+        <dl class="row small mb-2">
+          @if (s.genre) { <dt class="col-sm-3 text-body-secondary">Genre</dt><dd class="col-sm-9">{{ s.genre }}</dd> }
+          @if (s.status) { <dt class="col-sm-3 text-body-secondary">Status</dt><dd class="col-sm-9">{{ s.status }}</dd> }
+          @if (s.albumCount !== null) { <dt class="col-sm-3 text-body-secondary">Albums</dt><dd class="col-sm-9">{{ s.albumCount }}</dd> }
+          @if (s.startYear) {
+            <dt class="col-sm-3 text-body-secondary">Years</dt>
+            <dd class="col-sm-9">{{ s.startYear }}@if (s.endYear && s.endYear !== s.startYear) { – {{ s.endYear }} }</dd>
+          }
+          @if (s.publisher) { <dt class="col-sm-3 text-body-secondary">Publisher</dt><dd class="col-sm-9">{{ s.publisher }}</dd> }
+          @if (s.origin || s.language) {
+            <dt class="col-sm-3 text-body-secondary">Origin</dt>
+            <dd class="col-sm-9">{{ s.origin }}@if (s.origin && s.language) { · }{{ s.language }}</dd>
+          }
+        </dl>
+        @if (s.description) {
+          <p class="small" style="white-space: pre-line;">{{ s.description }}</p>
+        }
+
+        @if (s.albums.length > 0) {
+          <c-row class="g-2 mt-1">
+            @for (al of s.albums; track al.albumId) {
+              <c-col xs="4" sm="3" md="2" xl="1">
+                <a [routerLink]="['/news/album', al.albumId]" class="text-decoration-none text-body"
+                   [title]="(al.number ? '#' + al.number + ' — ' : '') + al.title">
+                  <div class="rounded overflow-hidden bg-body-secondary"
+                       [class.border]="al.albumId === a.albumId" [class.border-primary]="al.albumId === a.albumId"
+                       [class.border-3]="al.albumId === a.albumId" style="aspect-ratio: 2/3;">
+                    @if (al.coverUrl) {
+                      <img [src]="al.coverUrl" [alt]="al.title" loading="lazy"
+                           style="width: 100%; height: 100%; object-fit: cover; object-position: top;" />
+                    }
+                  </div>
+                  <div class="text-truncate mt-1" style="font-size: 0.7rem;">
+                    @if (al.number) { #{{ al.number }} } {{ al.title }}
+                  </div>
+                </a>
+              </c-col>
+            }
+          </c-row>
+        }
+      </c-card-body>
+    </c-card>
+  } @else {
+    <c-alert color="warning">Series details are unavailable right now (source unreachable).</c-alert>
+  }
+
+  <app-image-lightbox
+    [images]="lightboxImages()"
+    [startIndex]="lightboxStart()"
+    [visible]="lightboxOpen()"
+    (closed)="lightboxOpen.set(false)" />
+
+  <app-volume-add-dialog
+    [visible]="addOpen()"
+    [source]="$any(d.item?.provider ?? 'bedetheque')"
+    [sourceId]="a.seriesId"
+    [title]="d.series?.title ?? a.seriesTitle"
+    (added)="onVolumeAdded($event)"
+    (closed)="addOpen.set(false)" />
+}

@@ -159,6 +159,9 @@ export class MyComponent {
 | Statut erreur | `cilXCircle` |
 | Statut en attente | `cilClock` |
 | Dashboard | `cilSpeedometer` |
+| News (menu) | `cilNewspaper` |
+| Agrandir une image | `cilZoom` |
+| Image absente | `cilImage` |
 | Liste | `cilList` |
 | Filtre | `cilFilter` |
 | Info | `cilInfo` |
@@ -230,7 +233,11 @@ src/
 │   │   │                        #   .col-desktop-only (+ variantes -inline). NB : les utilitaires Bootstrap
 │   │   │                        #   (flex-column, gap-*) sont en !important et ne peuvent pas être surchargés
 │   │   │                        #   par la media query — d'où la classe .type-cell — voir le .scss du composant.
+│   │   ├── news/                # NewsComponent (/news — onglets Top Sales / New Releases), news-card/
+│   │   │                        #   (NewsCardComponent), news-album/ (NewsAlbumComponent, /news/album/:albumId)
+│   │   ├── image-lightbox/      # ImageLightboxComponent — visionneuse plein écran (grand format → repli miniature)
 │   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
+│   │   │   ├── volume-add-dialog/ # VolumeAddDialogComponent — modale « Add to Library » partagée (Add Volume + News)
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra".
 │   │   │                        #   Input optionnel `downloadStatus` (alimenté par VolumeComponent via
 │   │   │                        #   GET /api/volumes/{id}/downloads, un seul appel et seulement s'il existe
@@ -238,7 +245,7 @@ src/
 │   │   │                        #   « STALLED » au lieu du bleu « DOWNLOADING ».
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
 │   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler —
-│   │   │                        #   4 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog,
+│   │   │                        #   5 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog / News,
 │   │   │                        #   champs cron via app-cron-editor) +
 │   │   │                        #   BedethequeCatalogComponent (/settings/bedetheque — état du catalogue local
 │   │   │                        #   Bedetheque : encart stats, « Refresh oldest » N lettres / « Refresh all »
@@ -270,11 +277,13 @@ src/
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |
 | `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
+| `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → `ImageLightboxComponent` ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`) |
+| `/news/album/:albumId` | `NewsAlbumComponent` | Détail live d'un album : cover + visuels (planche d'extrait, verso) en visionneuse, fiche album, fiche série + grille de ses albums (liens vers leur propre détail), Add / Open in library |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service — accordéon CoreUI (`alwaysOpen`, plusieurs panneaux ouverts), état/formulaire par module (`ModuleEntry`), chargement paresseux à la 1re ouverture |
-| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) |
+| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) + News (N albums enrichis par flux et par run) |
 | `/settings/chatbot` | `ChatbotSettingsComponent` | Module Chatbot (bot Matrix) : fiche d'état (`GET /api/chatbot/status`, rafraîchie toutes les 10 s), boutons Démarrer/Arrêter, et **console de traces temps réel** avec historique local (voir « Traces par service » plus bas). La configuration se fait depuis `/settings` (accordéon Modules). ⚠️ Deux indicateurs distincts à ne pas confondre : le **badge d'en-tête** vient de `managerState()` et reflète la **santé des dépendances** (homeserver Matrix + modèle vision joignables), tandis que la ligne **« Exécution »** dit si la boucle `/sync` tourne. Un bot volontairement arrêté dont les dépendances répondent affiche donc `OK` |
 | `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
 | `/settings/system` | `SystemSettingsComponent` | Empreinte mémoire du backend (`GET /api/system/memory`) et purge manuelle (`POST /api/system/memory/compact`). **Aucun rafraîchissement automatique** : la mesure est ponctuelle, un timer entretiendrait l'illusion d'un monitoring continu qu'Inkhound ne fait pas. La page signale explicitement un Server GC actif ou une limite mémoire de conteneur absente, et annonce que la purge ne récupère que le managé (les pics SkiaSharp/PDFium sont en mémoire native) |
@@ -525,7 +534,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `QBittorrentService` | — | `getDownloads(statuses, page, pageSize)`, `getVolumeDownloads(volumeId)`, `getStalledDownloads(limit)`, `deleteDownload(id, removeTorrent, ban)`, `processDownload()`, `updateDownloadHash()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
-| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog'` |
+| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog' \| 'News'` |
+| `NewsService` | — | `getTopSales(period)`, `getReleases(category, month, page, pageSize)`, `getAlbum(albumId)`, `resolveSeries(albumId)`, `refresh(force)` — `/api/news` ; helper `newsItemLabel()` |
 | `BedethequeCatalogService` | — | `getStatus()`, `refresh(req)` → `{ jobId }` (409 si un refresh tourne déjà) — page `/settings/bedetheque` |
 | `SystemService` | — | `getMemory()`, `compactMemory()` — `/api/system/memory`, page `/settings/system` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
@@ -661,6 +671,21 @@ pathSelected = output<string>();  // chemin sélectionné, ou '' si annulé
 
 `mode="file"` (émet le chemin complet du fichier sur *confirm*, `''` sur *cancel*) — utilisé par la
 page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`).
+
+## Composant réutilisable : VolumeAddDialogComponent
+
+`views/volume/volume-add-dialog/` — modale « Add to Library » du workflow d'ajout classique, extraite
+de `VolumeAddComponent` et réutilisée par le module News. Inputs : `visible`, `source` (`SourceKey`),
+`sourceId`, `title` (affiché en tête), `presetLibraryId` (masque le select). Elle appelle
+`addFromSource` puis `patchAgeRating` si un age rating est choisi, affiche ses propres erreurs, et émet
+`added` (`{ id, jobId, libraryId }`) ou `closed`. **L'appelant décide de la suite** : Add Volume
+navigue vers la library, News reste sur place et marque l'item « In library ».
+
+## Composant réutilisable : ImageLightboxComponent
+
+`views/image-lightbox/` — `c-modal` xl : `images: LightboxImage[]` (`url` grand format, `thumbUrl`
+repli), `startIndex`, `visible`, output `closed`. Si le grand format échoue (`(error)`), bascule sur la
+miniature avec une mention. Navigation ‹ › et flèches clavier quand plusieurs images.
 
 ## Composant réutilisable : DownloadCardComponent
 

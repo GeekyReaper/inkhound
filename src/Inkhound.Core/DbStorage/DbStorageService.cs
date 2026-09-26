@@ -313,6 +313,51 @@ public class DbStorageService : BaseService<DbStorageOption>
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS IX_BedethequeCatalogSeries_Letter ON BedethequeCatalogSeries(Letter)");
 
+        // NewsAlbums / NewsEntries ajoutés en septembre 2026 — module News : albums vus dans les
+        // flux top ventes / nouveautés (enrichis par lots par le job News) et historique de leurs
+        // apparitions par période (semaine du classement, mois de sortie).
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS NewsAlbums (
+                Provider         TEXT    NOT NULL,
+                AlbumId          TEXT    NOT NULL,
+                SeriesTitle      TEXT    NOT NULL DEFAULT '',
+                AlbumNumber      TEXT    NULL,
+                AlbumTitle       TEXT    NULL,
+                Publisher        TEXT    NULL,
+                ReleaseDate      TEXT    NULL,
+                Category         TEXT    NULL,
+                ShortDescription TEXT    NULL,
+                CoverUrl         TEXT    NULL,
+                CoverLargeUrl    TEXT    NULL,
+                AlbumUrl         TEXT    NULL,
+                FirstSeenUtc     TEXT    NOT NULL DEFAULT '',
+                LastSeenUtc      TEXT    NOT NULL DEFAULT '',
+                SeriesId         TEXT    NULL,
+                EnrichmentJson   TEXT    NULL,
+                EnrichedAtUtc    TEXT    NULL,
+                EnrichAttempts   INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (Provider, AlbumId)
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_NewsAlbums_SeriesId ON NewsAlbums(SeriesId)");
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS NewsEntries (
+                Id             TEXT    NOT NULL PRIMARY KEY,
+                Provider       TEXT    NOT NULL DEFAULT '',
+                Feed           TEXT    NOT NULL DEFAULT '',
+                AlbumId        TEXT    NOT NULL DEFAULT '',
+                Period         TEXT    NOT NULL DEFAULT '',
+                Rank           INTEGER NULL,
+                Evolution      TEXT    NULL,
+                EvolutionDelta INTEGER NULL,
+                WeeksInChart   INTEGER NULL,
+                FetchedAtUtc   TEXT    NOT NULL DEFAULT ''
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS IX_NewsEntries_Provider_Feed_Period_AlbumId ON NewsEntries(Provider, Feed, Period, AlbumId)");
+
         // IssueTorrentBans ajouté en septembre 2026 — couple (Issue, Torrent) banni à la suppression
         // d'un téléchargement : les résultats Prowlarr correspondants sont scorés 0 (voir
         // Scoring/TorrentBanIndex). Purgé en cascade avec les issues du volume/library supprimés.

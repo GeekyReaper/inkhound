@@ -20,6 +20,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-cloud-download' }
   },
   {
+    name: 'News',
+    url: '/news',
+    iconComponent: { name: 'cil-newspaper' }
+  },
+  {
     title: true,
     name: 'Settings'
   },

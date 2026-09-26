@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 
 // Clés de tâche acceptées par POST /api/scheduler/run/{key} (cf. InkhoundManager).
-export type SchedulerTaskKey = 'ProcessDownloads' | 'RollingRefresh' | 'AutoSearch' | 'BedethequeCatalog';
+export type SchedulerTaskKey = 'ProcessDownloads' | 'RollingRefresh' | 'AutoSearch' | 'BedethequeCatalog' | 'News';
 
 export interface SchedulerTaskStatus {
   enabled: boolean;
@@ -21,6 +21,8 @@ export interface SchedulerStatus {
   autoSearchMinScore: number;
   bedethequeCatalog: SchedulerTaskStatus;
   bedethequeCatalogLetterCount: number;
+  news: SchedulerTaskStatus;
+  newsEnrichBatchSize: number;
 }
 
 export interface SchedulerConfigRequest {
@@ -36,6 +38,9 @@ export interface SchedulerConfigRequest {
   bedethequeCatalogEnabled: boolean;
   bedethequeCatalogCron: string;
   bedethequeCatalogLetterCount: number;
+  newsEnabled: boolean;
+  newsCron: string;
+  newsEnrichBatchSize: number;
 }
 
 @Injectable({ providedIn: 'root' })

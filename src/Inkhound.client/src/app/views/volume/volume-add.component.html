@@ -514,48 +514,12 @@
   </c-modal-body>
 </c-modal>
 
-<!-- Age rating modal -->
-<c-modal
+<!-- Modale d'ajout (library + age rating) — partagée avec le module News -->
+<app-volume-add-dialog
   [visible]="ageRatingModalVisible()"
-  (visibleChange)="!$event && cancelAddModal()"
-  backdrop="static">
-  <c-modal-header>
-    <h5 cModalTitle>Add to Library</h5>
-    <button cButtonClose (click)="cancelAddModal()"></button>
-  </c-modal-header>
-  <c-modal-body>
-    @if (presetLibrary(); as lib) {
-      <div class="mb-3">
-        <span class="text-body-secondary">Library :</span> <span class="fw-semibold">{{ lib.name }}</span>
-      </div>
-    } @else {
-      <div class="mb-3">
-        <label cLabel for="addLibrary">Library <span class="text-danger">*</span></label>
-        <select cSelect id="addLibrary"
-                [value]="libraryId() ?? ''"
-                (change)="libraryId.set($any($event.target).value || null)">
-          <option value="">Choose a library…</option>
-          @for (lib of libraries(); track lib.id) {
-            <option [value]="lib.id">{{ lib.name }}</option>
-          }
-        </select>
-      </div>
-    }
-    <label cLabel for="addAgeRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
-    <select cSelect id="addAgeRating"
-            [value]="selectedAgeRating()"
-            (change)="selectedAgeRating.set($any($event.target).value)">
-      <option value="">Not set</option>
-      @for (r of ageRatings; track r.value) {
-        <option [value]="r.value">{{ r.label }}</option>
-      }
-    </select>
-  </c-modal-body>
-  <c-modal-footer>
-    <button cButton color="secondary" (click)="cancelAddModal()">Cancel</button>
-    <button cButton color="primary" [disabled]="adding() || !libraryId()" (click)="confirmAdd()">
-      @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-      Add to Library
-    </button>
-  </c-modal-footer>
-</c-modal>
+  [source]="selected()?.source ?? null"
+  [sourceId]="selected()?.sourceId ?? null"
+  [title]="selected()?.title ?? null"
+  [presetLibraryId]="presetLibrary()?.id ?? null"
+  (added)="onVolumeAdded($event)"
+  (closed)="cancelAddModal()" />

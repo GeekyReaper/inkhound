@@ -60,6 +60,7 @@ import {
   cilGlobeAlt,
   cilGrid,
   cilHome,
+  cilImage,
   cilInbox,
   cilIndentDecrease,
   cilIndentIncrease,
@@ -80,6 +81,7 @@ import {
   cilMediaRecord,
   cilMenu,
   cilMoon,
+  cilNewspaper,
   cilNotes,
   cilOptions,
   cilPaperclip,
@@ -117,7 +119,8 @@ import {
   cilCopy,
   cilShieldAlt,
   cilWarning,
-  cilXCircle
+  cilXCircle,
+  cilZoom
 } from '@coreui/icons';
 
 import { signet } from './signet';
@@ -185,6 +188,7 @@ export const iconSubset = {
   cilGlobeAlt,
   cilGrid,
   cilHome,
+  cilImage,
   cilInbox,
   cilIndentDecrease,
   cilIndentIncrease,
@@ -205,6 +209,7 @@ export const iconSubset = {
   cilMediaRecord,
   cilMenu,
   cilMoon,
+  cilNewspaper,
   cilNotes,
   cilOptions,
   cilPaperclip,
@@ -243,6 +248,7 @@ export const iconSubset = {
   cilShieldAlt,
   cilWarning,
   cilXCircle,
+  cilZoom,
   logo,
   signet
 };
@@ -309,6 +315,7 @@ export enum IconSubset {
   cilGlobeAlt = 'cilGlobeAlt',
   cilGrid = 'cilGrid',
   cilHome = 'cilHome',
+  cilImage = 'cilImage',
   cilInbox = 'cilInbox',
   cilIndentDecrease = 'cilIndentDecrease',
   cilIndentIncrease = 'cilIndentIncrease',
@@ -329,6 +336,7 @@ export enum IconSubset {
   cilMediaRecord = 'cilMediaRecord',
   cilMenu = 'cilMenu',
   cilMoon = 'cilMoon',
+  cilNewspaper = 'cilNewspaper',
   cilNotes = 'cilNotes',
   cilOptions = 'cilOptions',
   cilPaperclip = 'cilPaperclip',
@@ -367,6 +375,7 @@ export enum IconSubset {
   cilShieldAlt = 'cilShieldAlt',
   cilWarning = 'cilWarning',
   cilXCircle = 'cilXCircle',
+  cilZoom = 'cilZoom',
   logo = 'logo',
   signet = 'signet'
 }

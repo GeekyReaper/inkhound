@@ -5,12 +5,13 @@ using Foundation.Core.Model;
 namespace Inkhound.Core.Models;
 
 /// <summary>
-/// Options du planificateur de jobs récurrents (service <c>Scheduler</c>). Quatre tâches
+/// Options du planificateur de jobs récurrents (service <c>Scheduler</c>). Cinq tâches
 /// indépendantes, chacune activable et pilotée par une expression cron 5 champs (heure serveur) :
 /// l'import des downloads terminés, le « rolling refresh » qui synchronise, à chaque exécution,
 /// un lot des volumes les moins récemment mis à jour depuis leur source, l'« auto search » qui
 /// recherche et envoie en téléchargement les issues Standard manquantes d'un lot de volumes, et
-/// le rafraîchissement par lot de lettres du catalogue local Bedetheque.
+/// le rafraîchissement par lot de lettres du catalogue local Bedetheque, et le rafraîchissement des
+/// flux News (top ventes, nouveautés) avec enrichissement d'un lot d'albums par flux.
 /// </summary>
 public class SchedulerOptions : IOptionList
 {
@@ -50,6 +51,15 @@ public class SchedulerOptions : IOptionList
     /// <summary>Nombre de lettres d'index rafraîchies à chaque exécution (les plus anciennes d'abord).</summary>
     public int BedethequeCatalogLetterCount { get; set; } = 3;
 
+    /// <summary>Active le rafraîchissement automatique des flux News (top ventes, nouveautés).</summary>
+    public bool NewsEnabled { get; set; } = false;
+
+    /// <summary>Expression cron (5 champs, heure serveur) pilotant le rafraîchissement des flux News.</summary>
+    public string NewsCron { get; set; } = "0 * * * *";
+
+    /// <summary>Nombre d'albums enrichis par flux à chaque exécution.</summary>
+    public int NewsEnrichBatchSize { get; set; } = 5;
+
     /// <summary>
     /// Valide les expressions cron des tâches activées. Une tâche désactivée n'est pas contrôlée :
     /// une valeur cron invalide n'a alors aucun effet et ne doit pas passer le service en INVALID.
@@ -82,6 +92,12 @@ public class SchedulerOptions : IOptionList
         if (BedethequeCatalogEnabled && BedethequeCatalogLetterCount < 1)
             errors.Add($"{nameof(BedethequeCatalogLetterCount)} must be at least 1.");
 
+        if (NewsEnabled && !CronExpression.TryParse(NewsCron, out _))
+            errors.Add($"{nameof(NewsCron)} is not a valid 5-field cron expression.");
+
+        if (NewsEnabled && NewsEnrichBatchSize < 0)
+            errors.Add($"{nameof(NewsEnrichBatchSize)} must be at least 0.");
+
         return errors.Count == 0;
     }
 
@@ -100,7 +116,10 @@ public class SchedulerOptions : IOptionList
             new() { Name = nameof(AutoSearchMinScore), Section = "Auto search", SortOrder = 80, Value = AutoSearchMinScore.ToString(), ValueType = EValueType.INT, DefaultValue = "70", Description = "Minimum score (0-100) a torrent must reach to be grabbed automatically.", Mandatory = false },
             new() { Name = nameof(BedethequeCatalogEnabled), Section = "Bedetheque catalog", SortOrder = 90, Value = BedethequeCatalogEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Automatically refresh a batch of the least-recently-fetched letters of the local Bedetheque series catalog on a schedule.", Mandatory = false },
             new() { Name = nameof(BedethequeCatalogCron), Section = "Bedetheque catalog", SortOrder = 100, Value = BedethequeCatalogCron, ValueType = EValueType.STRING, DefaultValue = "0 2 * * *", Description = "5-field cron expression (server time) — e.g. \"0 2 * * *\" every day at 02:00.", Mandatory = false },
-            new() { Name = nameof(BedethequeCatalogLetterCount), Section = "Bedetheque catalog", SortOrder = 110, Value = BedethequeCatalogLetterCount.ToString(), ValueType = EValueType.INT, DefaultValue = "3", Description = "Number of index letters (0, A-Z) refreshed per run (least-recently-fetched first).", Mandatory = false }
+            new() { Name = nameof(BedethequeCatalogLetterCount), Section = "Bedetheque catalog", SortOrder = 110, Value = BedethequeCatalogLetterCount.ToString(), ValueType = EValueType.INT, DefaultValue = "3", Description = "Number of index letters (0, A-Z) refreshed per run (least-recently-fetched first).", Mandatory = false },
+            new() { Name = nameof(NewsEnabled), Section = "News", SortOrder = 120, Value = NewsEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Automatically refresh the News feeds (top sales, new releases) and enrich a batch of pending albums on a schedule.", Mandatory = false },
+            new() { Name = nameof(NewsCron), Section = "News", SortOrder = 130, Value = NewsCron, ValueType = EValueType.STRING, DefaultValue = "0 * * * *", Description = "5-field cron expression (server time) — e.g. \"0 * * * *\" every hour.", Mandatory = false },
+            new() { Name = nameof(NewsEnrichBatchSize), Section = "News", SortOrder = 140, Value = NewsEnrichBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "5", Description = "Number of albums enriched per feed and per run (series, authors, preview pages) — one source request each.", Mandatory = false }
         };
     }
 
@@ -124,6 +143,9 @@ public class SchedulerOptions : IOptionList
                 case nameof(BedethequeCatalogEnabled): BedethequeCatalogEnabled = option.GetBool(); break;
                 case nameof(BedethequeCatalogCron): BedethequeCatalogCron = option.Value; break;
                 case nameof(BedethequeCatalogLetterCount): BedethequeCatalogLetterCount = option.GetInt(); break;
+                case nameof(NewsEnabled): NewsEnabled = option.GetBool(); break;
+                case nameof(NewsCron): NewsCron = option.Value; break;
+                case nameof(NewsEnrichBatchSize): NewsEnrichBatchSize = option.GetInt(); break;
             }
         }
 

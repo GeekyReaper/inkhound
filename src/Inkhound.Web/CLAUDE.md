@@ -19,6 +19,7 @@ Inkhound.Web/
 │   ├── OptionsController.cs      # /api/options (settings app)
 │   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque)
 │   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
+│   ├── NewsController.cs         # /api/news — flux top ventes / nouveautés, détail album, résolution série, refresh
 │   ├── ChatbotController.cs      # /api/chatbot — état d'exécution du bot Matrix + start/stop ponctuels
 │   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
 │   ├── SystemController.cs       # /api/system/memory — instantané mémoire + purge/compaction manuelle
@@ -104,8 +105,13 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
-| GET/PUT | `/api/scheduler` | admin | Config du planificateur (4 tâches cron : import downloads / rolling refresh / auto search / catalogue Bedetheque — `AutoSearchMinScore` validé 0-100 même tâche désactivée) |
-| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog`) |
+| GET/PUT | `/api/scheduler` | admin | Config du planificateur (5 tâches cron : import downloads / rolling refresh / auto search / catalogue Bedetheque / News — `AutoSearchMinScore` validé 0-100 même tâche désactivée) |
+| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog` / `News`) |
+| GET | `/api/news/top-sales?period=` | admin | Classement d'une semaine (`period` = lundi `yyyy-MM-dd`, défaut la plus récente) + semaines disponibles — lu en base |
+| GET | `/api/news/releases?category=&month=&page=&pageSize=` | admin | Nouveautés paginées (`category` Bd/Manga/Comics, `month` `yyyy-MM`) + mois disponibles — lu en base |
+| GET | `/api/news/albums/{albumId}` | admin | Détail live d'un album (enrichissement, série + albums, visuels, statut bibliothèque, apparitions) — 404 inconnu, 503 source bloquée |
+| POST | `/api/news/albums/{albumId}/resolve-series` | admin | Id de série (enrichissement à la demande) + lien bibliothèque éventuel — préalable à « Add » |
+| POST | `/api/news/refresh` | admin | Lance le job News (`{ force, enrichBatchSize? }`) → 202 `{ jobId }`, 409 si déjà en cours |
 | GET | `/api/bedetheque/catalog` | admin | État du catalogue local Bedetheque : `loaded`, `totalSeries`, `oldestFetchUtc`/`newestFetchUtc`, `refreshRunning`, `letters[27]` (`letter`, `count`, `fetchedAtUtc`) |
 | POST | `/api/bedetheque/catalog/refresh` | admin | Lance le job de refresh → `202 { jobId }`. Body `{ letterCount?, letters? }` (`letters` prioritaire, sinon rotation des `letterCount` plus anciennes, sinon les 27). `409` si un refresh est déjà en cours. |
 | GET | `/api/qbittorrent/downloads` | admin | Liste paginée des downloads (`?status=` répétable, `page`, `pageSize`). ⚠️ Le statut de chaque ligne est **réévalué depuis qBittorrent et persisté** à chaque lecture — c'est le seul endroit où `IssueDownload.Status` est rafraîchi |

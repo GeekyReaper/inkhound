@@ -20,7 +20,8 @@ Inkhound.Core/
 │   ├── SynchronizeLibraryJobParameters.cs
 │   ├── RegenerateComicInfoJobParameters.cs
 │   ├── AutoSearchVolumeJobParameters.cs  # job Auto search (VolumeId + MinScore)
-│   └── RefreshBedethequeCatalogJobParameters.cs  # job refresh catalogue Bedetheque (LetterCount / Letters)
+│   ├── RefreshBedethequeCatalogJobParameters.cs  # job refresh catalogue Bedetheque (LetterCount / Letters)
+│   └── RefreshNewsJobParameters.cs  # job News (ForceListRefresh + EnrichBatchSize)
 ├── Security/            # PasswordHasher.cs — PBKDF2/SHA-256, 100 000 itérations
 ├── ComicVine/           # Intégration API ComicVine
 │   ├── ComicVineSourceService.cs
@@ -31,6 +32,7 @@ Inkhound.Core/
 │   ├── BedethequeModels.cs
 │   ├── BedethequeOptions.cs
 │   ├── BedethequeBlockedException.cs
+│   ├── BedethequeNewsProvider.cs  # INewsProvider — top ventes bdgest.com + nouveautés (voir Module News)
 │   └── Catalog/         # Catalogue local des séries (recherche floue hors-ligne — voir section Bedetheque)
 │       ├── BedethequeCatalogEntry.cs        # entité EF (table BedethequeCatalogSeries)
 │       ├── BedethequeCatalogIndex.cs        # index mémoire + Search() (scoring par paliers)
@@ -58,6 +60,11 @@ Inkhound.Core/
 │   ├── ChatbotGatewayException.cs
 │   ├── Services/        # BdSeriesLookupService, BdLookupOutcome, InkhoundLibraryService
 │   └── Features/        # !bd-scan, !bd-search, !ocr-bd + flows de présentation et d'ajout
+├── News/                # Module News — flux top ventes / nouveautés (voir section dédiée)
+│   ├── NewsService.cs / NewsOptions.cs   # module (état = celui de la source), options des flux
+│   ├── INewsProvider.cs                  # abstraction de la source d'actualité
+│   ├── NewsAlbum.cs / NewsEntry.cs       # entités EF (tables NewsAlbums / NewsEntries)
+│   └── News*.cs                          # records : NewsScrapedEntry, NewsTopSalesSnapshot, NewsAlbumEnrichment, NewsSeriesDetail…
 ├── Blob/                # Gestion fichiers binaires (non utilisé)
 │   └── BlobService.cs
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
@@ -65,7 +72,8 @@ Inkhound.Core/
 ├── inkhoundManager.Memory.cs      # partial — instantané mémoire + purge/compaction (voir section)
 ├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
 ├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
-└── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
+├── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
+└── inkhoundManager.News.cs  # partial — job News, lectures paginées des flux, détail live d'un album
 ```
 
 ## Modèles domaine
@@ -642,7 +650,7 @@ dossier qui vient d'être supprimé.
 
 `SchedulerService` / `SchedulerOptions` (`Models/SchedulerOptions.cs`) — service à options
 (persisté dans la table `Options`, service `"Scheduler"`, aucune migration d'options : créé par le
-merge de `AutomaticLoadServices`). Quatre tâches indépendantes, chacune `Enabled` + expression
+merge de `AutomaticLoadServices`). Cinq tâches indépendantes, chacune `Enabled` + expression
 **cron 5 champs** (parsing via le package **`Cronos`**, heure serveur `TimeZoneInfo.Local`) :
 
 | Tâche (clé) | Options | Action |
@@ -650,6 +658,7 @@ merge de `AutomaticLoadServices`). Quatre tâches indépendantes, chacune `Enabl
 | `ProcessDownloads` | `ProcessDownloadsEnabled`, `ProcessDownloadsCron` | `LaunchJobProcessDownloads(new())` |
 | `RollingRefresh` | `RollingRefreshEnabled`, `RollingRefreshCron`, `RollingRefreshBatchSize` (int, défaut 10) | `RunScheduledRollingRefreshAsync` — voir ci-dessous |
 | `AutoSearch` | `AutoSearchEnabled`, `AutoSearchCron` (défaut `0 4 * * *`), `AutoSearchBatchSize` (int, défaut 5), `AutoSearchMinScore` (int 0-100, défaut 70) | `RunScheduledAutoSearchAsync` — voir « Auto search » ci-dessous |
+| `News` | `NewsEnabled`, `NewsCron` (défaut `0 * * * *`), `NewsEnrichBatchSize` (int ≥ 0, défaut 5) | `RunScheduledNewsAsync` — job News awaité (relecture des listes si périmées + enrichissement de N albums **par flux**). Voir « Module News ». |
 | `BedethequeCatalog` | `BedethequeCatalogEnabled`, `BedethequeCatalogCron` (défaut `0 2 * * *`), `BedethequeCatalogLetterCount` (int, défaut 3) | `RunScheduledBedethequeCatalogAsync` — job de refresh du catalogue local sur les N lettres les moins récemment chargées, **awaité** (la garde `_schedulerBusy` couvre toute l'exécution) ; ignoré (trace WARNING) si un refresh manuel tourne déjà. Voir section Bedetheque. |
 
 **Rolling refresh** (`RunScheduledRollingRefreshAsync`) : au lieu de rafraîchir tout le catalogue
@@ -729,8 +738,60 @@ au démarrage (`lastCheckUtc` initialisé à `DateTime.UtcNow`). `_schedulerLast
 déclenchement) est **en mémoire** — repart à vide après redémarrage.
 
 `GetSchedulerStatus()` → `SchedulerStatus` (enabled / cron / lastRunUtc / nextRunUtc / running par
-tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
+tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`, `NewsEnrichBatchSize`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
 « Run now »), `ArgumentException` si clé inconnue. Exposés par `SchedulerController` (`Inkhound.Web`).
+
+---
+
+## Module News (`News/` + `Bedetheque/BedethequeNewsProvider.cs`)
+
+Flux d'actualité BD affichés sur la page `/news` : **Top Sales** (classement hebdomadaire
+`https://www.bdgest.com/top/ventes`, historique `?semaine=yyyy-MM-dd`) et **New Releases**
+(`https://www.bedetheque.com/nouveautes`). Tout est **persisté en base** (pas de cache) pour garder
+l'historique ; la page ne lit que la base, seul le détail d'un album passe par la source en direct.
+
+- `NewsService : BaseService<NewsOptions>` (module « News » dans Settings) porte les options
+  (`ListRefreshIntervalHours` défaut 6, `MaxEnrichAttempts` défaut 3) et l'`INewsProvider` attaché
+  dans `AutomaticLoadServices` (`Attach(new BedethequeNewsProvider(bedetheque), () => bedetheque.CurrentState)`).
+  Son état **reflète l'état en cache de Bedetheque** (aucune requête réseau).
+- `BedethequeNewsProvider` passe **exclusivement** par `BedethequeSourceService` :
+  `GetDocumentAsync(url)` (méthode publique — URL relative ou absolue bdgest.com, même rate limiter,
+  même session FlareSolverr, même détection de blocage) et `GetAlbumAsync` / `GetSerieAsync`
+  (caches 24 h **partagés** avec l'ajout de volume et le refresh). Les deux sites sont derrière
+  Cloudflare : sans FlareSolverr, les flux échouent comme le reste de Bedetheque.
+- Nouveautés : **deux lectures** de la même fenêtre sans filtre d'origine — vue `Affichage=Liste`
+  (champs structurés, drapeau d'origine `europe/manga/comics.png` → `NewsCategory` Bd/Manga/Comics,
+  mois via le titre de section « Les nouveautés de {mois} {année} ») + vue `Affichage=Couverture`
+  (date exacte « Parution le : jj/mm/aaaa » dans l'attribut `title`), jointes par id d'album. La
+  pagination du site est **par mois** (`DL=MM/yyyy`) ; la page par défaut couvre ~2 mois + le mois
+  à venir (~900 albums). La pagination de l'UI se fait en base.
+- Parseurs `internal static` testés sur des extraits réels : `ParseTopSales`, `ParseReleases`,
+  `ParseReleaseDates`, `ParseFrenchMonth` (`Inkhound.Core.Tests/Bedetheque/BedethequeNewsParsingTests.cs`).
+- Visuels d'album : `BedethequeSourceService.ParseAlbumImages` alimente `BdAlbum.Images`
+  (`BdImage(Kind "Cover"/"Plate"/"Back", ThumbUrl, Url)`) depuis `a.browse-couvertures/planches/versos`,
+  **circonscrit au `<li>` de l'édition demandée** (la page liste aussi les autres éditions).
+  `ToLargeCoverUrl` : `/cache/thb_couv/X` → `/media/Couvertures/X`.
+
+**Tables** (migration `CREATE TABLE IF NOT EXISTS` dans `ApplyPendingMigrationsAsync`) :
+- `NewsAlbums` (PK `Provider` + `AlbumId`) — champs « liste » (upsert : une valeur absente n'écrase
+  jamais une valeur connue) + enrichissement (`SeriesId`, `EnrichmentJson` = `NewsAlbumEnrichment`
+  sérialisé, `EnrichedAtUtc`, `EnrichAttempts`).
+- `NewsEntries` — apparition d'un album dans un flux par `Period` (lundi `yyyy-MM-dd` pour TopSales,
+  mois `yyyy-MM` pour Releases), rang/évolution/semaines ; unique (`Provider`, `Feed`, `Period`, `AlbumId`).
+
+**Job** « News — refresh feeds » (`LaunchJobRefreshNews` / `RunScheduledNewsAsync`, verrou
+`_newsRefreshRunning`) : 1) relit chaque liste si son dernier `FetchedAtUtc` dépasse
+`ListRefreshIntervalHours` (ou `ForceListRefresh`) ; 2) enrichit `EnrichBatchSize` albums non enrichis
+**par flux** (top ventes : semaine la plus récente par rang ; nouveautés : déjà parus par date
+décroissante, puis à paraître), en ignorant ceux à `MaxEnrichAttempts` échecs. Un
+`BedethequeBlockedException` arrête le lot (pas de tentative comptée).
+
+**Lectures** : `GetNewsTopSalesAsync(period)`, `GetNewsReleasesAsync(category, month, page, pageSize)`,
+`GetNewsAlbumDetailAsync(albumId)` (enrichissement rejoué s'il manque ou date de plus de 7 jours,
+série en direct — `null` si la source échoue), `ResolveNewsAlbumSeriesAsync(albumId)` (préalable au
+bouton « Add »). Le statut « en bibliothèque » est une **seule requête** `Volumes` sur
+`SourceType == provider && SourceId ∈ seriesIds`. L'ajout lui-même réutilise
+`AddVolumeFromSourceAsync(libraryId, "bedetheque", seriesId)`.
 
 ---
 

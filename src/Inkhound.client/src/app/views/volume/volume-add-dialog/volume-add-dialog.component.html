@@ -1,0 +1,50 @@
+<c-modal
+  [visible]="visible()"
+  (visibleChange)="!$event && cancel()"
+  backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Add to Library</h5>
+    <button cButtonClose (click)="cancel()"></button>
+  </c-modal-header>
+  <c-modal-body>
+    @if (title(); as t) {
+      <div class="mb-3 fw-semibold">{{ t }}</div>
+    }
+    @if (error(); as e) {
+      <c-alert color="danger" class="py-2">{{ e }}</c-alert>
+    }
+    @if (presetLibraryName(); as name) {
+      <div class="mb-3">
+        <span class="text-body-secondary">Library :</span> <span class="fw-semibold">{{ name }}</span>
+      </div>
+    } @else {
+      <div class="mb-3">
+        <label cLabel for="addLibrary">Library <span class="text-danger">*</span></label>
+        <select cSelect id="addLibrary"
+                [value]="libraryId() ?? ''"
+                (change)="libraryId.set($any($event.target).value || null)">
+          <option value="">Choose a library…</option>
+          @for (lib of libraries(); track lib.id) {
+            <option [value]="lib.id" [selected]="lib.id === libraryId()">{{ lib.name }}</option>
+          }
+        </select>
+      </div>
+    }
+    <label cLabel for="addAgeRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
+    <select cSelect id="addAgeRating"
+            [value]="selectedAgeRating()"
+            (change)="selectedAgeRating.set($any($event.target).value)">
+      <option value="">Not set</option>
+      @for (r of ageRatings; track r.value) {
+        <option [value]="r.value">{{ r.label }}</option>
+      }
+    </select>
+  </c-modal-body>
+  <c-modal-footer>
+    <button cButton color="secondary" [disabled]="adding()" (click)="cancel()">Cancel</button>
+    <button cButton color="primary" [disabled]="adding() || !libraryId()" (click)="confirm()">
+      @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
+      Add to Library
+    </button>
+  </c-modal-footer>
+</c-modal>

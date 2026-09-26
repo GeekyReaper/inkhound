@@ -258,6 +258,65 @@
         </c-card-body>
       </c-card>
 
+      <!-- News -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>News</strong>
+          @if (status()?.news?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Each run re-scrapes the top sales and new releases lists when they are older than the News module
+            refresh interval, then enriches a batch of pending albums per feed (series, authors, preview pages)
+            — one source request per album. The feeds are shown on the <a routerLink="/news">News</a> page.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="newsEnabled" formControlName="newsEnabled" />
+            <label cFormCheckLabel for="newsEnabled">Enabled</label>
+          </c-form-check>
+
+          <c-row>
+            <c-col md="7">
+              <div class="mb-3">
+                <label cLabel for="newsCron">Cron expression</label>
+                <app-cron-editor inputId="newsCron" formControlName="newsCron" title="News — schedule" placeholder="0 * * * *" />
+              </div>
+            </c-col>
+            <c-col md="5">
+              <div class="mb-3">
+                <label cLabel for="newsEnrichBatchSize">Albums enriched per feed</label>
+                <input cFormControl id="newsEnrichBatchSize" formControlName="newsEnrichBatchSize"
+                       type="number" min="0" max="50" step="1"
+                       [class.is-invalid]="form.get('newsEnrichBatchSize')?.invalid && form.get('newsEnrichBatchSize')?.touched" />
+                <div class="form-text text-body-secondary">Per run, for top sales and for new releases each.</div>
+                @if (form.get('newsEnrichBatchSize')?.invalid && form.get('newsEnrichBatchSize')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a number between 0 and 50.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('News')" (click)="runNow('News')">
+              @if (runningNow().has('News')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.news?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.news?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
       <div class="d-flex align-items-center gap-3">
         <button cButton color="primary" type="submit" [disabled]="saving() || form.invalid">
           @if (saving()) {

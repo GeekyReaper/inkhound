@@ -83,6 +83,16 @@ export const routes: Routes = [
         data: { title: 'Downloads' }
       },
       {
+        path: 'news',
+        loadComponent: () => import('./views/news/news.component').then(m => m.NewsComponent),
+        data: { title: 'News' }
+      },
+      {
+        path: 'news/album/:albumId',
+        loadComponent: () => import('./views/news/news-album/news-album.component').then(m => m.NewsAlbumComponent),
+        data: { title: 'Album' }
+      },
+      {
         path: 'library/:id',
         loadComponent: () => import('./views/library/library-shell.component').then(m => m.LibraryShellComponent),
         resolve: { title: libraryTitleResolver },

@@ -56,4 +56,10 @@ public record BdAlbum(
     // numéro sur la page détail (alternativeheadline "Tome X") ne couvre que les tomes classiques,
     // la classification fiable vient toujours de la page liste.
     string Category = "Standard",
-    int Idx = 0);
+    int Idx = 0,
+    // Visuels de l'édition (couverture, planche d'extrait, verso) en miniature + grand format —
+    // bloc "sous-couv" de la page album, voir ParseAlbumImages.
+    IReadOnlyList<BdImage>? Images = null);
+
+/// <summary>Visuel d'un album : <c>Kind</c> = "Cover", "Plate" (planche d'extrait) ou "Back" (verso).</summary>
+public record BdImage(string Kind, string ThumbUrl, string Url);

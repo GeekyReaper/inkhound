@@ -34,10 +34,13 @@ public partial class InkhoundManager
     /// <param name="AutoSearchMinScore">Score minimum (0-100) pour qu'un torrent soit acquis automatiquement.</param>
     /// <param name="BedethequeCatalog">Tâche de rafraîchissement du catalogue local Bedetheque.</param>
     /// <param name="BedethequeCatalogLetterCount">Nombre de lettres d'index rafraîchies par exécution.</param>
+    /// <param name="News">Tâche de rafraîchissement des flux News.</param>
+    /// <param name="NewsEnrichBatchSize">Nombre d'albums enrichis par flux et par exécution.</param>
     public record SchedulerStatus(
         SchedulerTaskStatus ProcessDownloads, SchedulerTaskStatus RollingRefresh, int RollingRefreshBatchSize,
         SchedulerTaskStatus AutoSearch, int AutoSearchBatchSize, int AutoSearchMinScore,
-        SchedulerTaskStatus BedethequeCatalog, int BedethequeCatalogLetterCount);
+        SchedulerTaskStatus BedethequeCatalog, int BedethequeCatalogLetterCount,
+        SchedulerTaskStatus News, int NewsEnrichBatchSize);
 
     /// <summary>Clé de la tâche « import des downloads ».</summary>
     public const string SchedulerTaskProcessDownloads = "ProcessDownloads";
@@ -50,6 +53,9 @@ public partial class InkhoundManager
 
     /// <summary>Clé de la tâche « rafraîchissement du catalogue local Bedetheque ».</summary>
     public const string SchedulerTaskBedethequeCatalog = "BedethequeCatalog";
+
+    /// <summary>Clé de la tâche « rafraîchissement des flux News ».</summary>
+    public const string SchedulerTaskNews = "News";
 
     /// <summary>Indique si <paramref name="cron"/> est une expression cron 5 champs valide (parsing Cronos).</summary>
     public static bool IsValidCronExpression(string? cron)
@@ -113,6 +119,11 @@ public partial class InkhoundManager
                     SchedulerTaskBedethequeCatalog,
                     scheduler.BedethequeCatalogEnabled, scheduler.BedethequeCatalogCron,
                     lastCheckUtc, nowUtc, RunScheduledBedethequeCatalogAsync);
+
+                EvaluateScheduledTask(
+                    SchedulerTaskNews,
+                    scheduler.NewsEnabled, scheduler.NewsCron,
+                    lastCheckUtc, nowUtc, RunScheduledNewsAsync);
             }
             catch (Exception ex)
             {
@@ -306,7 +317,7 @@ public partial class InkhoundManager
     /// <summary>
     /// Déclenche immédiatement une tâche planifiée (bouton « Run now »). <paramref name="key"/> doit
     /// valoir <see cref="SchedulerTaskProcessDownloads"/>, <see cref="SchedulerTaskRollingRefresh"/>
-    /// <see cref="SchedulerTaskAutoSearch"/> ou <see cref="SchedulerTaskBedethequeCatalog"/>.
+    /// <see cref="SchedulerTaskAutoSearch"/>, <see cref="SchedulerTaskBedethequeCatalog"/> ou <see cref="SchedulerTaskNews"/>.
     /// </summary>
     /// <exception cref="ArgumentException">Clé de tâche inconnue.</exception>
     public void RunSchedulerTaskNow(string key)
@@ -317,13 +328,14 @@ public partial class InkhoundManager
             SchedulerTaskRollingRefresh => RunScheduledRollingRefreshAsync,
             SchedulerTaskAutoSearch => RunScheduledAutoSearchAsync,
             SchedulerTaskBedethequeCatalog => RunScheduledBedethequeCatalogAsync,
+            SchedulerTaskNews => RunScheduledNewsAsync,
             _ => throw new ArgumentException($"Unknown scheduler task '{key}'.", nameof(key))
         };
 
         FireScheduledTask(key, action);
     }
 
-    /// <summary>État courant des quatre tâches planifiées (config + dernier / prochain déclenchement).</summary>
+    /// <summary>État courant des cinq tâches planifiées (config + dernier / prochain déclenchement).</summary>
     public SchedulerStatus GetSchedulerStatus()
     {
         var scheduler = GetService<SchedulerService, SchedulerOptions>();
@@ -335,7 +347,9 @@ public partial class InkhoundManager
             scheduler.AutoSearchBatchSize,
             scheduler.AutoSearchMinScore,
             BuildTaskStatus(SchedulerTaskBedethequeCatalog, scheduler.BedethequeCatalogEnabled, scheduler.BedethequeCatalogCron),
-            scheduler.BedethequeCatalogLetterCount);
+            scheduler.BedethequeCatalogLetterCount,
+            BuildTaskStatus(SchedulerTaskNews, scheduler.NewsEnabled, scheduler.NewsCron),
+            scheduler.NewsEnrichBatchSize);
     }
 
     private SchedulerTaskStatus BuildTaskStatus(string key, bool enabled, string cron)

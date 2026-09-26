@@ -48,4 +48,13 @@ public class SchedulerService : BaseService<SchedulerOptions>
 
     /// <summary>Nombre de lettres d'index rafraîchies à chaque exécution.</summary>
     public int BedethequeCatalogLetterCount => Options.BedethequeCatalogLetterCount;
+
+    /// <summary>Rafraîchissement automatique des flux News activé.</summary>
+    public bool NewsEnabled => Options.NewsEnabled;
+
+    /// <summary>Expression cron (heure serveur) du rafraîchissement des flux News.</summary>
+    public string NewsCron => Options.NewsCron;
+
+    /// <summary>Nombre d'albums enrichis par flux à chaque exécution.</summary>
+    public int NewsEnrichBatchSize => Options.NewsEnrichBatchSize;
 }
