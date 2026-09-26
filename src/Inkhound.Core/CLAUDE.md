@@ -540,6 +540,12 @@ Le cœur « fichier → CBZ normalisé → dossier du volume → issue DOWNLOADE
 dans `ImportArchiveFileForIssueAsync(...)` (privé), partagé par `RunImportDirectoryJobAsync` et
 `RunImportIssueFileJobAsync` ; il s'appuie sur `ImportArchiveAsync` (pipeline pur, sans job).
 
+**Extensions insensibles à la casse** : la découverte des archives d'un dossier (scan de la popup
+de revue et `RunImportDirectoryJobAsync`) passe par `GetArchiveFiles` → `IsArchiveFile`, jamais par
+des motifs `Directory.GetFiles(dir, "*.cbz")` — sous Linux (Docker) ces motifs sont sensibles à la
+casse et ignoraient `.CBZ`/`.PDF`. `ArchiveService.GetFilesAsync(path, filter)` applique de même
+`MatchCasing.CaseInsensitive`.
+
 **Import sur une issue `DOWNLOADING`** : `ImportArchiveFileForIssueAsync` mémorise le statut avant
 bascule et, si l'issue était en cours de téléchargement, supprime **ses seules** lignes
 `IssueDownload` après la conversion réussie (le fichier importé rend le suivi caduc). Contrairement

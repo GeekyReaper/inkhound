@@ -872,7 +872,10 @@ public class ArchiveService : BaseService<ArchiveOption>
         Task.Run(() =>
         {
             var dir = new DirectoryInfo(path);
-            return dir.Exists ? [.. dir.GetFiles(filter)] : (List<FileInfo>)[];
+            // Insensible à la casse quel que soit l'OS : sous Linux, "*.cbz" ignorerait sinon ".CBZ"
+            return dir.Exists
+                ? [.. dir.GetFiles(filter, new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive })]
+                : (List<FileInfo>)[];
         });
 
     public async Task<EArchiveType> GetArchiveType(string filepath)

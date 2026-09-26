@@ -2838,9 +2838,7 @@ public partial class InkhoundManager : BaseServiceManager
         if (!Directory.Exists(directory))
             throw new DirectoryNotFoundException($"Directory not found: {directory}");
 
-        return _archiveExtensions
-            .SelectMany(ext => Directory.GetFiles(directory, ext))
-            .Select(f => new FileInfo(f))
+        return GetArchiveFiles(directory)
             .OrderBy(f => f.Name)
             .Select(f => new ImportScanFile(f.Name, f.Length, SourceAnalyzer.ParseIssueNumber(f.Name)))
             .ToList();
@@ -2882,9 +2880,7 @@ public partial class InkhoundManager : BaseServiceManager
 
             tempDir = archiveService.GenerateTempDirectory();
 
-            var files = _archiveExtensions
-                .SelectMany(ext => Directory.GetFiles(parameters.Directory, ext))
-                .Select(f => new FileInfo(f))
+            var files = GetArchiveFiles(parameters.Directory)
                 .OrderBy(f => f.Name)
                 .ToList();
 
@@ -3167,7 +3163,10 @@ public partial class InkhoundManager : BaseServiceManager
         }
     }
 
-    private static readonly string[] _archiveExtensions = ["*.cbz", "*.cbr", "*.pdf"];
+    // Archives importables d'un dossier. Filtre sur l'extension via IsArchiveFile plutôt qu'avec des
+    // motifs "*.cbz" : sous Linux (Docker) ces motifs sont sensibles à la casse et ignoreraient ".CBZ".
+    private static IEnumerable<FileInfo> GetArchiveFiles(string directory) =>
+        new DirectoryInfo(directory).EnumerateFiles().Where(f => IsArchiveFile(f.Name));
 
     #endregion
 
