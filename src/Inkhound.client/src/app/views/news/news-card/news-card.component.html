@@ -44,18 +44,19 @@
   </c-card-body>
 
   <c-card-footer class="p-2 d-flex gap-1 align-items-center">
+    <button cButton color="primary" size="sm" class="flex-grow-1"
+            [disabled]="busy() || !!i.library" [title]="i.library ? 'Already in a library' : 'Add this series to a library'"
+            (click)="add.emit(i)">
+      @if (busy()) { <c-spinner size="sm" class="me-1"></c-spinner> } @else { <svg cIcon name="cil-plus" size="sm" class="me-1"></svg> }
+      Add
+    </button>
     @if (libraryLink(); as link) {
-      <a cButton color="success" variant="outline" size="sm" class="flex-grow-1" [routerLink]="link">
-        <svg cIcon name="cil-library" size="sm" class="me-1"></svg>Open
+      <a cButton color="success" variant="ghost" size="sm" [routerLink]="link" title="Open in library">
+        <svg cIcon name="cil-library" size="sm"></svg>
       </a>
-    } @else {
-      <button cButton color="primary" size="sm" class="flex-grow-1" [disabled]="busy()" (click)="add.emit(i)">
-        @if (busy()) { <c-spinner size="sm" class="me-1"></c-spinner> } @else { <svg cIcon name="cil-plus" size="sm" class="me-1"></svg> }
-        Add
-      </button>
     }
     <a cButton color="secondary" variant="ghost" size="sm" [routerLink]="['/news/album', i.albumId]" title="Details">
-      <svg cIcon name="cil-magnifying-glass" size="sm"></svg>
+      <svg cIcon name="cil-info" size="sm"></svg>
     </a>
   </c-card-footer>
 </c-card>

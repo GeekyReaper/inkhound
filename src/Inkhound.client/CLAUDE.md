@@ -277,7 +277,7 @@ src/
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |
 | `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
-| `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → `ImageLightboxComponent` ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`) |
+| `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → `ImageLightboxComponent` ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`). « Add » est **grisé** si la série est déjà en bibliothèque (icône « Open in library » à côté), détail via l'icône `cil-info`. Onglet, semaine du top ventes, filtres/mois/page des nouveautés et scroll par onglet persistés par `NewsViewStateService` (voir ci-dessous) |
 | `/news/album/:albumId` | `NewsAlbumComponent` | Détail live d'un album : cover + visuels (planche d'extrait, verso) en visionneuse, fiche album, fiche série + grille de ses albums (liens vers leur propre détail), Add / Open in library |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
@@ -646,6 +646,19 @@ filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewState
 - **Remontée en tête de liste** : ancre `#volumesTop` (+ `scroll-margin-top` pour le header sticky,
   `library.component.scss`) ; `scrollToVolumesTop()` appelé par `goToPage()` et les setters de
   filtre discrets (`resetPaging()`), **pas** par `onSearch()`.
+
+### NewsViewStateService — persistance de la page News
+
+`NewsComponent` est détruit à l'ouverture d'un détail d'album. `NewsViewStateService`
+(`sessionStorage`, même pattern que `LibraryViewStateService`) mémorise
+`{ tab, topSalesPeriod, category, month, page, scrollTopSales, scrollReleases }`.
+- Onglet : `?tab=` prioritaire, sinon dernier onglet utilisé (reflété dans l'URL en `replaceUrl`).
+- Filtres/semaine/page : restaurés à **chaque** arrivée, sauvegardés par un `effect()`.
+- Scroll : un par onglet, pisté par `fromEvent(window,'scroll')` (`auditTime`) + commit au
+  `onDestroy` ; restauré **uniquement** au retour (`navTracker.isReturnInto('/news')` : depuis
+  `/news/album/…` — lien « Back to News » compris — ou back/forward navigateur), double rAF +
+  relance à 300 ms une fois la liste de l'onglet chargée. Aucune sauvegarde tant qu'une
+  restauration est en attente (sinon le scroll-to-top du `RouterScroller` écraserait la position).
 
 ## Composant réutilisable : SelectPathComponent
 

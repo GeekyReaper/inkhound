@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { fromEvent } from 'rxjs';
+import { auditTime } from 'rxjs/operators';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -31,12 +33,12 @@ import {
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { libraryPageKey } from '../../core/services/library.service';
+import { NewsTab, NewsViewStateService } from '../../core/services/news-view-state.service';
+import { NavigationTrackerService } from '../../core/services/navigation-tracker.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { ImageLightboxComponent, LightboxImage } from '../image-lightbox/image-lightbox.component';
 import { AddedVolume, VolumeAddDialogComponent } from '../volume/volume-add-dialog/volume-add-dialog.component';
 import { NewsCardComponent } from './news-card/news-card.component';
-
-type NewsTab = 'top-sales' | 'releases';
 
 // Module News : deux onglets alimentés par la base (historisée par le job News) —
 // « Top Sales » (classement hebdomadaire, sélecteur de semaine) et « New Releases » (filtre
@@ -59,24 +61,31 @@ export class NewsComponent {
   private readonly news     = inject(NewsService);
   private readonly hub      = inject(HubService);
   private readonly pageJobs = inject(PageJobService);
+  private readonly viewState  = inject(NewsViewStateService);
+  private readonly navTracker = inject(NavigationTrackerService);
   readonly #destroyRef      = inject(DestroyRef);
+
+  // État mémorisé (onglet, filtres, scroll) — restauré à l'arrivée, cf. NewsViewStateService.
+  private readonly saved = this.viewState.get();
 
   private readonly pageKey = '/news';
   readonly pageSize = 24;
   readonly categories = NEWS_CATEGORIES;
 
-  readonly tab = signal<NewsTab>(this.route.snapshot.queryParamMap.get('tab') === 'releases' ? 'releases' : 'top-sales');
+  // ?tab= prioritaire (lien direct, back navigateur), sinon dernier onglet utilisé.
+  readonly tab = signal<NewsTab>(this.initialTab());
 
   // ── Top Sales ─────────────────────────────────────────────────────────────
   readonly topSales        = signal<NewsTopSales | null>(null);
   readonly topSalesLoading = signal(false);
+  readonly topSalesPeriod  = signal<string | null>(this.saved.topSalesPeriod);
 
   // ── New Releases ──────────────────────────────────────────────────────────
   readonly releases        = signal<NewsReleases | null>(null);
   readonly releasesLoading = signal(false);
-  readonly category        = signal<NewsCategory | null>(null);
-  readonly month           = signal<string | null>(null);
-  readonly page            = signal(1);
+  readonly category        = signal<NewsCategory | null>(this.saved.category);
+  readonly month           = signal<string | null>(this.saved.month);
+  readonly page            = signal(this.saved.page);
 
   readonly error = signal<string | null>(null);
 
@@ -106,8 +115,63 @@ export class NewsComponent {
   readonly lightboxImages = signal<LightboxImage[]>([]);
   readonly lightboxOpen   = signal(false);
 
+  // ── Scroll ────────────────────────────────────────────────────────────────
+  // Position à restaurer une fois la liste de l'onglet rendue — posée uniquement quand on
+  // « revient » sur la page (détail d'un album, back navigateur), cf. NavigationTrackerService.
+  private pendingScrollY: number | null = null;
+  private lastScrollY = 0;
+
   constructor() {
+    if (this.navTracker.isReturnInto(this.pageKey)) {
+      const y = this.tab() === 'top-sales' ? this.saved.scrollTopSales : this.saved.scrollReleases;
+      this.pendingScrollY = y > 0 ? y : null;
+    }
+    // Onglet restauré depuis l'état mémorisé : on le reflète dans l'URL (back navigateur cohérent).
+    if (this.route.snapshot.queryParamMap.get('tab') !== this.tab()) {
+      this.router.navigate([], { relativeTo: this.route, queryParams: { tab: this.tab() }, replaceUrl: true });
+    }
+
     this.loadCurrentTab();
+
+    // Sauvegarde réactive de l'onglet et des filtres.
+    effect(() => {
+      this.viewState.patch({
+        tab: this.tab(),
+        topSalesPeriod: this.topSalesPeriod(),
+        category: this.category(),
+        month: this.month(),
+        page: this.page(),
+      });
+    });
+
+    // Position de scroll de l'onglet courant, pistée en continu (hors chargement / restauration
+    // en attente — sinon le scroll-to-top du RouterScroller écraserait la position mémorisée).
+    fromEvent(window, 'scroll')
+      .pipe(auditTime(150), takeUntilDestroyed(this.#destroyRef))
+      .subscribe(() => {
+        if (this.pendingScrollY !== null || this.currentTabLoading()) return;
+        this.lastScrollY = window.scrollY;
+        this.saveScroll(window.scrollY);
+      });
+
+    // Restauration du scroll une fois la liste rendue : double rAF + relance à 300 ms pour passer
+    // après le scroll-to-top asynchrone du RouterScroller et la view transition (même recette que
+    // LibraryComponent).
+    effect(() => {
+      const loading = this.currentTabLoading();
+      void this.topSales();
+      void this.releases();
+      const y = this.pendingScrollY;
+      if (y === null || loading) return;
+      const apply = () => { window.scrollTo(0, y); this.lastScrollY = y; };
+      requestAnimationFrame(() => requestAnimationFrame(apply));
+      setTimeout(() => { apply(); this.pendingScrollY = null; }, 300);
+    });
+
+    // Commit final à la destruction (ouverture d'un détail) — window.scrollY peut déjà valoir 0.
+    this.#destroyRef.onDestroy(() => {
+      if (this.pendingScrollY === null) this.saveScroll(window.scrollY || this.lastScrollY);
+    });
 
     effect(() => {
       const job = this.currentJob();
@@ -122,8 +186,23 @@ export class NewsComponent {
     });
   }
 
+  private initialTab(): NewsTab {
+    const q = this.route.snapshot.queryParamMap.get('tab');
+    if (q === 'releases' || q === 'top-sales') return q;
+    return this.saved.tab;
+  }
+
+  private currentTabLoading(): boolean {
+    return this.tab() === 'top-sales' ? this.topSalesLoading() : this.releasesLoading();
+  }
+
+  private saveScroll(y: number): void {
+    this.viewState.patch(this.tab() === 'top-sales' ? { scrollTopSales: y } : { scrollReleases: y });
+  }
+
   selectTab(tab: NewsTab): void {
     if (this.tab() === tab) return;
+    this.pendingScrollY = null;
     this.tab.set(tab);
     this.router.navigate([], { relativeTo: this.route, queryParams: { tab }, replaceUrl: true });
     this.loadCurrentTab();
@@ -131,19 +210,20 @@ export class NewsComponent {
 
   private loadCurrentTab(): void {
     if (this.tab() === 'top-sales') {
-      if (!this.topSales()) this.loadTopSales(null);
+      if (!this.topSales()) this.loadTopSales(this.topSalesPeriod());
     } else if (!this.releases()) {
       this.loadReleases();
     }
   }
 
   loadTopSales(period: string | null): void {
+    this.topSalesPeriod.set(period);
     this.topSalesLoading.set(true);
     this.error.set(null);
     this.news.getTopSales(period)
       .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next:  res => { this.topSales.set(res); this.topSalesLoading.set(false); },
+        next:  res => { this.topSales.set(res); this.topSalesPeriod.set(res.period); this.topSalesLoading.set(false); },
         error: err => { this.error.set(err?.error?.message ?? 'Failed to load top sales.'); this.topSalesLoading.set(false); }
       });
   }

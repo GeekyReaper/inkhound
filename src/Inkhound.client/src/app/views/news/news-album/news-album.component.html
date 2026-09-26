@@ -84,10 +84,10 @@
       }
 
       <div class="d-flex flex-wrap gap-2">
+        <button cButton color="primary" [disabled]="!!d.library" [title]="d.library ? 'Already in a library' : 'Add this series to a library'"
+                (click)="addOpen.set(true)"><svg cIcon name="cil-plus" class="me-1"></svg>Add series</button>
         @if (libraryLink(); as link) {
-          <a cButton color="success" [routerLink]="link"><svg cIcon name="cil-library" class="me-1"></svg>Open in library</a>
-        } @else {
-          <button cButton color="primary" (click)="addOpen.set(true)"><svg cIcon name="cil-plus" class="me-1"></svg>Add series</button>
+          <a cButton color="success" variant="outline" [routerLink]="link"><svg cIcon name="cil-library" class="me-1"></svg>Open in library</a>
         }
         @if (a.url) {
           <a cButton color="secondary" variant="outline" [href]="a.url" target="_blank" rel="noopener">
