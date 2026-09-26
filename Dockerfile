@@ -44,6 +44,11 @@ COPY --from=dotnet-build /publish ./
 ENV APP_PORT=8080
 EXPOSE ${APP_PORT}
 
+# Échelle 0-9 : demande au GC de privilégier la compaction (donc la restitution de mémoire à l'OS)
+# sur le débit d'allocation. Complète le Workstation GC déclaré dans Inkhound.Web.csproj et la
+# limite mémoire du docker-compose.
+ENV DOTNET_GCConserveMemory=5
+
 ARG APP_VERSION=debug
 ENV APP_VERSION=$APP_VERSION
 

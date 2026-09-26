@@ -4,6 +4,17 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Empreinte mémoire — le SDK Web active le Server GC par défaut (un heap par cœur logique,
+         collectes tardives), ce qui faisait grimper le RSS du conteneur à ~1,5 Go sans jamais
+         redescendre. Inkhound est une app self-hosted mono-utilisateur : le Workstation GC (un
+         seul heap, collectes bien plus fréquentes) est le bon compromis, et le déclarer ici — et
+         non en variable d'environnement du Dockerfile — aligne le comportement local et Docker.
+         InvariantGlobalization doit rester à false : BedethequeTitleNormalizer dépend des
+         comparaisons culturelles. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

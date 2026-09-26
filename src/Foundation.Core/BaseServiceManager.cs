@@ -31,10 +31,20 @@ public abstract class BaseServiceManager
     // mutation ultérieure (SetState, progression) sans hook supplémentaire.
     private readonly ConcurrentDictionary<Guid, JobContext> _recentJobs = new();
 
+    // Caches mémoire détenus par le manager lui-même (les caches des services sont découverts via
+    // IPurgeableCacheProvider). Purgés de leurs entrées expirées à chaque tick de monitoring.
+    private readonly List<IPurgeableCache> _managedCaches = [];
+
     // Durée de conservation d'un job APRÈS complétion (SUCCESS/ERROR) avant purge. Volontairement
     // courte — contrairement à InkhoundManager._searchResults qui persiste les résultats sans
     // limite, ce cache ne vise qu'à couvrir une brève fenêtre de reconnexion, pas un historique.
     protected virtual TimeSpan JobRetention => TimeSpan.FromMinutes(15);
+
+    // Plafond absolu, quel que soit l'état du job. Sans lui, un job qui meurt sans passer par
+    // EndJob (exception avalée en amont, boucle interrompue) n'a ni état terminal ni EndDate : il
+    // échappe à la purge ci-dessus et retient son JobContext — et tout ce que celui-ci référence —
+    // pour la durée de vie du process.
+    protected virtual TimeSpan JobHardRetention => TimeSpan.FromHours(6);
 
     public BaseServiceManager()
     {
@@ -79,9 +89,81 @@ public abstract class BaseServiceManager
 
     public void StartGlobalMonitoring()
     {
+        // Annuler l'ancien avant d'en créer un neuf : sinon un second appel laisse la première
+        // boucle PeriodicTimer tourner à vie (double healthcheck, double purge, et une boucle qui
+        // survit à l'arrêt de l'host puisque StopMonitoring n'a alors plus de prise sur elle).
+        var previous = _monitoringCts;
         _monitoringCts = new CancellationTokenSource();
+        previous?.Cancel();
+        previous?.Dispose();
+
         // On lance la tâche sur un thread de pool pour ne pas bloquer l'appelant
         Task.Run(async () => await MonitoringLoopAsync(RefreshState, _monitoringCts.Token));
+    }
+
+    /// <summary>
+    /// Enregistre un cache détenu par le manager pour qu'il soit purgé de ses entrées expirées à
+    /// chaque tick de monitoring, et vidé par <see cref="PurgeAllCaches"/>.
+    /// </summary>
+    protected void RegisterCache(IPurgeableCache cache)
+    {
+        lock (_managedCaches)
+        {
+            if (!_managedCaches.Contains(cache))
+                _managedCaches.Add(cache);
+        }
+    }
+
+    /// <summary>
+    /// Tous les caches connus : ceux du manager et ceux exposés par les services.
+    /// </summary>
+    public IReadOnlyList<IPurgeableCache> GetAllCaches()
+    {
+        List<IPurgeableCache> all;
+        lock (_managedCaches)
+        {
+            all = [.. _managedCaches];
+        }
+
+        foreach (var provider in Services.Values.OfType<IPurgeableCacheProvider>())
+            all.AddRange(provider.GetPurgeableCaches());
+
+        return all;
+    }
+
+    /// <summary>
+    /// Vide intégralement tous les caches connus. Retourne le nombre total d'entrées retirées.
+    /// </summary>
+    public int PurgeAllCaches()
+    {
+        var removed = 0;
+        foreach (var cache in GetAllCaches())
+        {
+            try
+            {
+                removed += cache.PurgeCache();
+            }
+            catch (Exception ex)
+            {
+                JobSendTrace($"Purge du cache {cache.CacheName} échouée : {ex.Message}", ETraceLevel.WARNING);
+            }
+        }
+        return removed;
+    }
+
+    private void PurgeExpiredCacheEntries()
+    {
+        foreach (var cache in GetAllCaches())
+        {
+            try
+            {
+                cache.PurgeExpiredEntries();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erreur lors de la purge du cache {cache.CacheName}: {ex.Message}");
+            }
+        }
     }
 
     private async Task MonitoringLoopAsync(TimeSpan delay, CancellationToken ct)
@@ -109,6 +191,7 @@ public abstract class BaseServiceManager
                 CalculateGlobalState();
                 OnHealthcheck?.Invoke(CurrentState);
                 PurgeExpiredJobs();
+                PurgeExpiredCacheEntries();
             }
             while (await timer.WaitForNextTickAsync(ct));
         }
@@ -170,6 +253,13 @@ public abstract class BaseServiceManager
         {
             var isTerminal = job.State is JobState.SUCCESS or JobState.ERROR;
             if (isTerminal && job.EndDate.HasValue && now - job.EndDate.Value > JobRetention)
+            {
+                _recentJobs.TryRemove(id, out _);
+                continue;
+            }
+
+            // Filet contre les jobs zombies — voir JobHardRetention.
+            if (now - job.StartDate > JobHardRetention)
                 _recentJobs.TryRemove(id, out _);
         }
     }

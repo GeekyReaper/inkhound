@@ -6,5 +6,12 @@ services:
     environment:
       - APP_PORT=${APP_PORT:-8080}
       - ASPNETCORE_ENVIRONMENT=Production
+    # Sans limite cgroup, le GC .NET prend la RAM de l'hôte entier comme budget et n'a jamais de
+    # raison de compacter. Avec une limite, le runtime pose automatiquement un GCHeapHardLimit à
+    # 75 % de celle-ci — c'est le levier le plus efficace sur le RSS observé.
+    mem_limit: 1g
+    memswap_limit: 1g
     volumes:
-      - ./data/system:/app/data/system
+      # Tout data/ est monté : la base SQLite (data/inkhound.db) et les images uploadées
+      # (data/images) y vivent aussi, pas seulement data/system (jwt-key.json).
+      - ./data:/app/data

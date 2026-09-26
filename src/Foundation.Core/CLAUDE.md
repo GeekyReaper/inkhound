@@ -8,6 +8,7 @@ Tout ce qui est réutilisable indépendamment du domaine métier vit ici.
 - `BaseService<T>` — classe de base pour tout service externe (Kavita, ComicVine, etc.) : cycle de vie, options, état, traces
 - `BaseServiceManager` — orchestrateur des services : gère le registre de services, le monitoring d'état, et le système de jobs
 - `RateLimiter` — limitation de débit pour les appels API externes
+- `ExpiringCache<TKey, TValue>` — cache mémoire borné par TTL **et** par nombre d'entrées (voir section dédiée)
 - `Interface/Common.cs` — interfaces génériques partagées (`IJobParameters`, `IService`, etc.)
 - `Model/Context.cs` — `JobContext`, `Progression`, `ProgressionCallback`
 - `Model/Definition.cs` — `TraceDefinition`, `ETraceLevel`
@@ -138,6 +139,53 @@ Le service appelle `callback.UpdateTotal(n)` et `callback.Callback(progression)`
 
 ---
 
+## `ExpiringCache<TKey, TValue>` et le contrat de purge
+
+Cache mémoire borné, thread-safe, sans dépendance NuGet (contrainte du projet — pas d'`IMemoryCache`).
+Il remplace les `ConcurrentDictionary` nus qui servaient de caches dans le domaine et ne relâchaient
+jamais rien : soit aucune éviction du tout (`_searchResults`, `_prowlarrResults`,
+`_prowlarrVolumeResults` d'`InkhoundManager`), soit un TTL **vérifié uniquement à la lecture**
+(`_serieCache`/`_albumCache` de `BedethequeSourceService`) — une entrée plus jamais relue n'était
+alors jamais évincée.
+
+```csharp
+private readonly ExpiringCache<int, BdAlbum> _albumCache =
+    new("Bedetheque albums", TimeSpan.FromHours(24), maxEntries: 1024);
+```
+
+Deux points de purge complémentaires :
+- **paresseuse** — à chaque `Set` (entrées expirées + éviction de la plus ancienne au-delà du plafond),
+  et contrôle d'expiration à chaque `TryGet` ;
+- **périodique** — `PurgeExpiredEntries()`, appelée par `BaseServiceManager` à chaque tick de sa
+  boucle de monitoring (30 s), à côté de `PurgeExpiredJobs`. C'est ce second point qui garantit qu'un
+  cache devenu inactif finit par se vider.
+
+### Comment un cache devient visible du manager
+
+| Interface (`Interface/Common.cs`) | Implémentée par |
+|---|---|
+| `IPurgeableCache` (`CacheName`, `CachedEntryCount`, `PurgeExpiredEntries()`, `PurgeCache()`) | `ExpiringCache<TKey, TValue>` |
+| `IPurgeableCacheProvider` (`GetPurgeableCaches()`) | Un **service** qui détient des caches (ex. `BedethequeSourceService`) |
+
+- Un cache détenu par le **manager** s'enregistre avec `RegisterCache(cache)` (voir le constructeur
+  d'`InkhoundManager`).
+- Un cache détenu par un **service** est découvert via `Services.Values.OfType<IPurgeableCacheProvider>()`,
+  même mécanique que `OfType<ISourceService>()` — le manager ne connaît pas le service.
+- `GetAllCaches()` agrège les deux, `PurgeAllCaches()` les vide tous (exposé par
+  `POST /api/system/memory/compact`).
+
+### Deux pièges corrigés dans `BaseServiceManager`
+
+- **`StartGlobalMonitoring()`** remplaçait `_monitoringCts` **sans annuler l'ancien** : un second
+  appel laissait la première boucle `PeriodicTimer` tourner à vie (double healthcheck, double purge,
+  et une boucle hors de portée de `StopMonitoring`). Elle annule et dispose désormais le précédent.
+- **`PurgeExpiredJobs()`** ne retirait que les jobs terminaux **avec `EndDate`** : un job mort sans
+  passer par `EndJob` (exception avalée en amont) n'avait ni l'un ni l'autre et retenait son
+  `JobContext` — et tout ce qu'il référence — pour la durée de vie du process. D'où
+  `JobHardRetention` (6 h depuis `StartDate`), un plafond absolu quel que soit l'état.
+
+---
+
 ## Socle Chatbot (`Chatbot/`)
 
 Mécanique générique d'un bot **Matrix** exposé comme module (un `BaseService` de plus), portée
@@ -167,7 +215,7 @@ Chatbot/
 
 | Tentation | Remplacement |
 |---|---|
-| `Microsoft.Extensions.Caching.Memory` | `VisionAnalysisCache` réécrit sur `ConcurrentDictionary` (purge paresseuse + éviction du plus ancien) |
+| `Microsoft.Extensions.Caching.Memory` | `VisionAnalysisCache` réécrit sur `ConcurrentDictionary` (purge paresseuse + éviction du plus ancien) ; pour tout nouveau cache, préférer `ExpiringCache<TKey, TValue>` |
 | `Microsoft.Extensions.Logging.Abstractions` | `IChatTrace` → `BaseService.SendTrace` → SignalR |
 | `Microsoft.Extensions.Options` | POCO (`AnthropicVisionSettings`, `GoogleVisionSettings`) reconstruits depuis les options du module |
 
@@ -285,6 +333,7 @@ couvertures (couche métier) peut l'emprunter.
 ## Quand ajouter quelque chose ici
 
 ✅ Un mécanisme de rate limiting générique
+✅ Un cache mémoire borné générique (c'est `ExpiringCache`)
 ✅ Un wrapper de retry générique
 ✅ Une abstraction de service avec état (Init/Running/Done)
 ❌ Un modèle `Volume` ou `Issue` — ça va dans `Inkhound.Core/Models`

@@ -36,7 +36,11 @@ public class KavitaService : BaseService<KavitaOptions>
         Options.LoadOptions(optionList, out _);
         _token = null;
         _tokenExpiry = DateTime.MinValue;
+        // Disposer l'ancien client : son HttpClientHandler garde son pool de connexions (et ses
+        // sockets) jusqu'à finalisation, donc chaque sauvegarde d'options en laissait un orphelin.
+        var oldHttp = _http;
         _http = BuildHttpClient();
+        oldHttp?.Dispose();
         return await base.LoadOptions(optionList);
     }
 

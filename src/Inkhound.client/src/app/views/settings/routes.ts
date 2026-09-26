@@ -37,6 +37,11 @@ export const routes: Routes = [
     data: { title: 'Bedetheque catalog' }
   },
   {
+    path: 'system',
+    loadComponent: () => import('./system.component').then(m => m.SystemSettingsComponent),
+    data: { title: 'System' }
+  },
+  {
     path: 'chatbot',
     loadComponent: () => import('./chatbot.component').then(m => m.ChatbotSettingsComponent),
     data: { title: 'Chatbot' }

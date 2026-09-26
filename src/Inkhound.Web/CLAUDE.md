@@ -21,6 +21,7 @@ Inkhound.Web/
 │   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
 │   ├── ChatbotController.cs      # /api/chatbot — état d'exécution du bot Matrix + start/stop ponctuels
 │   ├── DashboardController.cs    # GET /api/dashboard/stats — agrégats + « Most wanted »
+│   ├── SystemController.cs       # /api/system/memory — instantané mémoire + purge/compaction manuelle
 │   ├── Dtos/DownloadItemDto.cs   # DTO d'une ligne de download (dont CoverUrl : vignette de
 │   │                             #   l'issue, à défaut du volume), partagé QBittorrent/Issue/Volume
 │   └── JobsController.cs         # GET /api/jobs/{id} — statut d'un job (filet de rattrapage HTTP)
@@ -118,6 +119,8 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | POST | `/api/chatbot/start`, `/api/chatbot/stop` | admin | Démarre/arrête la boucle de synchronisation, effet immédiat. Ne modifie **pas** l'option `StartAtStartup`, qui ne pilote que le lancement automatique au démarrage de l'application. La configuration passe par `/api/options` comme pour tout module |
 | GET | `/api/jobs/{id}` | auth | Statut courant d'un job (filet de rattrapage HTTP, voir section Jobs) |
 | GET | `/api/dashboard/stats` | auth | Agrégats du Dashboard : KPI globaux, stats par library, volumes récents, et `mostWanted` (issues `MISSING` proches de compléter leur volume — voir `Inkhound.Core/CLAUDE.md`) |
+| GET | `/api/system/memory` | admin | Instantané mémoire (working set, tas managé, fragmentation, budget GC, compteurs de collectes, `caches[]`). Lecture pure, aucune collecte déclenchée |
+| POST | `/api/system/memory/compact` | admin | Vide tous les caches applicatifs puis force une collecte compactante (LOH inclus). **Bloquant ~1 s** ; ne récupère que le managé. Retourne `{ before, after, cacheEntriesRemoved, bytesFreed, durationSeconds }` |
 
 ## Jobs — exposition via les controllers
 
@@ -194,6 +197,20 @@ Exception                   → 500 (message générique en prod)
 ```
 
 Toujours enregistrer `app.UseMiddleware<ExceptionMiddleware>()` **en premier** dans le pipeline.
+
+## Empreinte mémoire — ce que fait `Program.cs`
+
+Voir le `CLAUDE.md` racine pour l'ensemble des réglages. Trois points propres à ce projet :
+
+- **`ImageProcessingSetup.Configure()` est appelé en tête de `Program.cs`**, avant la construction du
+  builder : le plafond du pool mémoire d'ImageSharp doit être posé avant tout décodage d'image du
+  process. Ne pas déplacer cet appel plus bas.
+- **`<ServerGarbageCollection>false</ServerGarbageCollection>` dans `Inkhound.Web.csproj`** — le SDK
+  Web active le Server GC par défaut. ⚠️ La propriété s'appelle `ServerGarbageCollection`, **pas**
+  `ServerGarbageCollector` : le mauvais nom compile sans broncher et ne fait rien. Vérifier
+  `System.GC.Server` dans le `runtimeconfig.json` généré après toute modification.
+- **Swagger est derrière `app.Environment.IsDevelopment()`** — le document OpenAPI était matérialisé
+  en mémoire en production sans aucun consommateur.
 
 ## Logging
 

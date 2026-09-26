@@ -12,6 +12,9 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
+// Doit précéder tout décodage d'image du process — voir ImageProcessingSetup.
+Inkhound.Core.CbzQuality.ImageProcessingSetup.Configure();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ── JWT key — load from JSON file, generate on first run ──────────────────────
@@ -135,8 +138,12 @@ var app = builder.Build();
 
 app.UseMiddleware<ExceptionMiddleware>();
 
-app.UseSwagger();
-app.UseSwaggerUI();
+// Le document OpenAPI est matérialisé en mémoire dès la première requête : inutile en production.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions

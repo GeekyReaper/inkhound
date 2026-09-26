@@ -17,7 +17,7 @@ namespace Inkhound.Core.Bedetheque;
 // Intégration bedetheque.com (site scrapé, pas d'API publique) — Serie = Volume, Album = Issue.
 // Logique de scraping réécrite ici à partir de zéro (aucune dépendance vers un projet tiers) ;
 // seul le parseur HTML (HtmlAgilityPack) est un package NuGet standard.
-public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceService
+public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceService, IPurgeableCacheProvider
 {
     private const string SourceKeyConst = "bedetheque";
     public string SourceKey => SourceKeyConst;
@@ -41,15 +41,24 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     private string? _flareSolverrSessionId;
     private readonly SemaphoreSlim _flareSolverrLock = new(1, 1);
 
-    // Cache mémoire (24h, par instance) des informations de série — voir GetOrFetchSerieAsync.
+    // Caches mémoire (24h, par instance) des séries et des albums scrapés — voir
+    // GetOrFetchSerieAsync et GetAlbumAsync.
+    //
+    // ExpiringCache et non ConcurrentDictionary : le TTL était auparavant vérifié uniquement à la
+    // lecture, donc une entrée plus jamais relue n'était jamais évincée. Un rolling refresh sur
+    // toute la bibliothèque y laissait une série/un album complet (description, auteurs, liste
+    // d'albums) par entité vue depuis le démarrage, définitivement. Le plafond d'entrées borne en
+    // plus le pire cas ; les entrées les plus anciennes sont évincées d'abord.
     private static readonly TimeSpan SerieCacheDuration = TimeSpan.FromHours(24);
-    private readonly ConcurrentDictionary<int, SerieCacheEntry> _serieCache = new();
-    private sealed record SerieCacheEntry(BdSerie Detail, DateTime CachedAtUtc, bool Complete);
+    private const int SerieCacheMaxEntries = 256;
+    private readonly ExpiringCache<int, SerieCacheEntry> _serieCache =
+        new("Bedetheque series", SerieCacheDuration, SerieCacheMaxEntries);
+    private sealed record SerieCacheEntry(BdSerie Detail, bool Complete);
 
-    // Cache mémoire (24h, par instance) des détails d'album — voir GetAlbumAsync.
     private static readonly TimeSpan AlbumCacheDuration = TimeSpan.FromHours(24);
-    private readonly ConcurrentDictionary<int, AlbumCacheEntry> _albumCache = new();
-    private sealed record AlbumCacheEntry(BdAlbum Detail, DateTime CachedAtUtc);
+    private const int AlbumCacheMaxEntries = 1024;
+    private readonly ExpiringCache<int, BdAlbum> _albumCache =
+        new("Bedetheque albums", AlbumCacheDuration, AlbumCacheMaxEntries);
 
     public BedethequeSourceService()
     {
@@ -73,7 +82,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     public override async Task<bool> LoadOptions(List<OptionDefinition> optionList)
     {
         Options.LoadOptions(optionList, out _);
+        // Disposer l'ancien client : son HttpClientHandler garde son pool de connexions (et ses
+        // sockets) jusqu'à finalisation, donc chaque sauvegarde d'options en laissait un orphelin.
+        var oldHttp = _http;
         _http = BuildHttpClient();
+        oldHttp?.Dispose();
 
         // La config FlareSolverr a pu changer (URL, activation) — on jette l'ancien client/session
         // et on en reconstruit un neuf paresseusement au prochain appel.
@@ -230,11 +243,10 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     private async Task<BdSerie?> GetOrFetchSerieAsync(int id, bool requireComplete, CancellationToken ct, bool forceRefresh = false)
     {
         if (!forceRefresh
-            && _serieCache.TryGetValue(id, out var cached)
-            && DateTime.UtcNow - cached.CachedAtUtc < SerieCacheDuration
-            && (!requireComplete || cached.Complete))
+            && _serieCache.TryGet(id, out var cached)
+            && (!requireComplete || cached!.Complete))
         {
-            return CloneSerie(cached.Detail);
+            return CloneSerie(cached!.Detail);
         }
 
         // Bedetheque pagine la liste des albums d'une série à 10 par page ; "__10000" est le
@@ -252,7 +264,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         // les séries courtes même via le fetch léger (page 1), donc un futur appel requireComplete
         // peut réutiliser cette entrée sans refetch.
         var complete = detail.NombreAlbums is not { } total || total <= detail.Albums.Count;
-        _serieCache[id] = new SerieCacheEntry(detail, DateTime.UtcNow, complete);
+        _serieCache.Set(id, new SerieCacheEntry(detail, complete));
         return CloneSerie(detail);
     }
 
@@ -300,8 +312,8 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     // dans la même session.
     public async Task<BdAlbum?> GetAlbumAsync(int id, CancellationToken ct = default)
     {
-        if (_albumCache.TryGetValue(id, out var cached) && DateTime.UtcNow - cached.CachedAtUtc < AlbumCacheDuration)
-            return CloneAlbum(cached.Detail);
+        if (_albumCache.TryGet(id, out var cached))
+            return CloneAlbum(cached!);
 
         var url = $"/BD-x-Tome-1-x-{id}.html";
         var html = await GetHtmlAsync(url, referer: Options.BaseUrl, ct: ct);
@@ -310,12 +322,18 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         var album = ParseAlbum(doc, id, $"{Options.BaseUrl}{url}");
         if (album is null) return null;
 
-        _albumCache[id] = new AlbumCacheEntry(album, DateTime.UtcNow);
+        _albumCache.Set(id, album);
         return CloneAlbum(album);
     }
 
     // Copie superficielle (+ nouvelle liste Auteurs) — même raison que CloneSerie ci-dessus.
     private static BdAlbum CloneAlbum(BdAlbum source) => source with { Auteurs = source.Auteurs.ToList() };
+
+    // IPurgeableCacheProvider — rend les deux caches visibles et purgeables depuis
+    // BaseServiceManager (purge périodique des entrées expirées + vidage à la demande).
+    // Le catalogue de séries (BedethequeCatalogIndex) n'en fait volontairement pas partie : ce n'est
+    // pas un cache mais l'index de recherche hors-ligne, dont le vidage casserait la recherche.
+    public IEnumerable<IPurgeableCache> GetPurgeableCaches() => [_serieCache, _albumCache];
 
     /// <summary>
     /// Décode les entités HTML et réduit toute suite de blancs à un espace unique. Indispensable :

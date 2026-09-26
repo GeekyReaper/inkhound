@@ -35,7 +35,11 @@ public partial class InkhoundManager : BaseServiceManager
 {
     private readonly string _dbPath;
 
-
+    // Bornes communes aux trois caches de résultats de jobs (recherche multi-source, Prowlarr par
+    // issue, Prowlarr par volume). La durée est calée sur BaseServiceManager.JobRetention : passé
+    // ce délai le job lui-même n'est plus consultable, son résultat n'a donc plus de lecteur.
+    private static readonly TimeSpan JobResultRetention = TimeSpan.FromMinutes(15);
+    private const int JobResultMaxEntries = 32;
 
     //public InkhoundDbContext? Database { get; private set; }
 
@@ -43,6 +47,11 @@ public partial class InkhoundManager : BaseServiceManager
     {
         _dbPath = dbPath;
 
+        // Purge périodique des entrées expirées par la boucle de monitoring, et vidage à la demande
+        // via PurgeAllCaches (voir l'API /api/system/memory).
+        RegisterCache(_searchResults);
+        RegisterCache(_prowlarrResults);
+        RegisterCache(_prowlarrVolumeResults);
     }
 
     // Checks if the SQLite database exists and creates it if needed, then sets the Database property
@@ -678,10 +687,14 @@ public partial class InkhoundManager : BaseServiceManager
     // par JobId — un Job ne peut pas porter de valeur de retour vers l'appelant HTTP d'origine
     // (fire-and-forget), donc on garde le résultat final en mémoire le temps que le frontend
     // vienne le chercher une fois le job terminé (cf. GetSearchJobResult).
-    private readonly ConcurrentDictionary<Guid, SearchVolumesJobResult> _searchResults = new();
+    // Borné en durée ET en nombre d'entrées (ExpiringCache) : ces résultats sont lus une seule
+    // fois, par jobId, juste après la fin du job. Un dictionnaire nu les gardait pour la durée de
+    // vie du process — un jeu complet de résultats par recherche, y compris celles du scheduler.
+    private readonly ExpiringCache<Guid, SearchVolumesJobResult> _searchResults =
+        new("SearchVolumes results", JobResultRetention, JobResultMaxEntries);
 
     public SearchVolumesJobResult? GetSearchJobResult(Guid jobId)
-        => _searchResults.TryGetValue(jobId, out var result) ? result : null;
+        => _searchResults.TryGet(jobId, out var result) ? result : null;
 
     // Lance la recherche multi-source en tâche de fond et retourne immédiatement le JobContext
     // (donc son JobId) pour que le frontend puisse s'abonner à sa progression/ses traces via
@@ -702,7 +715,7 @@ public partial class InkhoundManager : BaseServiceManager
         try
         {
             var result = await SearchVolumesAsync(parameters.Name, parameters.Page, parameters.PageSize, job);
-            _searchResults[job.JobId] = result;
+            _searchResults.Set(job.JobId, result);
             EndJob(true);
         }
         catch (Exception ex)
@@ -3263,10 +3276,13 @@ public partial class InkhoundManager : BaseServiceManager
         return merged;
     }
 
-    private readonly ConcurrentDictionary<Guid, List<ScoredSearchResultTorrent>> _prowlarrResults = new();
+    // Les plus lourds des trois caches de résultats : des centaines de résultats d'indexer par
+    // entrée. Bornés comme _searchResults — voir le commentaire là-bas.
+    private readonly ExpiringCache<Guid, List<ScoredSearchResultTorrent>> _prowlarrResults =
+        new("Prowlarr issue results", JobResultRetention, JobResultMaxEntries);
 
     public List<ScoredSearchResultTorrent>? GetProwlarrSearchJobResult(Guid jobId)
-        => _prowlarrResults.TryGetValue(jobId, out var result) ? result : null;
+        => _prowlarrResults.TryGet(jobId, out var result) ? result : null;
 
     // Lance la recherche Prowlarr en tâche de fond et retourne immédiatement le JobContext (donc
     // son JobId) pour que le frontend puisse s'abonner à sa progression/ses traces via SignalR
@@ -3337,7 +3353,7 @@ public partial class InkhoundManager : BaseServiceManager
             if (bannedCount > 0)
                 JobSendTrace($"[Prowlarr] {bannedCount} result(s) banned for this issue — scored 0", ETraceLevel.WARNING);
 
-            _prowlarrResults[job.JobId] = results;
+            _prowlarrResults.Set(job.JobId, results);
             EndJob(true);
         }
         catch (Exception ex)
@@ -3348,10 +3364,11 @@ public partial class InkhoundManager : BaseServiceManager
     }
 
     // Résultats de recherche Prowlarr au niveau Volume — même raison que _prowlarrResults (fire-and-forget).
-    private readonly ConcurrentDictionary<Guid, List<ScoredSearchResultVolumePack>> _prowlarrVolumeResults = new();
+    private readonly ExpiringCache<Guid, List<ScoredSearchResultVolumePack>> _prowlarrVolumeResults =
+        new("Prowlarr volume results", JobResultRetention, JobResultMaxEntries);
 
     public List<ScoredSearchResultVolumePack>? GetProwlarrVolumeSearchJobResult(Guid jobId)
-        => _prowlarrVolumeResults.TryGetValue(jobId, out var result) ? result : null;
+        => _prowlarrVolumeResults.TryGet(jobId, out var result) ? result : null;
 
     // Lance la recherche Prowlarr au niveau d'un Volume entier (toutes ses issues MISSING, pas une
     // issue précise) — miroir de LaunchJobSearchMissingIssue.
@@ -3391,7 +3408,7 @@ public partial class InkhoundManager : BaseServiceManager
             if (missingIssues.Count == 0)
             {
                 JobSendTrace("[Prowlarr] No missing issues for this volume — nothing to search for", ETraceLevel.WARNING);
-                _prowlarrVolumeResults[job.JobId] = [];
+                _prowlarrVolumeResults.Set(job.JobId, []);
                 EndJob(true);
                 return;
             }
@@ -3425,7 +3442,7 @@ public partial class InkhoundManager : BaseServiceManager
             if (bannedCount > 0)
                 JobSendTrace($"[Prowlarr] {bannedCount} result(s) banned for an issue of this volume — scored 0", ETraceLevel.WARNING);
 
-            _prowlarrVolumeResults[job.JobId] = results;
+            _prowlarrVolumeResults.Set(job.JobId, results);
             EndJob(true);
         }
         catch (Exception ex)

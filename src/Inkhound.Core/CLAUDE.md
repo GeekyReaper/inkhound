@@ -62,6 +62,7 @@ Inkhound.Core/
 │   └── BlobService.cs
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
 ├── inkhoundManager.cs   # Orchestrateur principal des jobs
+├── inkhoundManager.Memory.cs      # partial — instantané mémoire + purge/compaction (voir section)
 ├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
 ├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
 └── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
@@ -216,6 +217,13 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 
 ### Bedetheque
 - Site scrapé (pas d'API publique) — Serie = Volume, Album = Issue
+- Les caches mémoire de séries et d'albums (24 h) sont des `ExpiringCache` de `Foundation.Core`, pas
+  des `ConcurrentDictionary` : leur TTL n'était auparavant vérifié qu'à la lecture, donc une entrée
+  plus jamais relue n'était jamais évincée (un rolling refresh sur toute la bibliothèque y laissait
+  une série/un album complet par entité vue depuis le démarrage). Le service implémente
+  `IPurgeableCacheProvider` pour les exposer au manager. Le `BedethequeCatalogIndex` n'en fait
+  volontairement **pas** partie : ce n'est pas un cache mais l'index de recherche hors-ligne, dont le
+  vidage casserait la recherche.
 - **Recherche de séries = catalogue local, zéro requête réseau** (`Bedetheque/Catalog/`, port de
   la recherche par catalogue de `bdguest-scrapper`). Les 27 pages d'index alphabétique du site
   (`/bandes_dessinees_{0,A..Z}.html`, ~77 000 séries) sont scrapées lettre par lettre
@@ -778,6 +786,56 @@ Les options vont dans la table `Options` existante (service `"Chatbot"`), les tr
 persistées, le cache vision et les menus en attente vivent en mémoire. **Aucune migration à ajouter
 dans `ApplyPendingMigrationsAsync`** — ne pas céder à la tentation d'historiser les échanges du bot
 en base.
+
+---
+
+---
+
+## Empreinte mémoire — invariants à ne pas défaire
+
+Voir le `CLAUDE.md` racine pour les réglages runtime (GC, limite conteneur). Côté domaine :
+
+### Caches
+Les trois caches de résultats de jobs (`_searchResults`, `_prowlarrResults`,
+`_prowlarrVolumeResults`) sont des `ExpiringCache` bornés à 15 min / 32 entrées et enregistrés dans
+le constructeur d'`InkhoundManager` via `RegisterCache`. Ils étaient auparavant des
+`ConcurrentDictionary` **jamais purgés** : un jeu complet de résultats d'indexer par recherche,
+conservé pour la durée de vie du process, y compris pour les auto searches nocturnes du scheduler.
+Tout nouveau cache de résultats indexé par `JobId` doit suivre ce modèle.
+
+### Traitement d'image — la mémoire native ne se voit pas
+SkiaSharp (`ArchiveService`) et PDFium (`PDFtoImage`) allouent **en dehors du tas managé** : le GC ne
+la compte pas, donc elle ne déclenche aucune collecte et aucun `GC.Collect` ne la récupère.
+Conséquences, toutes présentes dans le code :
+
+- **`ArchiveService.ImageDecodeGate`** (`SemaphoreSlim(1,1)` statique) sérialise décodage et
+  redimensionnement : une page 2400×3400 en RGBA pèse ~32 Mo et un `Resize` en alloue un second
+  exemplaire. Deux conversions concurrentes faisaient monter le RSS sans contrepartie.
+- **Tout bitmap de page doit être disposé** — `ConvertPdfToImages` enveloppe chaque page rendue par
+  PDFium dans un `using`. Sans lui, une intégrale accumulait un bitmap natif par page jusqu'à la
+  finalisation.
+- **Les `MemoryStream` de tampon d'entrée sont pré-dimensionnés** avec la taille décompressée connue
+  de l'entrée (`ZipArchiveEntry.Length`, `entry.Size`, `FileInfo.Length`) : sans capacité initiale ils
+  grossissent par doublement et abandonnent une série de tableaux dans le LOH à chaque page.
+
+### `CbzAnalyzer` — le décodage de validation
+`CbzAnalyzerOptions.ValidatePixelData` (true par défaut) décode chaque page pour détecter des données
+pixel tronquées qu'un `IdentifyAsync` (en-tête seul) laisse passer — c'est ce qui alimente
+`CorruptedImageCount`. Le décodage est demandé à taille réduite via
+`DecoderOptions.TargetSize` (`ValidationTargetHeightPx`, 320 px) : ImageSharp utilise alors son
+décodeur JPEG à l'échelle et n'alloue qu'une fraction du tampon **tout en lisant l'intégralité des
+données compressées**, donc la détection est conservée. Ne pas revenir à un `LoadAsync` pleine taille :
+c'était ~48 Mo par page 3000×4000, le pic le plus violent de l'application.
+
+> Les PNG/WebP restent décodés à taille réelle (ImageSharp n'a pas de décodage à l'échelle pour ces
+> formats) ; c'est le plafond du `MemoryAllocator` posé par `CbzQuality.ImageProcessingSetup` qui
+> borne alors la rétention.
+
+### Purge à la demande
+`inkhoundManager.Memory.cs` expose `GetMemorySnapshot()` (lecture pure) et `CompactMemoryAsync()`
+(vidage de tous les caches + collecte compactante LOH incluse). `CompactMemoryAsync` est **bloquante**
+de l'ordre de la seconde et ne récupère que le managé : elle est déclenchée à la main depuis
+Settings > System, jamais sur un chemin automatique.
 
 ---
 

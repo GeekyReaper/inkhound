@@ -277,6 +277,7 @@ src/
 | `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) |
 | `/settings/chatbot` | `ChatbotSettingsComponent` | Module Chatbot (bot Matrix) : fiche d'état (`GET /api/chatbot/status`, rafraîchie toutes les 10 s), boutons Démarrer/Arrêter, et **console de traces temps réel** avec historique local (voir « Traces par service » plus bas). La configuration se fait depuis `/settings` (accordéon Modules). ⚠️ Deux indicateurs distincts à ne pas confondre : le **badge d'en-tête** vient de `managerState()` et reflète la **santé des dépendances** (homeserver Matrix + modèle vision joignables), tandis que la ligne **« Exécution »** dit si la boucle `/sync` tourne. Un bot volontairement arrêté dont les dépendances répondent affiche donc `OK` |
 | `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
+| `/settings/system` | `SystemSettingsComponent` | Empreinte mémoire du backend (`GET /api/system/memory`) et purge manuelle (`POST /api/system/memory/compact`). **Aucun rafraîchissement automatique** : la mesure est ponctuelle, un timer entretiendrait l'illusion d'un monitoring continu qu'Inkhound ne fait pas. La page signale explicitement un Server GC actif ou une limite mémoire de conteneur absente, et annonce que la purge ne récupère que le managé (les pics SkiaSharp/PDFium sont en mémoire native) |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification |
 
@@ -526,6 +527,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
 | `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog'` |
 | `BedethequeCatalogService` | — | `getStatus()`, `refresh(req)` → `{ jobId }` (409 si un refresh tourne déjà) — page `/settings/bedetheque` |
+| `SystemService` | — | `getMemory()`, `compactMemory()` — `/api/system/memory`, page `/settings/system` |
 | `FilesystemService` | — | `getDirectories()`, `getFiles()` |
 | `JobsService` | — | `getStatus(jobId)` — `GET /api/jobs/{id}`, filet de rattrapage HTTP utilisé par `HubService` |
 | `PageJobService` | — | `register()`, `clear()`, `activeJobId()`, `trackedEntries()` — association pageKey↔jobId (sessionStorage) |

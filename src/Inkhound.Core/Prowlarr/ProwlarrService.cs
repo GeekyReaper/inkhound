@@ -30,7 +30,11 @@ public class ProwlarrService : BaseService<ProwlarrOptions>
     public override async Task<bool> LoadOptions(List<OptionDefinition> optionList)
     {
         Options.LoadOptions(optionList, out _);
+        // Disposer l'ancien client : son HttpClientHandler garde son pool de connexions (et ses
+        // sockets) jusqu'à finalisation, donc chaque sauvegarde d'options en laissait un orphelin.
+        var oldHttp = _http;
         _http = BuildHttpClient();
+        oldHttp?.Dispose();
         return await base.LoadOptions(optionList);
     }
 

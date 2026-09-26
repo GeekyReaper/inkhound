@@ -24,6 +24,13 @@ public class ArchiveService : BaseService<ArchiveOption>
     {
     }
 
+    // SkiaSharp décode et redimensionne en mémoire NATIVE : une page 2400x3400 en RGBA pèse ~32 Mo,
+    // et un redimensionnement en alloue un second exemplaire. Cette mémoire est invisible du GC,
+    // donc deux conversions concurrentes font monter le RSS du conteneur sans qu'aucune collecte ne
+    // soit déclenchée. Le verrou est statique : la contrainte est celle du process, pas de
+    // l'instance de service.
+    private static readonly SemaphoreSlim ImageDecodeGate = new(1, 1);
+
     public string ImagesPath => Options.ImagesPath;
     public string DownloadsPath => Options.DownloadsPath;
     public string ImportPath => Options.ImportPath;
@@ -139,36 +146,51 @@ public class ArchiveService : BaseService<ArchiveOption>
     /// the raw bytes as-is under their original extension when the entry can't be decoded by SkiaSharp
     /// (corrupted/unsupported source image) — same behavior a plain extraction would have had.
     /// </summary>
-    private async Task<FileInfo> ConvertImageEntryAsync(Stream sourceStream, string originalExtension, string fullDestPath, int pageIndex)
+    /// <param name="expectedLength">
+    /// Taille décompressée de l'entrée quand l'appelant la connaît, pour dimensionner le tampon
+    /// d'un coup. Un <see cref="MemoryStream"/> sans capacité initiale grossit par doublement, ce
+    /// qui abandonne à chaque page une série de tableaux dans le Large Object Heap.
+    /// </param>
+    private async Task<FileInfo> ConvertImageEntryAsync(Stream sourceStream, string originalExtension, string fullDestPath, int pageIndex, long expectedLength = 0)
     {
-        using var ms = new MemoryStream();
+        var capacity = expectedLength is > 0 and <= int.MaxValue ? (int)expectedLength : 0;
+        using var ms = capacity > 0 ? new MemoryStream(capacity) : new MemoryStream();
         await sourceStream.CopyToAsync(ms);
         ms.Position = 0;
 
-        using var bitmap = SKBitmap.Decode(ms);
-        if (bitmap is null)
+        // Un seul décodage/redimensionnement Skia à la fois — voir ImageDecodeGate.
+        await ImageDecodeGate.WaitAsync();
+        try
         {
-            var rawPath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{originalExtension}");
-            ms.Position = 0;
-            await using var rawOut = File.Create(rawPath);
-            await ms.CopyToAsync(rawOut);
-            SendTrace($"Page {pageIndex} could not be decoded — copied as-is ({originalExtension})", new TraceDefinition() { Level = ETraceLevel.WARNING });
-            return new FileInfo(rawPath);
-        }
+            using var bitmap = SKBitmap.Decode(ms);
+            if (bitmap is null)
+            {
+                var rawPath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{originalExtension}");
+                ms.Position = 0;
+                await using var rawOut = File.Create(rawPath);
+                await ms.CopyToAsync(rawOut);
+                SendTrace($"Page {pageIndex} could not be decoded — copied as-is ({originalExtension})", new TraceDefinition() { Level = ETraceLevel.WARNING });
+                return new FileInfo(rawPath);
+            }
 
-        var toEncode = bitmap;
-        if (bitmap.Height > Options.MaxImageHeightPx)
+            var toEncode = bitmap;
+            if (bitmap.Height > Options.MaxImageHeightPx)
+            {
+                var newWidth = (int)Math.Round(bitmap.Width * (Options.MaxImageHeightPx / (double)bitmap.Height));
+                toEncode = bitmap.Resize(new SKImageInfo(newWidth, Options.MaxImageHeightPx), SKFilterQuality.High);
+            }
+
+            var (format, ext) = GetTargetImageFormat();
+            var filePath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{ext}");
+            await using var output = File.Create(filePath);
+            toEncode.Encode(output, format, Options.ImageQuality);
+            if (!ReferenceEquals(toEncode, bitmap)) toEncode.Dispose();
+            return new FileInfo(filePath);
+        }
+        finally
         {
-            var newWidth = (int)Math.Round(bitmap.Width * (Options.MaxImageHeightPx / (double)bitmap.Height));
-            toEncode = bitmap.Resize(new SKImageInfo(newWidth, Options.MaxImageHeightPx), SKFilterQuality.High);
+            ImageDecodeGate.Release();
         }
-
-        var (format, ext) = GetTargetImageFormat();
-        var filePath = Path.Combine(fullDestPath, $"page_{pageIndex:D4}{ext}");
-        await using var output = File.Create(filePath);
-        toEncode.Encode(output, format, Options.ImageQuality);
-        if (!ReferenceEquals(toEncode, bitmap)) toEncode.Dispose();
-        return new FileInfo(filePath);
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
@@ -193,7 +215,10 @@ public class ArchiveService : BaseService<ArchiveOption>
 
         var imagePaths = new List<FileInfo>();
 
-        var totalPages = Conversion.GetPageCount(File.OpenRead(source.FullName));
+        int totalPages;
+        await using (var pageCountStream = File.OpenRead(source.FullName))
+            totalPages = Conversion.GetPageCount(pageCountStream);
+
         var internalprogress = new Progression { Total = totalPages, Completed = 0, Error = 0 };
         // Initialize number of items
         progression?.UpdateTotal(internalprogress.Total);
@@ -209,22 +234,27 @@ public class ArchiveService : BaseService<ArchiveOption>
         int index = 0;
         await foreach (var page in Conversion.ToImagesAsync(stream, options: renderOptions))
         {
-            try
+            // PDFium rasterise en mémoire native : un bitmap de page non disposé n'est récupéré
+            // qu'à la finalisation, donc jamais pendant la conversion d'une intégrale.
+            using (page)
             {
-                ++index;
-                var fileName = $"page_{index:D4}{targetExt}";
-                var filePath = Path.Combine(fullDestPath, fileName);
+                try
+                {
+                    ++index;
+                    var fileName = $"page_{index:D4}{targetExt}";
+                    var filePath = Path.Combine(fullDestPath, fileName);
 
-                await using var output = File.OpenWrite(filePath);
-                page.Encode(output, targetFormat, Options.ImageQuality);
-                imagePaths.Add(new FileInfo(filePath));
-                internalprogress.Increment();
-                SendTrace($"Successfully converted page {index}/{totalPages}");
-            }
-            catch (Exception ex)
-            {
-                SendTrace($"Error converting page {index}", ex);
-                internalprogress.Increment(success: false);
+                    await using var output = File.OpenWrite(filePath);
+                    page.Encode(output, targetFormat, Options.ImageQuality);
+                    imagePaths.Add(new FileInfo(filePath));
+                    internalprogress.Increment();
+                    SendTrace($"Successfully converted page {index}/{totalPages}");
+                }
+                catch (Exception ex)
+                {
+                    SendTrace($"Error converting page {index}", ex);
+                    internalprogress.Increment(success: false);
+                }
             }
             progression?.Callback(internalprogress);
 
@@ -266,7 +296,7 @@ public class ArchiveService : BaseService<ArchiveOption>
                 ++index;
                 var ext = Path.GetExtension(entry.Key!).ToLowerInvariant();
                 await using var entryStream = entry.OpenEntryStream();
-                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
+                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index, entry.Size);
 
                 imagePaths.Add(converted);
                 internalProgress.Increment();
@@ -314,7 +344,7 @@ public class ArchiveService : BaseService<ArchiveOption>
                 ++index;
                 var ext = Path.GetExtension(entry.Name).ToLowerInvariant();
                 await using var entryStream = entry.Open();
-                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
+                var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index, entry.Length);
 
                 imagePaths.Add(converted);
                 internalProgress.Increment();
@@ -386,7 +416,7 @@ public class ArchiveService : BaseService<ArchiveOption>
                 {
                     ++index;
                     await using var entryStream = rawFile.OpenRead();
-                    var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index);
+                    var converted = await ConvertImageEntryAsync(entryStream, ext, fullDestPath, index, rawFile.Length);
 
                     imagePaths.Add(converted);
                     internalProgress.Increment();

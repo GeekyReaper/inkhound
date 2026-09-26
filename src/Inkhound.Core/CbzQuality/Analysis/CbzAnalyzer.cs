@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using Inkhound.Core.CbzQuality.Models;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
 using SixLaborsImage = SixLabors.ImageSharp.Image;
 using ImageInfo = Inkhound.Core.CbzQuality.Models.ImageInfo;
 
@@ -14,6 +15,24 @@ public sealed class CbzAnalyzerOptions
 
     /// <summary>Safety cap so a huge archive can't exhaust memory/time; entries beyond this are recorded but not decoded.</summary>
     public int MaxImagesToDecode { get; init; } = 2000;
+
+    /// <summary>
+    /// Si true (défaut), chaque page est décodée pour détecter des données pixel tronquées qu'un
+    /// simple Identify (en-tête seul) laisse passer — c'est ce qui alimente CorruptedImageCount.
+    /// </summary>
+    /// <remarks>
+    /// Le décodage est demandé à taille réduite (<see cref="ValidationTargetHeightPx"/>) : pour du
+    /// JPEG, ImageSharp utilise alors son décodeur DCT à l'échelle et n'alloue qu'une fraction du
+    /// tampon, tout en lisant l'intégralité des données compressées — donc la détection de
+    /// troncature est conservée. Les PNG/WebP restent décodés à taille réelle (ImageSharp n'a pas de
+    /// décodage à l'échelle pour ces formats), mais le pool mémoire est désormais plafonné, cf.
+    /// Inkhound.Core.CbzQuality.ImageProcessingSetup.
+    /// </remarks>
+    public bool ValidatePixelData { get; init; } = true;
+
+    /// <summary>Hauteur cible du décodage de validation — assez grande pour rester représentative,
+    /// assez petite pour que le tampon ne pèse rien.</summary>
+    public int ValidationTargetHeightPx { get; init; } = 320;
 }
 
 public readonly record struct CbzAnalysisProgress(int EntriesProcessed, int TotalEntries, string? CurrentEntryName);
@@ -91,7 +110,10 @@ public sealed class CbzAnalyzer
                 var isComicInfo = fileName.Equals("ComicInfo.xml", StringComparison.OrdinalIgnoreCase);
                 var extensionFormat = ImageFormatDetector.FromExtension(fileName);
 
-                using var entryBuffer = new MemoryStream();
+                // Capacité initiale = taille décompressée connue : sans elle le MemoryStream
+                // grossit par doublement et abandonne une série de tableaux dans le LOH par page.
+                var bufferCapacity = zipEntry.Length is > 0 and <= int.MaxValue ? (int)zipEntry.Length : 0;
+                using var entryBuffer = bufferCapacity > 0 ? new MemoryStream(bufferCapacity) : new MemoryStream();
                 await using (var entryStream = zipEntry.Open())
                 {
                     await entryStream.CopyToAsync(entryBuffer, cancellationToken);
@@ -113,7 +135,8 @@ public sealed class CbzAnalyzer
                 if (isImage && options.DecodeImages && decodedCount < options.MaxImagesToDecode)
                 {
                     decodedCount++;
-                    imageInfo = await DecodeImageAsync(entryBuffer, detectedFormat, cancellationToken);
+                    imageInfo = await DecodeImageAsync(entryBuffer, detectedFormat,
+                        options.ValidatePixelData, options.ValidationTargetHeightPx, cancellationToken);
 
                     if (imageInfo.DecodeSucceeded)
                     {
@@ -280,7 +303,7 @@ public sealed class CbzAnalyzer
         }
     }
 
-    private static async Task<ImageInfo> DecodeImageAsync(MemoryStream entryBuffer, string? detectedFormat, CancellationToken cancellationToken)
+    private static async Task<ImageInfo> DecodeImageAsync(MemoryStream entryBuffer, string? detectedFormat, bool validatePixelData, int validationTargetHeightPx, CancellationToken cancellationToken)
     {
         entryBuffer.Position = 0;
         try
@@ -316,11 +339,20 @@ public sealed class CbzAnalyzer
                 }
             }
 
-            // Full decode + dispose to catch truncated pixel data that header-only Identify can miss.
-            entryBuffer.Position = 0;
-            using (var fullImage = await SixLaborsImage.LoadAsync(entryBuffer, cancellationToken))
+            // Décodage de validation : attrape les données pixel tronquées qu'Identify (en-tête
+            // seul) ne voit pas. Demandé à taille réduite pour ne pas allouer le bitmap entier —
+            // voir CbzAnalyzerOptions.ValidatePixelData.
+            if (validatePixelData)
             {
-                _ = fullImage.Width;
+                entryBuffer.Position = 0;
+                var decoderOptions = new DecoderOptions
+                {
+                    TargetSize = new Size(
+                        Math.Max(1, (int)Math.Round(info.Width * (validationTargetHeightPx / (double)Math.Max(1, info.Height)))),
+                        validationTargetHeightPx)
+                };
+                using var probe = await SixLaborsImage.LoadAsync(decoderOptions, entryBuffer, cancellationToken);
+                _ = probe.Width;
             }
 
             return new ImageInfo

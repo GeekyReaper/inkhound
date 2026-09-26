@@ -68,6 +68,11 @@ export const navItemsBottom: INavData[] = [
     iconComponent: { name: 'cil-speech' }
   },
   {
+    name: 'System',
+    url: '/settings/system',
+    iconComponent: { name: 'cil-speedometer' }
+  },
+  {
     title: true,
     name: 'Access'
   },
