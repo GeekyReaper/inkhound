@@ -7,7 +7,7 @@ namespace Inkhound.Web.Controllers;
 
 [ApiController]
 [Route("api/libraries")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class LibraryController(InkhoundManager manager) : ControllerBase
 {
     private record LibraryDto(Guid Id, string Name, string Path, int KavitaLibraryId, string KavitaPath, DateTime CreatedAt);
@@ -42,6 +42,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     }
 
     // POST /api/libraries
+    [Authorize(Roles = "admin")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateLibraryRequest request)
     {
@@ -54,6 +55,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     }
 
     // PUT /api/libraries/{id}
+    [Authorize(Roles = "admin")]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateLibraryRequest request)
     {
@@ -68,6 +70,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     // DELETE /api/libraries/{id}?deleteFiles=true — supprime la library et tout son contenu en
     // base ; avec deleteFiles, les répertoires des volumes sur disque aussi. 204 si tout s'est bien
     // passé, 200 { fileWarning } si la base est nettoyée mais qu'un répertoire n'a pas pu l'être.
+    [Authorize(Roles = "admin")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] bool deleteFiles = false)
     {

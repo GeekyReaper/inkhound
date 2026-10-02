@@ -42,6 +42,7 @@
             <thead>
               <tr>
                 <th>Login</th>
+                <th>Role</th>
                 <th>Created</th>
                 <th></th>
               </tr>
@@ -50,12 +51,17 @@
               @for (user of users(); track user.id) {
                 <tr>
                   <td>{{ user.login }}</td>
+                  <td>
+                    <c-badge [color]="user.role === 'admin' ? 'primary' : 'secondary'">{{ user.role === 'admin' ? 'Admin' : 'Guest' }}</c-badge>
+                  </td>
                   <td>{{ user.createdAt | smartDate }}</td>
                   <td class="text-end text-nowrap">
                     <button cButton color="ghost-secondary" size="sm" (click)="showEditForm(user)" title="Edit">
                       <svg cIcon name="cilPencil" size="sm"></svg>
                     </button>
-                    <button cButton color="ghost-danger" size="sm" (click)="requestDelete(user)" title="Delete">
+                    <button cButton color="ghost-danger" size="sm" (click)="requestDelete(user)"
+                            [disabled]="isLastAdmin(user)"
+                            [title]="isLastAdmin(user) ? 'The last administrator cannot be deleted' : 'Delete'">
                       <svg cIcon name="cilTrash" size="sm"></svg>
                     </button>
                   </td>
@@ -93,6 +99,22 @@
                   placeholder="Login"
                   [class.is-invalid]="form.controls.login.invalid && form.controls.login.touched"
                 />
+              </div>
+
+              <!-- Role -->
+              <div class="mb-3">
+                <label cLabel for="role">Role</label>
+                <select cSelect id="role" formControlName="role"
+                        [attr.disabled]="firstUserMode() || (editingUser() && isLastAdmin(editingUser()!)) ? '' : null">
+                  @for (r of roles; track r) {
+                    <option [value]="r">{{ r === 'admin' ? 'Admin — full access' : 'Guest — no Settings / Access / Links' }}</option>
+                  }
+                </select>
+                @if (firstUserMode()) {
+                  <div class="form-text">The first account is always an administrator.</div>
+                } @else if (editingUser() && isLastAdmin(editingUser()!)) {
+                  <div class="form-text">This is the last administrator: its role cannot be changed.</div>
+                }
               </div>
 
               <!-- Password -->

@@ -3,16 +3,18 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Observable, of } from 'rxjs';
 import { catchError, shareReplay, switchMap, tap } from 'rxjs/operators';
 
+export type UserRole = 'admin' | 'guest';
+
 interface LoginResponse {
   token: string;
   expiresAt: string;
-  role: string;
+  role: UserRole;
 }
 
 export interface CurrentUser {
   id: string;
   login: string;
-  role: string;
+  role: UserRole;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -31,6 +33,10 @@ export class AuthService {
   // ouvert (aucun utilisateur en base côté backend), currentUser est peuplé sans qu'aucun token
   // n'ait jamais existé.
   isAuthenticated = computed(() => !!this._currentUser());
+
+  // Admin : accès à tout. Guest : ni les sections Settings / Access / Links du menu, ni leurs pages
+  // (adminGuard) ni leurs API (403 côté backend). Le mode bootstrap ouvert est servi comme admin.
+  isAdmin = computed(() => this._currentUser()?.role === 'admin');
 
   login(login: string, password: string) {
     // Invalide le cache de resolveSession() : sans ça, authGuard rejouerait après la navigation vers

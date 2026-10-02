@@ -6,7 +6,7 @@ namespace Inkhound.Web.Controllers;
 
 [ApiController]
 [Route("api/filesystem")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class FilesystemController(InkhoundManager manager) : ControllerBase
 {
     private record DirectoryDto(

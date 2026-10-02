@@ -240,6 +240,7 @@ public class DbStorageService : BaseService<DbStorageOption>
                     Id           TEXT NOT NULL PRIMARY KEY,
                     Login        TEXT NOT NULL,
                     PasswordHash TEXT NOT NULL,
+                    Role         TEXT NOT NULL DEFAULT 'admin',
                     CreatedAt    TEXT NOT NULL,
                     UpdatedAt    TEXT NOT NULL
                 )
@@ -249,6 +250,11 @@ public class DbStorageService : BaseService<DbStorageOption>
 
             await ImportLegacyUsersAsync(db);
         }
+
+        // Users.Role ajouté en octobre 2026 (rôles admin / guest). Hors du bloc ci-dessus : une base
+        // existante doit recevoir la colonne ; le DEFAULT 'admin' fait passer tous les comptes
+        // existants en administrateur.
+        await AddColumnIfMissingAsync(db, "Users", "Role", "TEXT NOT NULL DEFAULT 'admin'");
 
         // IssueDownloads.TorrentTitle/DownloadUrl/TrackerName ajoutés en juillet 2026 — l'item de
         // téléchargement porte désormais sa propre identité (titre, URL d'origine, tracker), au lieu
@@ -412,7 +418,7 @@ public class DbStorageService : BaseService<DbStorageOption>
     }
 
     // Importe l'unique fois où la table Users est créée — préserve Id/Login/PasswordHash de l'ancien
-    // FileUserStore (le rôle disparaît, un seul rôle "admin" existe désormais). Le fichier legacy n'est
+    // FileUserStore (le rôle legacy est ignoré : tout compte importé est admin). Le fichier legacy n'est
     // jamais supprimé : il reste une sauvegarde inerte. Toute erreur (fichier absent/corrompu) est
     // avalée silencieusement pour ne jamais bloquer le démarrage.
     private static async Task ImportLegacyUsersAsync(DbStorageContext db)

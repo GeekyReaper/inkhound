@@ -1072,14 +1072,21 @@ public partial class InkhoundManager : BaseServiceManager
     public Task<User?> GetUserByIdAsync(Guid id)
         => GetDb().Users.FirstOrDefaultAsync(u => u.Id == id);
 
-    public async Task<User> CreateUserAsync(string login, string password)
+    /// <summary>
+    /// Crée un utilisateur. Le tout premier compte (sortie du mode bootstrap ouvert) est <b>toujours</b>
+    /// admin, quel que soit <paramref name="role"/> : sinon plus personne ne pourrait administrer l'app.
+    /// </summary>
+    public async Task<User> CreateUserAsync(string login, string password, string role = UserRoles.Guest)
     {
         if (string.IsNullOrWhiteSpace(login))    throw new ArgumentException("Login is required.");
         if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Password is required.");
+        if (!UserRoles.IsValid(role))            throw new ArgumentException($"Unknown role '{role}'.");
 
         var db = GetDb();
         if (await db.Users.AnyAsync(u => u.Login == login))
             throw new InvalidOperationException($"Login '{login}' is already taken.");
+        if (!await db.Users.AnyAsync())
+            role = UserRoles.Admin;
 
         var now = DateTime.UtcNow;
         var user = new User
@@ -1087,6 +1094,7 @@ public partial class InkhoundManager : BaseServiceManager
             Id = Guid.NewGuid(),
             Login = login,
             PasswordHash = PasswordHasher.Hash(password),
+            Role = role,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1096,16 +1104,23 @@ public partial class InkhoundManager : BaseServiceManager
         return user;
     }
 
-    public async Task<User> UpdateUserAsync(Guid id, string? login, string? password)
+    public async Task<User> UpdateUserAsync(Guid id, string? login, string? password, string? role = null)
     {
         var db = GetDb();
         var user = await db.Users.FindAsync(id) ?? throw new KeyNotFoundException($"User '{id}' not found.");
+
+        if (role is not null && !UserRoles.IsValid(role))
+            throw new ArgumentException($"Unknown role '{role}'.");
+        if (role is not null && role != user.Role && user.Role == UserRoles.Admin
+            && !await db.Users.AnyAsync(u => u.Id != id && u.Role == UserRoles.Admin))
+            throw new InvalidOperationException("Cannot remove the administrator role from the last administrator.");
 
         if (login is not null && login != user.Login && await db.Users.AnyAsync(u => u.Login == login))
             throw new InvalidOperationException($"Login '{login}' is already taken.");
 
         if (login is not null)    user.Login = login;
         if (password is not null) user.PasswordHash = PasswordHasher.Hash(password);
+        if (role is not null)     user.Role = role;
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return user;
@@ -1115,6 +1130,8 @@ public partial class InkhoundManager : BaseServiceManager
     {
         var db = GetDb();
         var user = await db.Users.FindAsync(id) ?? throw new KeyNotFoundException($"User '{id}' not found.");
+        if (user.Role == UserRoles.Admin && !await db.Users.AnyAsync(u => u.Id != id && u.Role == UserRoles.Admin))
+            throw new InvalidOperationException("Cannot delete the last administrator.");
         db.Users.Remove(user);
         await db.SaveChangesAsync();
         _hasUsers = await db.Users.AnyAsync();

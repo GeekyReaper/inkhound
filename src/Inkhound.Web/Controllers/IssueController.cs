@@ -9,7 +9,7 @@ namespace Inkhound.Web.Controllers;
 
 [ApiController]
 [Route("api/volumes/{volumeId:guid}/issues")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class IssueController(InkhoundManager manager) : ControllerBase
 {
     private record IssueDto(

@@ -5,7 +5,8 @@ using Microsoft.Extensions.Options;
 
 namespace Inkhound.Web.Auth;
 
-// Authentifie systématiquement avec succès une identité virtuelle (login="guest", role="admin"),
+// Authentifie systématiquement avec succès une identité virtuelle (login="open-access", role="admin" —
+// sans rapport avec le rôle Guest des utilisateurs),
 // non persistée. Sélectionné par le scheme "Smart" (Program.cs) uniquement tant qu'aucun utilisateur
 // réel n'existe en base (InkhoundManager.HasUsers == false) — voir docs/project.md / plan "mode
 // bootstrap ouvert".
@@ -20,7 +21,7 @@ public class OpenAccessAuthenticationHandler(
         var identity = new ClaimsIdentity(new[]
         {
             new Claim(ClaimTypes.NameIdentifier, Guid.Empty.ToString()),
-            new Claim(ClaimTypes.Name, "guest"),
+            new Claim(ClaimTypes.Name, "open-access"),
             new Claim(ClaimTypes.Role, "admin")
         }, Scheme.Name);
 

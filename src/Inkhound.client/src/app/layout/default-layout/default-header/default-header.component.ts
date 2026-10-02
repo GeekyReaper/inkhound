@@ -49,6 +49,7 @@ export class DefaultHeaderComponent extends HeaderComponent {
   readonly #router           = inject(Router);
   readonly #activatedRoute   = inject(ActivatedRoute);
   readonly #auth             = inject(AuthService);
+  readonly isAdmin           = this.#auth.isAdmin;
 
   readonly colorMode = this.#colorModeService.colorMode;
 

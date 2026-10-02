@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Inkhound.Core;
@@ -95,6 +96,26 @@ builder.Services.AddAuthentication(options =>
 
         options.Events = new JwtBearerEvents
         {
+            // Le rôle est relu en base à chaque requête : une rétrogradation ou une suppression de compte
+            // prend effet immédiatement, sans attendre l'expiration du token.
+            OnTokenValidated = async ctx =>
+            {
+                var manager = ctx.HttpContext.RequestServices.GetRequiredService<InkhoundManager>();
+                var sub = ctx.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var user = Guid.TryParse(sub, out var userId) ? await manager.GetUserByIdAsync(userId) : null;
+                if (user is null)
+                {
+                    ctx.Fail("User no longer exists.");
+                    return;
+                }
+
+                if (ctx.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    foreach (var claim in identity.FindAll(identity.RoleClaimType).ToList())
+                        identity.RemoveClaim(claim);
+                    identity.AddClaim(new Claim(identity.RoleClaimType, user.Role));
+                }
+            },
             OnMessageReceived = ctx =>
             {
                 var token = ctx.Request.Query["access_token"];

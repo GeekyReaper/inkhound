@@ -23,7 +23,12 @@ export const navItemsBottom: INavData[] = [
     name: 'News',
     url: '/news',
     iconComponent: { name: 'cil-newspaper' }
-  },
+  }
+];
+
+// Sections Settings, Access et Links : réservées aux administrateurs (un Guest ne les voit pas — voir
+// DefaultLayoutComponent.navItems — et ses routes sont protégées par adminGuard).
+export const navItemsAdmin: INavData[] = [
   {
     title: true,
     name: 'Settings'

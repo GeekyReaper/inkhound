@@ -176,7 +176,7 @@ export class MyComponent {
 src/
 ├── app/
 │   ├── core/                    # Singletons, guards, interceptors, modèles globaux
-│   │   ├── guards/              # auth.guard.ts
+│   │   ├── guards/              # auth.guard.ts, admin.guard.ts (réserve une route aux admins → /dashboard)
 │   │   ├── interceptors/        # auth, auth-error, connection
 │   │   ├── models/              # hub.models.ts (EState, JobContext, TraceDefinition, etc.)
 │   │   ├── resolvers/           # library-title, volume-title
@@ -527,7 +527,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 
 | Service | Signals exposés | Méthodes principales |
 |---|---|---|
-| `AuthService` | `currentUser`, `isAuthenticated` | `login()`, `logout()`, `getToken()` |
+| `AuthService` | `currentUser` (`role: 'admin' \| 'guest'`), `isAuthenticated`, `isAdmin` | `login()`, `logout()`, `getToken()` |
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces`, `serviceTraces` | `ensureConnected()`, `disconnect()`, `clearServiceTraces(name)` |
 | `ChatbotService` | — | `getStatus()`, `start()`, `stop()` — `/api/chatbot`, page `/settings/chatbot` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()`, `refresh()`, `patchVolumesStatus(id, 'PAUSED' \| 'MONITORED')` (boutons « Pause all » / « Resume all » de la page Library, affichés selon `monitoredCount()` / `pausedCount()`) |
@@ -717,6 +717,21 @@ nom du torrent (tronqués, complets en infobulle). Cliquable vers la page de l'i
 
 Utilisé par les deux sections du Dashboard (« Stalled downloads » et « Downloads in progress »),
 sur le même gabarit que les cartes « Most wanted » pour que la page se lise d'un coup d'œil.
+
+## Rôles (admin / guest)
+
+- `AuthService.isAdmin` (signal calculé depuis `currentUser().role`, peuplé par `GET /api/auth/me`). Le mode bootstrap
+  ouvert est servi comme admin (login `open-access`).
+- **Menu** : `_nav.ts` exporte `navItemsTop`, `navItemsBottom` (Jobs, Downloads, News) et `navItemsAdmin` (sections
+  **Settings**, **Access**, **Links**). `DefaultLayoutComponent.navItems` n'ajoute `navItemsAdmin` que pour un admin ; un
+  guest ne voit donc ni ces sections ni leurs entrées. L'appel `/api/options` (état des API Tokens) n'est fait que pour un admin.
+- **Routes** : `adminGuard` (`core/guards/admin.guard.ts`) sur `settings`, `libraries`, `users` et `library/:id/edit` ;
+  un guest est renvoyé vers `/dashboard`. Header : liens Users / Settings et « Service settings » masqués pour un guest ;
+  bouton Edit de la page Library masqué. Les liens-conseils vers `/settings/*` dans certains messages (News, Add Volume)
+  restent affichés : un guest qui les suit est redirigé vers le dashboard.
+- **Page Users** : colonne **Role** (badge Admin/Guest), sélecteur de rôle dans le formulaire (défaut Guest ; verrouillé sur
+  Admin pour le tout premier compte et pour le dernier admin), bouton Delete désactivé pour le dernier admin
+  (`isLastAdmin`). Le backend refuse de toute façon (409) et son message s'affiche dans la modale.
 
 ## Composant réutilisable : ExportPanelComponent
 

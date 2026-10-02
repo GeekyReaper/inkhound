@@ -23,7 +23,7 @@ public record UpdateDownloadHashRequest(string Hash);
 
 [ApiController]
 [Route("api/qbittorrent")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class QBittorrentController(InkhoundManager manager) : ControllerBase
 {
     private record QBittorrentCategoryDto(string Name, string SavePath);

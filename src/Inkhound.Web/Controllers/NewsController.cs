@@ -15,7 +15,7 @@ namespace Inkhound.Web.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/news")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class NewsController(InkhoundManager manager) : ControllerBase
 {
     private record LibraryLinkDto(Guid LibraryId, Guid VolumeId);

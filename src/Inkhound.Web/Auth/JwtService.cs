@@ -22,7 +22,7 @@ public class JwtService(SymmetricSecurityKey signingKey, IConfiguration config)
             {
                 new Claim(JwtRegisteredClaimNames.Sub,  user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Name, user.Login),
-                new Claim("role",                        "admin"),
+                new Claim("role",                        user.Role),
                 new Claim(JwtRegisteredClaimNames.Jti,  Guid.NewGuid().ToString())
             })
         };

@@ -39,6 +39,7 @@ import { NavigationTrackerService } from '../../core/services/navigation-tracker
 import { KavitaService } from '../../core/services/kavita.service';
 import { AGE_RATINGS, AgeRating, RefreshVolumeOptions, Volume, VolumeService, VolumeStatus } from '../../core/services/volume.service';
 import { HubService } from '../../core/services/hub.service';
+import { AuthService } from '../../core/services/auth.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 import { JobContext, UpdatedData } from '../../core/models/hub.models';
@@ -70,6 +71,7 @@ export class LibraryComponent {
   private volumeService  = inject(VolumeService);
   private hub            = inject(HubService);
   private pageJobs       = inject(PageJobService);
+  readonly isAdmin       = inject(AuthService).isAdmin;
   readonly #destroyRef   = inject(DestroyRef);
 
   // Ancre « début de la liste des volumes » (en-tête « Volumes (n) ») — cible de remontée du

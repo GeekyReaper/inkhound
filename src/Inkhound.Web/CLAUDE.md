@@ -86,10 +86,21 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 - Clé auto-générée dans `data/system/jwt-key.json` inline dans `Program.cs` (`JwtKeyInitializer.cs` est du code mort, non enregistré — ne pas y toucher)
 - Utilisateurs persistés dans la table SQLite `Users` (`Inkhound.Core.Models.User`, CRUD dans `InkhoundManager`) — `data/system/users.json` (ancien `FileUserStore`) n'est plus qu'une sauvegarde legacy inerte, importée une seule fois à la création de la table
 - Mots de passe : PBKDF2/SHA-256, 100 000 itérations (`Inkhound.Core.Security.PasswordHasher`)
-- **Un seul rôle : `admin`** — pas de notion de rôle multiple, tout principal authentifié a un accès total
+- **Deux rôles** (`Inkhound.Core.Security.UserRoles`, colonne `Users.Role`, claim JWT `role`) : **`admin`** (accès à tout) et **`guest`** (aucune page ni API des sections de menu Settings / Access / Links ; toutes les autres actions restent permises). Voir « Rôles » ci-dessous.
 - **Mode bootstrap ouvert** : tant qu'aucun utilisateur n'existe en base (`InkhoundManager.HasUsers == false`), le scheme "Smart" (`Program.cs`) route toute requête sans `X-Api-Key` vers `OpenAccessAuthenticationHandler`, qui authentifie systématiquement une identité virtuelle (`login="guest"`, `role="admin"`, non persistée) — l'app entière est alors utilisable sans connexion. Dès qu'un premier utilisateur réel est créé via `POST /api/users`, ce bypass cesse pour toutes les requêtes suivantes. Aucun garde-fou de suppression (auto-suppression, dernier utilisateur) : si `Users` redevient vide, l'app repasse naturellement en mode ouvert.
 - Token transmis en header `Authorization: Bearer {token}`
+- **Le rôle est relu en base à chaque requête** (`JwtBearerEvents.OnTokenValidated`, `Program.cs`) : un user supprimé reçoit 401, une rétrogradation/promotion prend effet immédiatement sans attendre l'expiration du token
 - Pour SignalR : token en query string `?access_token={token}`
+
+## Rôles (admin / guest)
+
+- **Réservés aux admins** (`[Authorize(Roles = "admin")]` de classe) : `UserController`, `OptionsController`, `SchedulerController`, `ApiTokenController`, `SystemController`, `KavitaController`, `ChatbotController`, `BedethequeCatalogController`, `WebshareProxyController` — ce sont les API des sections Settings / Access du menu.
+- **Ouverts à tout utilisateur authentifié** (`[Authorize]` de classe) : `LibraryController`, `VolumeController`, `IssueController`, `ExportController`, `NewsController`, `ProwlarrController`, `QBittorrentController`, `FilesystemController` (sélecteur de fichier des Import), `Dashboard`, `Jobs`, `Version`, `Image`.
+- **Exceptions admin par méthode** (la gestion des bibliothèques est dans Settings) : `POST` / `PUT {id}` / `DELETE {id}` de `LibraryController` et `PUT /api/prowlarr/libraries/{id}/selected-indexers`.
+- ⚠️ **Dans le tableau des routes ci-dessous, la colonne « Auth » `admin` est historique** : seules les routes des contrôleurs et méthodes listées ci-dessus sont réellement réservées aux admins, les autres acceptent aussi un guest.
+- **Dernier admin** : `DeleteUserAsync` et `UpdateUserAsync` (retrait du rôle) lèvent `InvalidOperationException` (409) si la cible est le dernier admin → `Users` ne redevient jamais vide, **le retour au mode ouvert par suppression des comptes n'existe plus**. Le **premier** compte créé (sortie du mode ouvert) est toujours admin, quel que soit le rôle demandé.
+- Migration : `Users.Role TEXT NOT NULL DEFAULT 'admin'` ajoutée par `AddColumnIfMissingAsync` → les comptes existants deviennent admin.
+- Tokens API (`X-Api-Key`) et mode bootstrap ouvert restent **admin** ; le login virtuel du mode ouvert est `open-access` (à ne pas confondre avec le rôle guest).
 
 ## Routes API
 
@@ -97,7 +108,7 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 |---|---|---|---|
 | POST | `/api/auth/login` | public | Login, retourne JWT |
 | GET | `/api/auth/me` | auth | Profil courant (fonctionne aussi en mode bootstrap ouvert) |
-| GET/POST/PUT/DELETE | `/api/users` | auth | CRUD utilisateurs (rôle unique, pas de restriction supplémentaire) |
+| GET/POST/PUT/DELETE | `/api/users` | admin | CRUD utilisateurs avec `role` (`admin`\|`guest`). 409 si on supprime ou rétrograde le dernier admin |
 | GET/POST/PUT/DELETE | `/api/libraries` | admin | CRUD librairies — `DELETE ?deleteFiles=true` supprime aussi les répertoires des volumes sur disque (204, ou 200 `{ fileWarning }` si un répertoire n'a pas pu l'être) ; la suppression en base cascade volumes/issues/downloads/indexers (`InkhoundManager.DeleteLibraryAsync`) |
 | GET | `/api/libraries/{id}/stats` | admin | Stats de l'encart de la page Library (volumes par statut/source, issues par statut, taille téléchargée, dernières dates d'activité) — `InkhoundManager.GetLibraryStatsAsync` |
 | GET/POST/PUT/DELETE | `/api/volumes` | auth | CRUD volumes |

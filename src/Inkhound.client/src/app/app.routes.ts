@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
+import { adminGuard } from './core/guards/admin.guard';
 import { libraryTitleResolver } from './core/resolvers/library-title.resolver';
 import { volumeTitleResolver } from './core/resolvers/volume-title.resolver';
 import { issueTitleResolver } from './core/resolvers/issue-title.resolver';
@@ -60,15 +61,18 @@ export const routes: Routes = [
       },
       {
         path: 'settings',
+        canActivate: [adminGuard],
         loadChildren: () => import('./views/settings/routes').then((m) => m.routes)
       },
       {
         path: 'libraries',
+        canActivate: [adminGuard],
         loadComponent: () => import('./views/library-management/library-management.component').then(m => m.LibraryManagementComponent),
         data: { title: 'Libraries' }
       },
       {
         path: 'users',
+        canActivate: [adminGuard],
         loadComponent: () => import('./views/user-management/user-management.component').then(m => m.UserManagementComponent),
         data: { title: 'Users' }
       },
@@ -103,6 +107,7 @@ export const routes: Routes = [
           },
           {
             path: 'edit',
+            canActivate: [adminGuard],
             data: { title: 'Edit' },
             loadComponent: () => import('./views/library/library-edit/library-edit.component').then(m => m.LibraryEditComponent)
           },

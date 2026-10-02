@@ -130,10 +130,12 @@
     <!-- Actions de la library, entre l'encart et la section Volumes -->
     <c-row class="mb-4">
       <c-col class="d-flex flex-wrap gap-2">
-        <button cButton color="secondary" [routerLink]="['/library', library()!.id, 'edit']">
-          <svg cIcon name="cilPencil" class="me-1"></svg>
-          Edit
-        </button>
+        @if (isAdmin()) {
+          <button cButton color="secondary" [routerLink]="['/library', library()!.id, 'edit']">
+            <svg cIcon name="cilPencil" class="me-1"></svg>
+            Edit
+          </button>
+        }
         <button cButton color="primary" [disabled]="syncing()" (click)="synchronize()">
           @if (syncing()) {
             <c-spinner size="sm" class="me-2"></c-spinner>Synchronizing…

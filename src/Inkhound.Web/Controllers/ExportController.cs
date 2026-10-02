@@ -13,7 +13,7 @@ namespace Inkhound.Web.Controllers;
 /// route anonyme du contrôleur — le ticket (aléatoire, 60 s, usage unique) tient lieu d'autorisation.
 /// </summary>
 [ApiController]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class ExportController(InkhoundManager manager) : ControllerBase
 {
     public record ExportRequest(ExportFormat Format);

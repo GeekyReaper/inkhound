@@ -1,20 +1,21 @@
 using Inkhound.Core;
 using Inkhound.Core.Models;
+using Inkhound.Core.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inkhound.Web.Controllers;
 
-public record CreateUserRequest(string Login, string Password);
-public record UpdateUserRequest(string? Login, string? Password);
+public record CreateUserRequest(string Login, string Password, string Role = UserRoles.Guest);
+public record UpdateUserRequest(string? Login, string? Password, string? Role = null);
 
 [ApiController]
 [Route("api/users")]
-[Authorize]
+[Authorize(Roles = UserRoles.Admin)]
 public class UserController(InkhoundManager manager) : ControllerBase
 {
-    private record UserDto(Guid Id, string Login, DateTime CreatedAt);
-    private static UserDto ToDto(User u) => new(u.Id, u.Login, u.CreatedAt);
+    private record UserDto(Guid Id, string Login, string Role, DateTime CreatedAt);
+    private static UserDto ToDto(User u) => new(u.Id, u.Login, u.Role, u.CreatedAt);
 
     // GET /api/users
     [HttpGet]
@@ -33,14 +34,14 @@ public class UserController(InkhoundManager manager) : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request)
     {
-        var created = await manager.CreateUserAsync(request.Login, request.Password);
+        var created = await manager.CreateUserAsync(request.Login, request.Password, request.Role);
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, ToDto(created));
     }
 
     // PUT /api/users/{id}
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest request)
-        => Ok(ToDto(await manager.UpdateUserAsync(id, request.Login, request.Password)));
+        => Ok(ToDto(await manager.UpdateUserAsync(id, request.Login, request.Password, request.Role)));
 
     // DELETE /api/users/{id}
     [HttpDelete("{id:guid}")]

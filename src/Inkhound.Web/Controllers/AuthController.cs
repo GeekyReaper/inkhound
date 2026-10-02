@@ -24,7 +24,7 @@ public class AuthController(InkhoundManager manager, JwtService jwt) : Controlle
             return Unauthorized(new { message = "Invalid credentials." });
 
         var (token, expiresAt) = jwt.Generate(user);
-        return Ok(new LoginResponse(token, expiresAt, "admin"));
+        return Ok(new LoginResponse(token, expiresAt, user.Role));
     }
 
     [HttpGet("me")]

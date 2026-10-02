@@ -2,20 +2,25 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { tap } from 'rxjs';
 
+import { UserRole } from './auth.service';
+
 export interface User {
   id: string;
   login: string;
+  role: UserRole;
   createdAt: string;
 }
 
 export interface CreateUserRequest {
   login: string;
   password: string;
+  role: UserRole;
 }
 
 export interface UpdateUserRequest {
   login: string | null;
   password: string | null;
+  role: UserRole | null;
 }
 
 @Injectable({ providedIn: 'root' })

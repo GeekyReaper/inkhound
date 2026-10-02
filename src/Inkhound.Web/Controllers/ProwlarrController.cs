@@ -18,7 +18,7 @@ public record ProwlarrSetIndexersRequest(List<ProwlarrSetIndexersRequest.Indexer
 
 [ApiController]
 [Route("api/prowlarr")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class ProwlarrController(InkhoundManager manager) : ControllerBase
 {
     private record ProwlarrCategoryDto(int Id, string Name);
@@ -92,6 +92,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
     }
 
     // PUT /api/prowlarr/libraries/{libraryId}/selected-indexers
+    [Authorize(Roles = "admin")]
     [HttpPut("libraries/{libraryId:guid}/selected-indexers")]
     public async Task<IActionResult> SetSelectedIndexers(Guid libraryId, [FromBody] ProwlarrSetIndexersRequest req)
     {

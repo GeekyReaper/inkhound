@@ -15,7 +15,7 @@ Inkhound.Core/
 │   ├── Page.cs          # Page d'une issue
 │   ├── AgeRating.cs     # Enum AgeRating + extension ToKavitaString()
 │   ├── BlobAccess.cs    # Accès fichier binaire
-│   ├── User.cs          # Compte utilisateur (auth) — un seul rôle "admin", pas de propriété Role
+│   ├── User.cs          # Compte utilisateur (auth) — propriété Role : "admin" | "guest" (Security/UserRoles.cs)
 │   ├── ArchiveJobParameters.cs
 │   ├── SynchronizeLibraryJobParameters.cs
 │   ├── RegenerateComicInfoJobParameters.cs

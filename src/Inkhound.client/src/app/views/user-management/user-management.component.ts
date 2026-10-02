@@ -1,9 +1,10 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   AlertComponent,
+  BadgeComponent,
   ButtonCloseDirective,
   ButtonDirective,
   CardBodyComponent,
@@ -12,6 +13,7 @@ import {
   ContainerComponent,
   FormControlDirective,
   FormLabelDirective,
+  FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
   ModalFooterComponent,
@@ -23,7 +25,7 @@ import {
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
 import { User, UserService, CreateUserRequest, UpdateUserRequest } from '../../core/services/user.service';
-import { AuthService } from '../../core/services/auth.service';
+import { AuthService, UserRole } from '../../core/services/auth.service';
 import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 type PageMode = 'list' | 'add' | 'edit';
@@ -34,7 +36,7 @@ type PageMode = 'list' | 'add' | 'edit';
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardBodyComponent,
-    ReactiveFormsModule, FormControlDirective, FormLabelDirective,
+    ReactiveFormsModule, FormControlDirective, FormLabelDirective, FormSelectDirective, BadgeComponent,
     ButtonDirective, ButtonCloseDirective, SpinnerComponent, AlertComponent, IconDirective,
     TableDirective, SmartDatePipe,
     ModalComponent, ModalHeaderComponent, ModalTitleDirective, ModalBodyComponent, ModalFooterComponent
@@ -64,8 +66,20 @@ export class UserManagementComponent implements OnInit {
 
   form = new FormGroup({
     login:    new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    password: new FormControl('', { nonNullable: true, validators: [Validators.required] })
+    password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    role:     new FormControl<UserRole>('guest', { nonNullable: true })
   });
+
+  readonly roles: UserRole[] = ['admin', 'guest'];
+
+  // Le backend refuse de supprimer ou de rétrograder le dernier admin : on le signale dès la liste.
+  private adminCount = computed(() => this.users().filter(u => u.role === 'admin').length);
+  isLastAdmin(user: User): boolean {
+    return user.role === 'admin' && this.adminCount() <= 1;
+  }
+
+  // Premier compte (mode ouvert) : toujours admin, le rôle n'est pas choisissable.
+  readonly firstUserMode = computed(() => this.mode() === 'add' && this.users().length === 0);
 
   ngOnInit() {
     this.loadUsers();
@@ -84,7 +98,7 @@ export class UserManagementComponent implements OnInit {
 
   showAddForm() {
     this.editingUser.set(null);
-    this.form.reset();
+    this.form.reset({ login: '', password: '', role: this.users().length === 0 ? 'admin' : 'guest' });
     this.form.controls.password.addValidators(Validators.required);
     this.form.controls.password.updateValueAndValidity();
     this.saveStatus.set('idle');
@@ -93,7 +107,7 @@ export class UserManagementComponent implements OnInit {
 
   showEditForm(user: User) {
     this.editingUser.set(user);
-    this.form.setValue({ login: user.login, password: '' });
+    this.form.setValue({ login: user.login, password: '', role: user.role });
     this.form.controls.password.clearValidators();
     this.form.controls.password.updateValueAndValidity();
     this.saveStatus.set('idle');
@@ -153,7 +167,8 @@ export class UserManagementComponent implements OnInit {
       const user = this.editingUser()!;
       const request: UpdateUserRequest = {
         login:    this.form.controls.login.value,
-        password: this.form.controls.password.value || null
+        password: this.form.controls.password.value || null,
+        role:     this.form.controls.role.value
       };
       this.userService.update(user.id, request)
         .pipe(takeUntilDestroyed(this.#destroyRef))
@@ -173,7 +188,8 @@ export class UserManagementComponent implements OnInit {
     } else {
       const request: CreateUserRequest = {
         login:    this.form.controls.login.value,
-        password: this.form.controls.password.value
+        password: this.form.controls.password.value,
+        role:     this.form.controls.role.value
       };
       this.userService.create(request)
         .pipe(takeUntilDestroyed(this.#destroyRef))

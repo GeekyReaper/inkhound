@@ -9,7 +9,7 @@ namespace Inkhound.Web.Controllers;
 
 [ApiController]
 [Route("api/libraries/{libraryId:guid}/volumes")]
-[Authorize(Roles = "admin")]
+[Authorize]
 public class VolumeController(InkhoundManager manager) : ControllerBase
 {
     private record VolumeSearchDto(
