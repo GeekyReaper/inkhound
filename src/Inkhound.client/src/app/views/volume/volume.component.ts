@@ -37,6 +37,7 @@ import { HubService } from '../../core/services/hub.service';
 import { UpdatedData } from '../../core/models/hub.models';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { ExportPanelComponent } from '../export-panel/export-panel.component';
 import { Library, LibraryService } from '../../core/services/library.service';
 import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
@@ -53,7 +54,7 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent, IssueCardComponent, SmartDatePipe
+    JobPanelComponent, ExportPanelComponent, IssueCardComponent, SmartDatePipe
   ]
 })
 export class VolumeComponent {
@@ -135,6 +136,9 @@ export class VolumeComponent {
   // volume-match.component.ts) — même pattern que issue.component.ts pour l'analyse CBZ.
   private readonly pageKey = this.router.url;
   private handledJobIds = new Set<string>();
+
+  // Un export est en cours (carte Export) : Import / Refresh / Rematch / Delete sont désactivés.
+  readonly exportBusy = signal(false);
   readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
   private readonly currentJob = computed(() => {
     const id = this.activeJobId();

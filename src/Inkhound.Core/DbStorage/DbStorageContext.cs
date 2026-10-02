@@ -21,6 +21,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<IssueTorrentBan> IssueTorrentBans => Set<IssueTorrentBan>();
 
+    public DbSet<ExportFile> ExportFiles => Set<ExportFile>();
+
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     public DbSet<User> Users => Set<User>();
@@ -69,6 +71,15 @@ public class DbStorageContext : DbContext
         // identifiant alors le torrent.
         modelBuilder.Entity<IssueTorrentBan>()
             .HasIndex(b => b.IssueId);
+
+        // Fichiers d'export — enums en texte, lus par cible (listes des pages Volume/Issue).
+        modelBuilder.Entity<ExportFile>(entity =>
+        {
+            entity.Property(e => e.TargetType).HasConversion<string>();
+            entity.Property(e => e.Format).HasConversion<string>();
+            entity.Property(e => e.Status).HasConversion<string>();
+            entity.HasIndex(e => new { e.TargetType, e.TargetId });
+        });
 
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Login)

@@ -317,6 +317,65 @@
         </c-card-body>
       </c-card>
 
+      <!-- Clean export -->
+      <c-card class="mb-4">
+        <c-card-header class="d-flex align-items-center justify-content-between">
+          <strong>Clean export</strong>
+          @if (status()?.cleanExports?.running) {
+            <c-badge color="info">Running</c-badge>
+          }
+        </c-card-header>
+        <c-card-body>
+          <p class="text-body-secondary">
+            Deletes the files produced by the Export module (issue PDF/CBZ, volume ZIP) once they are older than
+            the maximum age below, along with any leftover file in the export folder. Exports are listed on the
+            Volume and Issue pages until then.
+          </p>
+
+          <c-form-check class="mb-3">
+            <input cFormCheckInput type="checkbox" id="cleanExportsEnabled" formControlName="cleanExportsEnabled" />
+            <label cFormCheckLabel for="cleanExportsEnabled">Enabled</label>
+          </c-form-check>
+
+          <c-row>
+            <c-col md="7">
+              <div class="mb-3">
+                <label cLabel for="cleanExportsCron">Cron expression</label>
+                <app-cron-editor inputId="cleanExportsCron" formControlName="cleanExportsCron" title="Clean export — schedule" placeholder="0 * * * *" />
+              </div>
+            </c-col>
+            <c-col md="5">
+              <div class="mb-3">
+                <label cLabel for="cleanExportsMaxAgeDays">Maximum age (days)</label>
+                <input cFormControl id="cleanExportsMaxAgeDays" formControlName="cleanExportsMaxAgeDays"
+                       type="number" min="1" max="365" step="1"
+                       [class.is-invalid]="form.get('cleanExportsMaxAgeDays')?.invalid && form.get('cleanExportsMaxAgeDays')?.touched" />
+                <div class="form-text text-body-secondary">Exported files older than this are deleted.</div>
+                @if (form.get('cleanExportsMaxAgeDays')?.invalid && form.get('cleanExportsMaxAgeDays')?.touched) {
+                  <c-form-feedback [valid]="false">Enter a number between 1 and 365.</c-form-feedback>
+                }
+              </div>
+            </c-col>
+          </c-row>
+
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <button cButton color="secondary" variant="outline" size="sm" type="button"
+                    [disabled]="runningNow().has('CleanExports')" (click)="runNow('CleanExports')">
+              @if (runningNow().has('CleanExports')) {
+                <c-spinner size="sm" class="me-1"></c-spinner>
+              } @else {
+                <svg cIcon name="cilMediaPlay" class="me-1"></svg>
+              }
+              Run now
+            </button>
+            <span class="text-body-secondary small">
+              Last run: {{ formatDate(status()?.cleanExports?.lastRunUtc) }}
+              · Next run: {{ formatDate(status()?.cleanExports?.nextRunUtc) }}
+            </span>
+          </div>
+        </c-card-body>
+      </c-card>
+
       <div class="d-flex align-items-center gap-3">
         <button cButton color="primary" type="submit" [disabled]="saving() || form.invalid">
           @if (saving()) {

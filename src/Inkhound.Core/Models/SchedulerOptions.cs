@@ -11,7 +11,8 @@ namespace Inkhound.Core.Models;
 /// un lot des volumes les moins récemment mis à jour depuis leur source, l'« auto search » qui
 /// recherche et envoie en téléchargement les issues Standard manquantes d'un lot de volumes, et
 /// le rafraîchissement par lot de lettres du catalogue local Bedetheque, et le rafraîchissement des
-/// flux News (top ventes, nouveautés) avec enrichissement d'un lot d'albums par flux.
+/// flux News (top ventes, nouveautés) avec enrichissement d'un lot d'albums par flux, et le
+/// nettoyage des fichiers du module Export (durée de vie maximale paramétrable).
 /// </summary>
 public class SchedulerOptions : IOptionList
 {
@@ -60,6 +61,15 @@ public class SchedulerOptions : IOptionList
     /// <summary>Nombre d'albums enrichis par flux à chaque exécution.</summary>
     public int NewsEnrichBatchSize { get; set; } = 5;
 
+    /// <summary>Active le nettoyage automatique des fichiers d'export.</summary>
+    public bool CleanExportsEnabled { get; set; } = true;
+
+    /// <summary>Expression cron (5 champs, heure serveur) pilotant le nettoyage des exports.</summary>
+    public string CleanExportsCron { get; set; } = "0 * * * *";
+
+    /// <summary>Durée de vie maximale (jours) d'un fichier d'export : au-delà, il est supprimé.</summary>
+    public int CleanExportsMaxAgeDays { get; set; } = 2;
+
     /// <summary>
     /// Valide les expressions cron des tâches activées. Une tâche désactivée n'est pas contrôlée :
     /// une valeur cron invalide n'a alors aucun effet et ne doit pas passer le service en INVALID.
@@ -98,6 +108,12 @@ public class SchedulerOptions : IOptionList
         if (NewsEnabled && NewsEnrichBatchSize < 0)
             errors.Add($"{nameof(NewsEnrichBatchSize)} must be at least 0.");
 
+        if (CleanExportsEnabled && !CronExpression.TryParse(CleanExportsCron, out _))
+            errors.Add($"{nameof(CleanExportsCron)} is not a valid 5-field cron expression.");
+
+        if (CleanExportsMaxAgeDays < 1)
+            errors.Add($"{nameof(CleanExportsMaxAgeDays)} must be at least 1.");
+
         return errors.Count == 0;
     }
 
@@ -119,7 +135,10 @@ public class SchedulerOptions : IOptionList
             new() { Name = nameof(BedethequeCatalogLetterCount), Section = "Bedetheque catalog", SortOrder = 110, Value = BedethequeCatalogLetterCount.ToString(), ValueType = EValueType.INT, DefaultValue = "3", Description = "Number of index letters (0, A-Z) refreshed per run (least-recently-fetched first).", Mandatory = false },
             new() { Name = nameof(NewsEnabled), Section = "News", SortOrder = 120, Value = NewsEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "false", Description = "Automatically refresh the News feeds (top sales, new releases) and enrich a batch of pending albums on a schedule.", Mandatory = false },
             new() { Name = nameof(NewsCron), Section = "News", SortOrder = 130, Value = NewsCron, ValueType = EValueType.STRING, DefaultValue = "0 * * * *", Description = "5-field cron expression (server time) — e.g. \"0 * * * *\" every hour.", Mandatory = false },
-            new() { Name = nameof(NewsEnrichBatchSize), Section = "News", SortOrder = 140, Value = NewsEnrichBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "5", Description = "Number of albums enriched per feed and per run (series, authors, preview pages) — one source request each.", Mandatory = false }
+            new() { Name = nameof(NewsEnrichBatchSize), Section = "News", SortOrder = 140, Value = NewsEnrichBatchSize.ToString(), ValueType = EValueType.INT, DefaultValue = "5", Description = "Number of albums enriched per feed and per run (series, authors, preview pages) — one source request each.", Mandatory = false },
+            new() { Name = nameof(CleanExportsEnabled), Section = "Clean export", SortOrder = 150, Value = CleanExportsEnabled.ToString().ToLower(), ValueType = EValueType.BOOL, DefaultValue = "true", Description = "Automatically delete exported files (Export module) older than the maximum age below.", Mandatory = false },
+            new() { Name = nameof(CleanExportsCron), Section = "Clean export", SortOrder = 160, Value = CleanExportsCron, ValueType = EValueType.STRING, DefaultValue = "0 * * * *", Description = "5-field cron expression (server time) — e.g. \"0 * * * *\" every hour.", Mandatory = false },
+            new() { Name = nameof(CleanExportsMaxAgeDays), Section = "Clean export", SortOrder = 170, Value = CleanExportsMaxAgeDays.ToString(), ValueType = EValueType.INT, DefaultValue = "2", Description = "Maximum lifetime (days) of an exported file. Older files are deleted by the task.", Mandatory = false }
         };
     }
 
@@ -146,6 +165,9 @@ public class SchedulerOptions : IOptionList
                 case nameof(NewsEnabled): NewsEnabled = option.GetBool(); break;
                 case nameof(NewsCron): NewsCron = option.Value; break;
                 case nameof(NewsEnrichBatchSize): NewsEnrichBatchSize = option.GetInt(); break;
+                case nameof(CleanExportsEnabled): CleanExportsEnabled = option.GetBool(); break;
+                case nameof(CleanExportsCron): CleanExportsCron = option.Value; break;
+                case nameof(CleanExportsMaxAgeDays): CleanExportsMaxAgeDays = option.GetInt(); break;
             }
         }
 

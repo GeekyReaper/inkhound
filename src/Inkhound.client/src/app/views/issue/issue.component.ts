@@ -19,6 +19,7 @@ import { DownloadListComponent } from '../download-list/download-list.component'
 import { HubService } from '../../core/services/hub.service';
 import { PageJobService } from '../../core/services/page-job.service';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { ExportPanelComponent } from '../export-panel/export-panel.component';
 import { ProwlarrSearchComponent } from '../prowlarr-search/prowlarr-search.component';
 import { SelectPathComponent } from '../select-path/select-path.component';
 import { UpdatedData } from '../../core/models/hub.models';
@@ -36,6 +37,7 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, SlicePipe, SmartDatePipe,
     JobPanelComponent,
+    ExportPanelComponent,
     ProwlarrSearchComponent,
     SelectPathComponent,
     DownloadListComponent
@@ -98,6 +100,9 @@ export class IssueComponent {
 
   readonly activeJobId = this.pageJobs.activeJobId(this.pageKey);
   private handledJobIds = new Set<string>();
+
+  // Un export est en cours (carte Export) : Import et Delete file sont désactivés.
+  readonly exportBusy = signal(false);
 
   private readonly currentJob = computed(() => {
     const jobId = this.activeJobId();

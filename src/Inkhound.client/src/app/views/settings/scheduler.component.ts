@@ -59,7 +59,10 @@ export class SchedulerSettingsComponent implements OnInit {
     bedethequeCatalogLetterCount: new FormControl(3, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(27)] }),
     newsEnabled: new FormControl(false, { nonNullable: true }),
     newsCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
-    newsEnrichBatchSize: new FormControl(5, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(50)] })
+    newsEnrichBatchSize: new FormControl(5, { nonNullable: true, validators: [Validators.required, Validators.min(0), Validators.max(50)] }),
+    cleanExportsEnabled: new FormControl(true, { nonNullable: true }),
+    cleanExportsCron: new FormControl('', { nonNullable: true, validators: [cronValidator] }),
+    cleanExportsMaxAgeDays: new FormControl(2, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(365)] })
   });
 
   ngOnInit(): void {
@@ -130,7 +133,10 @@ export class SchedulerSettingsComponent implements OnInit {
       bedethequeCatalogLetterCount: s.bedethequeCatalogLetterCount,
       newsEnabled: s.news.enabled,
       newsCron: s.news.cron,
-      newsEnrichBatchSize: s.newsEnrichBatchSize
+      newsEnrichBatchSize: s.newsEnrichBatchSize,
+      cleanExportsEnabled: s.cleanExports.enabled,
+      cleanExportsCron: s.cleanExports.cron,
+      cleanExportsMaxAgeDays: s.cleanExportsMaxAgeDays
     });
   }
 }

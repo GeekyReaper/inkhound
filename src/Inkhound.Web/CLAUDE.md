@@ -17,7 +17,8 @@ Inkhound.Web/
 │   ├── KavitaController.cs       # /api/kavita (test connexion, scan)
 │   ├── FilesystemController.cs   # /api/filesystem (browse dossiers serveur)
 │   ├── OptionsController.cs      # /api/options (settings app)
-│   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque)
+│   ├── SchedulerController.cs    # /api/scheduler — config + Run now (import downloads / rolling refresh / auto search / catalogue Bedetheque / News / Clean export)
+│   ├── ExportController.cs       # export d'issues (PDF/CBZ) et de volumes (ZIP) : lancement de job, liste, suppression, ticket + téléchargement
 │   ├── BedethequeCatalogController.cs # /api/bedetheque/catalog — état par lettre + job de refresh du catalogue local
 │   ├── NewsController.cs         # /api/news — flux top ventes / nouveautés, détail album, résolution série, refresh
 │   ├── ChatbotController.cs      # /api/chatbot — état d'exécution du bot Matrix + start/stop ponctuels
@@ -105,8 +106,14 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 | GET/POST | `/api/kavita` | admin | Test + scan Kavita |
 | GET | `/api/filesystem` | admin | Browse filesystem |
 | GET/PUT | `/api/options` | admin | Paramètres app |
-| GET/PUT | `/api/scheduler` | admin | Config du planificateur (5 tâches cron : import downloads / rolling refresh / auto search / catalogue Bedetheque / News — `AutoSearchMinScore` validé 0-100 même tâche désactivée) |
-| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog` / `News`) |
+| GET/PUT | `/api/scheduler` | admin | Config du planificateur (6 tâches cron : import downloads / rolling refresh / auto search / catalogue Bedetheque / News / Clean export — `AutoSearchMinScore` validé 0-100 même tâche désactivée ; `CleanExportsMaxAgeDays` ≥ 1) |
+| POST | `/api/scheduler/run/{key}` | admin | Déclenche immédiatement une tâche (`ProcessDownloads` / `RollingRefresh` / `AutoSearch` / `BedethequeCatalog` / `News` / `CleanExports`) |
+| POST | `/api/issues/{id}/export` | admin | Job d'export d'une issue, body `{ format: 'Pdf' \| 'Cbz' }` → `202 { jobId }` (409 si déjà en cours) |
+| POST | `/api/volumes/{id}/export` | admin | Job d'export d'un volume en ZIP de PDF/CBZ, body `{ format }` → `202 { jobId }` |
+| GET | `/api/exports?targetType=&targetId=` | admin | Exports présents pour une issue/un volume (`expiresAt` calculé depuis la tâche Clean export) |
+| DELETE | `/api/exports/{id}` | admin | Supprime l'export (fichier + entrée) — 409 s'il se génère encore |
+| POST | `/api/exports/{id}/ticket` | admin | Ticket de téléchargement à usage unique (60 s) → `{ url }` |
+| GET | `/api/exports/download/{ticket}` | **anonyme** | Sert le fichier (`PhysicalFile`, Range) — un lien natif ne porte pas le JWT : le ticket aléatoire, consommé à l'appel, tient lieu d'autorisation (404 s'il est inconnu, expiré ou déjà utilisé) |
 | GET | `/api/news/top-sales?period=` | admin | Classement d'une semaine (`period` = lundi `yyyy-MM-dd`, défaut la plus récente) + semaines disponibles — lu en base |
 | GET | `/api/news/releases?category=&month=&page=&pageSize=` | admin | Nouveautés paginées (`category` Bd/Manga/Comics, `month` `yyyy-MM`) + mois disponibles — lu en base |
 | GET | `/api/news/albums/{albumId}` | admin | Détail live d'un album (enrichissement, série + albums, visuels, statut bibliothèque, apparitions) — 404 inconnu, 503 source bloquée |

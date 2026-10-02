@@ -29,7 +29,8 @@ public class ArchiveService : BaseService<ArchiveOption>
     // donc deux conversions concurrentes font monter le RSS du conteneur sans qu'aucune collecte ne
     // soit déclenchée. Le verrou est statique : la contrainte est celle du process, pas de
     // l'instance de service.
-    private static readonly SemaphoreSlim ImageDecodeGate = new(1, 1);
+    // internal : le module Export décode lui aussi des pages et doit passer par le même verrou.
+    internal static readonly SemaphoreSlim ImageDecodeGate = new(1, 1);
 
     public string ImagesPath => Options.ImagesPath;
     public string DownloadsPath => Options.DownloadsPath;

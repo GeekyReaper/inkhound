@@ -3,6 +3,7 @@ using Inkhound.Core.Bedetheque;
 using Inkhound.Core.Chatbot;
 using Inkhound.Core.Bedetheque.Catalog;
 using Inkhound.Core.ComicVine;
+using Inkhound.Core.Export;
 using Inkhound.Core.Models;
 using Inkhound.Core.News;
 using Inkhound.Core.Security;
@@ -51,6 +52,7 @@ public partial class InkhoundManager : BaseServiceManager
         // Purge périodique des entrées expirées par la boucle de monitoring, et vidage à la demande
         // via PurgeAllCaches (voir l'API /api/system/memory).
         RegisterCache(_searchResults);
+        RegisterCache(_exportTickets);
         RegisterCache(_prowlarrResults);
         RegisterCache(_prowlarrVolumeResults);
     }
@@ -124,6 +126,7 @@ public partial class InkhoundManager : BaseServiceManager
         GetService<QBittorrentService, QBittorrentOptions>();
         GetService<ApiTokenService, ApiTokenOptions>();
         GetService<SchedulerService, SchedulerOptions>();
+        GetService<ExportService, ExportOptions>();
 
         // La passerelle doit être attachée AVANT la boucle de chargement des options ci-dessous :
         // c'est ce LoadOptions qui construit les commandes du bot et démarre la boucle Matrix si le

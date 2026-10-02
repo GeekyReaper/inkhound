@@ -1,0 +1,75 @@
+<c-container class="py-4">
+
+  <c-row class="mb-4 align-items-center">
+    <c-col>
+      <h2 class="mb-0">Export</h2>
+    </c-col>
+    <c-col [xs]="'auto'">
+      <c-badge [color]="getBadgeColor(getServiceState())">{{ getServiceState() }}</c-badge>
+    </c-col>
+  </c-row>
+
+  <p class="text-body-secondary">
+    Issues are exported as PDF or CBZ and volumes as a ZIP of issues, from the Issue and Volume pages.
+    Generated files are kept in the export folder until the
+    <a routerLink="/settings/scheduler">Clean export</a> scheduler task deletes them (maximum age set there).
+  </p>
+
+  @if (loading()) {
+    <div class="d-flex justify-content-center py-5">
+      <c-spinner color="primary"></c-spinner>
+    </div>
+  } @else {
+
+    <form cForm [formGroup]="form()" (ngSubmit)="save()">
+      @for (section of sections(); track section.name) {
+        <c-card class="mb-4">
+          <c-card-header><strong>{{ section.name }}</strong></c-card-header>
+          <c-card-body>
+            @for (def of section.options; track def.id) {
+              <div class="mb-3">
+                <label cLabel [for]="def.id">{{ def.name }}</label>
+                @if (def.description) {
+                  <div class="text-body-secondary small mb-1">{{ def.description }}</div>
+                }
+                @if (def.valueType === 'SELECT') {
+                  <select cSelect [id]="def.id" [formControlName]="def.name">
+                    @for (v of def.allowedValues; track v) {
+                      <option [value]="v">{{ v }}</option>
+                    }
+                  </select>
+                } @else {
+                  <input
+                    cFormControl
+                    [id]="def.id"
+                    [formControlName]="def.name"
+                    [type]="def.valueType === 'INT' ? 'number' : 'text'"
+                    [class.is-invalid]="form().get(def.name)?.invalid && form().get(def.name)?.touched" />
+                }
+                @if (form().get(def.name)?.invalid && form().get(def.name)?.touched) {
+                  <c-form-feedback [valid]="false">Invalid value.</c-form-feedback>
+                }
+              </div>
+            }
+          </c-card-body>
+        </c-card>
+      }
+
+      <div class="d-flex align-items-center gap-3">
+        <button cButton color="primary" type="submit" [disabled]="saving() || form().invalid">
+          @if (saving()) {
+            <c-spinner size="sm" class="me-1"></c-spinner>
+          }
+          Save
+        </button>
+        @if (saveStatus() === 'success') {
+          <c-alert color="success" class="mb-0 py-2 px-3">Export settings saved.</c-alert>
+        } @else if (saveStatus() === 'error') {
+          <c-alert color="danger" class="mb-0 py-2 px-3">Failed to save.</c-alert>
+        }
+      </div>
+    </form>
+
+  }
+
+</c-container>

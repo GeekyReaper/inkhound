@@ -37,6 +37,11 @@ export const routes: Routes = [
     data: { title: 'Bedetheque catalog' }
   },
   {
+    path: 'export',
+    loadComponent: () => import('./export.component').then(m => m.ExportSettingsComponent),
+    data: { title: 'Export' }
+  },
+  {
     path: 'system',
     loadComponent: () => import('./system.component').then(m => m.SystemSettingsComponent),
     data: { title: 'System' }

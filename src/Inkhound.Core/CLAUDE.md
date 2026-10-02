@@ -21,7 +21,9 @@ Inkhound.Core/
 │   ├── RegenerateComicInfoJobParameters.cs
 │   ├── AutoSearchVolumeJobParameters.cs  # job Auto search (VolumeId + MinScore)
 │   ├── RefreshBedethequeCatalogJobParameters.cs  # job refresh catalogue Bedetheque (LetterCount / Letters)
-│   └── RefreshNewsJobParameters.cs  # job News (ForceListRefresh + EnrichBatchSize)
+│   ├── RefreshNewsJobParameters.cs  # job News (ForceListRefresh + EnrichBatchSize)
+│   ├── ExportFile.cs                # entrée de la table ExportFiles (module Export)
+│   └── ExportJobParameters.cs       # job Export (TargetType + TargetId + Format)
 ├── Security/            # PasswordHasher.cs — PBKDF2/SHA-256, 100 000 itérations
 ├── ComicVine/           # Intégration API ComicVine
 │   ├── ComicVineSourceService.cs
@@ -65,6 +67,9 @@ Inkhound.Core/
 │   ├── INewsProvider.cs                  # abstraction de la source d'actualité
 │   ├── NewsAlbum.cs / NewsEntry.cs       # entités EF (tables NewsAlbums / NewsEntries)
 │   └── News*.cs                          # records : NewsScrapedEntry, NewsTopSalesSnapshot, NewsAlbumEnrichment, NewsSeriesDetail…
+├── Export/              # Module Export — PDF/CBZ d'une issue, ZIP d'un volume (voir section dédiée)
+│   ├── ExportService.cs / ExportOptions.cs  # module « Export » : options + fabrication des fichiers (CBZ ré-encodé, PDF Skia)
+│   └── ExportFormat.cs / ExportTargetType.cs / ExportStatus.cs / ExportImageFormat.cs  # enums
 ├── Blob/                # Gestion fichiers binaires (non utilisé)
 │   └── BlobService.cs
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
@@ -73,6 +78,7 @@ Inkhound.Core/
 ├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
 ├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
 ├── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
+├── inkhoundManager.Export.cs    # partial — jobs d'export, liste/suppression, tickets de téléchargement, nettoyage
 └── inkhoundManager.News.cs  # partial — job News, lectures paginées des flux, détail live d'un album
 ```
 
@@ -656,7 +662,7 @@ dossier qui vient d'être supprimé.
 
 `SchedulerService` / `SchedulerOptions` (`Models/SchedulerOptions.cs`) — service à options
 (persisté dans la table `Options`, service `"Scheduler"`, aucune migration d'options : créé par le
-merge de `AutomaticLoadServices`). Cinq tâches indépendantes, chacune `Enabled` + expression
+merge de `AutomaticLoadServices`). Six tâches indépendantes, chacune `Enabled` + expression
 **cron 5 champs** (parsing via le package **`Cronos`**, heure serveur `TimeZoneInfo.Local`) :
 
 | Tâche (clé) | Options | Action |
@@ -665,6 +671,7 @@ merge de `AutomaticLoadServices`). Cinq tâches indépendantes, chacune `Enabled
 | `RollingRefresh` | `RollingRefreshEnabled`, `RollingRefreshCron`, `RollingRefreshBatchSize` (int, défaut 10) | `RunScheduledRollingRefreshAsync` — voir ci-dessous |
 | `AutoSearch` | `AutoSearchEnabled`, `AutoSearchCron` (défaut `0 4 * * *`), `AutoSearchBatchSize` (int, défaut 5), `AutoSearchMinScore` (int 0-100, défaut 70) | `RunScheduledAutoSearchAsync` — voir « Auto search » ci-dessous |
 | `News` | `NewsEnabled`, `NewsCron` (défaut `0 * * * *`), `NewsEnrichBatchSize` (int ≥ 0, défaut 5) | `RunScheduledNewsAsync` — job News awaité (relecture des listes si périmées + enrichissement de N albums **par flux**). Voir « Module News ». |
+| `CleanExports` | `CleanExportsEnabled` (défaut **true**), `CleanExportsCron` (défaut `0 * * * *`), `CleanExportsMaxAgeDays` (int ≥ 1, défaut 2) | `RunScheduledCleanExportsAsync` — voir « Module Export ». |
 | `BedethequeCatalog` | `BedethequeCatalogEnabled`, `BedethequeCatalogCron` (défaut `0 2 * * *`), `BedethequeCatalogLetterCount` (int, défaut 3) | `RunScheduledBedethequeCatalogAsync` — job de refresh du catalogue local sur les N lettres les moins récemment chargées, **awaité** (la garde `_schedulerBusy` couvre toute l'exécution) ; ignoré (trace WARNING) si un refresh manuel tourne déjà. Voir section Bedetheque. |
 
 **Rolling refresh** (`RunScheduledRollingRefreshAsync`) : au lieu de rafraîchir tout le catalogue
@@ -744,8 +751,49 @@ au démarrage (`lastCheckUtc` initialisé à `DateTime.UtcNow`). `_schedulerLast
 déclenchement) est **en mémoire** — repart à vide après redémarrage.
 
 `GetSchedulerStatus()` → `SchedulerStatus` (enabled / cron / lastRunUtc / nextRunUtc / running par
-tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`, `NewsEnrichBatchSize`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
+tâche + `RollingRefreshBatchSize`, `AutoSearchBatchSize`, `AutoSearchMinScore`, `BedethequeCatalogLetterCount`, `NewsEnrichBatchSize`, `CleanExports` + `CleanExportsMaxAgeDays`). `RunSchedulerTaskNow(key)` → déclenchement manuel (bouton
 « Run now »), `ArgumentException` si clé inconnue. Exposés par `SchedulerController` (`Inkhound.Web`).
+
+---
+
+## Module Export (`Export/` + `inkhoundManager.Export.cs`)
+
+Télécharger une **issue** en PDF ou CBZ, un **volume** en ZIP (une entrée par issue, au format choisi).
+Tout part d'un job ; le fichier est conservé dans `ExportPath` (défaut `data/export`, monté par le
+volume Docker `./data`) jusqu'à son nettoyage.
+
+- **Service `Export`** (`ExportService : BaseService<ExportOptions>`, enregistré dans
+  `AutomaticLoadServices`) : `ExportPath`, `DefaultFormat` (Pdf|Cbz) ; PDF : `PdfImageFormat`
+  (`Original`|`Jpeg`), `PdfImageQuality`, `PdfMaxImageHeightPx` ; CBZ : `CbzImageFormat`
+  (`Original`|`Jpeg`|`WebP`|`Png`), `CbzImageQuality`, `CbzMaxImageHeightPx`. **Pas de durée de vie
+  ici** : elle est portée par la tâche scheduler `CleanExports` (`CleanExportsMaxAgeDays`).
+- `Original` ne ré-encode rien : CBZ → copie du fichier de la bibliothèque (le job de volume zippe
+  alors la source directement), PDF → images d'origine embarquées (les JPEG passent sans recompression ;
+  des pages WebP/PNG donnent un PDF bien plus lourd — d'où `Jpeg` par défaut pour le PDF).
+- **Conversion** (`ExportService.BuildIssueFileAsync`) : le CBZ source n'est jamais modifié. Pages triées
+  par `NaturalSortComparer`, `ComicInfo.xml` recopié dans le CBZ. PDF = `SKDocument.CreatePdf`, une page
+  par image (largeur 595 pt, hauteur au ratio), métadonnées Title/Creator. ⚠️ Tout décodage passe par
+  `ArchiveService.ImageDecodeGate` (devenu `internal`) et chaque bitmap est disposé — voir « Empreinte
+  mémoire » ; écriture en flux, jamais un document entier en mémoire managée.
+- **Table `ExportFiles`** (`ExportFile`, créée dans `ApplyPendingMigrationsAsync`) : `TargetType`
+  (Issue|Volume), `TargetId`, `Format`, `FileName` (nom proposé au téléchargement), `SizeBytes`,
+  `CreatedAt`, `Status` (Pending|Ready), `JobId`. Fichier disque = `{Id:N}.pdf|.cbz|.zip`. **Une seule
+  entrée par (cible, format)** : `LaunchJobExport` supprime l'ancienne ; un export `Pending` récent
+  (< 2 h) → `InvalidOperationException` (409). Un job en échec supprime son entrée (pas de statut Failed).
+- **Job** `LaunchJobExport(ExportJobParameters)` → `RunExportJobAsync` : écrit `{id}.ext.tmp` puis renomme.
+  Issue : progression par page. Volume : une étape par issue, fichiers intermédiaires dans
+  `.work-{id}` (supprimé en `finally`) ; issues sans fichier disque ignorées (WARNING). Fin :
+  `OnDataUpdated(ExportFile)` (l'UI se recharge dessus).
+- **Téléchargement par ticket** : le navigateur n'envoie pas le JWT sur un lien natif.
+  `CreateExportTicketAsync` → jeton aléatoire (`ExpiringCache<string, Guid>` `_exportTickets`, 60 s,
+  usage unique, enregistré via `RegisterCache`) ; `OpenExportByTicketAsync` le consomme. Servi par
+  `GET /api/exports/download/{ticket}` (`[AllowAnonymous]`, le ticket tient lieu d'autorisation).
+- **`GetExportsAsync`** renvoie `ExpiresAt = CreatedAt + CleanExportsMaxAgeDays` (null si la tâche est
+  désactivée), force `Kind=Utc` sur les dates (SQLite les relit en `Unspecified`), et purge les entrées
+  `Ready` dont le fichier a disparu.
+- **Nettoyage** (`RunScheduledCleanExportsAsync`, job « Export — clean old files ») : supprime les
+  `ExportFile` plus vieux que `CleanExportsMaxAgeDays` + leurs fichiers, puis les fichiers/dossiers
+  orphelins de `ExportPath` (sans entrée, > 1 h).
 
 ---
 

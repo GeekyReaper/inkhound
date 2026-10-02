@@ -57,4 +57,13 @@ public class SchedulerService : BaseService<SchedulerOptions>
 
     /// <summary>Nombre d'albums enrichis par flux à chaque exécution.</summary>
     public int NewsEnrichBatchSize => Options.NewsEnrichBatchSize;
+
+    /// <summary>Nettoyage automatique des fichiers d'export activé.</summary>
+    public bool CleanExportsEnabled => Options.CleanExportsEnabled;
+
+    /// <summary>Expression cron (heure serveur) du nettoyage des exports.</summary>
+    public string CleanExportsCron => Options.CleanExportsCron;
+
+    /// <summary>Durée de vie maximale (jours) d'un fichier d'export.</summary>
+    public int CleanExportsMaxAgeDays => Options.CleanExportsMaxAgeDays;
 }

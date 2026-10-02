@@ -1,0 +1,136 @@
+<c-card class="mb-3">
+  <c-card-header class="d-flex align-items-center justify-content-between gap-2">
+    <strong>Export</strong>
+
+    <c-dropdown alignment="end">
+      <button cButton color="primary" size="sm" cDropdownToggle
+              [disabled]="!canExport() || blocked() || !!activeJobId() || starting()">
+        @if (starting()) {
+          <c-spinner size="sm" class="me-1"></c-spinner>
+        } @else {
+          <svg cIcon name="cilCloudDownload" size="sm" class="me-1"></svg>
+        }
+        Download
+      </button>
+      <ul cDropdownMenu>
+        @for (format of formats; track format) {
+          <li>
+            <button cDropdownItem type="button" (click)="startExport(format)">
+              {{ formatLabel(format) }}
+              @if (format === defaultFormat()) {
+                <span class="text-body-secondary small">(default)</span>
+              }
+            </button>
+          </li>
+        }
+      </ul>
+    </c-dropdown>
+  </c-card-header>
+
+  <c-card-body>
+    @if (activeJobId()) {
+      <app-job-panel [jobId]="activeJobId()" />
+    }
+
+    @if (error()) {
+      <c-alert color="danger" class="mt-2 mb-0" [dismissible]="true" (visibleChange)="!$event && error.set(null)">
+        {{ error() }}
+      </c-alert>
+    }
+
+    @if (exports().length === 0) {
+      @if (!activeJobId()) {
+        <p class="text-body-secondary small mb-0">
+          No export yet. Exported files are kept for a limited time, then removed automatically.
+        </p>
+      }
+    } @else {
+      <div class="table-responsive" [class.mt-3]="!!activeJobId() || !!error()">
+        <table cTable [hover]="true" class="mb-0 table-stack">
+          <thead>
+            <tr>
+              <th class="col-identity">File</th>
+              <th style="width: 110px;">Type</th>
+              <th style="width: 90px;">Size</th>
+              <th style="width: 130px;">Created</th>
+              <th style="width: 130px;">Expires</th>
+              <th style="width: 100px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (file of exports(); track file.id) {
+              <tr>
+                <td class="align-middle text-break small col-identity">{{ file.fileName }}</td>
+                <td class="align-middle small" data-label="Type">
+                  @if (file.status === 'Pending') {
+                    <c-badge color="warning">Generating…</c-badge>
+                  } @else {
+                    <c-badge color="secondary">{{ fileKind(file) }}</c-badge>
+                  }
+                </td>
+                <td class="align-middle text-nowrap small" data-label="Size">
+                  {{ file.status === 'Ready' ? formatSize(file.sizeBytes) : '—' }}
+                </td>
+                <td class="align-middle text-nowrap small" data-label="Created">{{ file.createdAt | smartDate }}</td>
+                <td class="align-middle text-nowrap small" data-label="Expires">
+                  {{ file.expiresAt ? (file.expiresAt | smartDate) : '—' }}
+                </td>
+                <td class="align-middle text-nowrap col-full col-actions">
+                  @if (file.status === 'Ready') {
+                    <button cButton color="primary" variant="ghost" size="sm"
+                            [disabled]="downloadingId() === file.id"
+                            (click)="download(file)"
+                            title="Download">
+                      @if (downloadingId() === file.id) {
+                        <c-spinner size="sm"></c-spinner>
+                      } @else {
+                        <svg cIcon name="cilCloudDownload" size="sm"></svg>
+                      }
+                    </button>
+                    <button cButton color="danger" variant="ghost" size="sm"
+                            (click)="requestDelete(file)"
+                            title="Delete">
+                      <svg cIcon name="cilTrash" size="sm"></svg>
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </c-card-body>
+</c-card>
+
+<!-- Confirmation de suppression d'un export -->
+<c-modal [visible]="deleteVisible()" (visibleChange)="onDeleteVisibleChange($event)" backdrop="static">
+  <c-modal-header>
+    <h5 cModalTitle>Delete export</h5>
+    <button cButtonClose [disabled]="deleting()" (click)="closeDeleteModal()"></button>
+  </c-modal-header>
+
+  <c-modal-body>
+    @if (deleteTarget(); as file) {
+      <p class="mb-2">Delete the exported file <strong class="text-break">{{ file.fileName }}</strong>?</p>
+      <p class="text-body-secondary small mb-0">The file is removed from the server. You can generate it again at any time.</p>
+    }
+    @if (deleteError()) {
+      <c-alert color="danger" class="mt-3 mb-0">{{ deleteError() }}</c-alert>
+    }
+  </c-modal-body>
+
+  <c-modal-footer>
+    <button cButton color="secondary" variant="outline" [disabled]="deleting()" (click)="closeDeleteModal()">
+      Cancel
+    </button>
+    <button cButton color="danger" [disabled]="deleting()" (click)="confirmDelete()">
+      @if (deleting()) {
+        <c-spinner size="sm" class="me-1"></c-spinner>
+        Deleting...
+      } @else {
+        Delete
+      }
+    </button>
+  </c-modal-footer>
+</c-modal>

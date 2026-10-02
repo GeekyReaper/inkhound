@@ -376,6 +376,24 @@ public class DbStorageService : BaseService<DbStorageOption>
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS IX_IssueTorrentBans_IssueId ON IssueTorrentBans(IssueId)");
 
+        // ExportFiles ajouté en octobre 2026 — fichiers PDF/CBZ/ZIP produits par le module Export,
+        // purgés par la tâche « Clean export » du planificateur.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS ExportFiles (
+                Id         TEXT    NOT NULL PRIMARY KEY,
+                TargetType TEXT    NOT NULL DEFAULT 'Issue',
+                TargetId   TEXT    NOT NULL,
+                Format     TEXT    NOT NULL DEFAULT 'Cbz',
+                FileName   TEXT    NOT NULL DEFAULT '',
+                SizeBytes  INTEGER NOT NULL DEFAULT 0,
+                CreatedAt  TEXT    NOT NULL DEFAULT '',
+                Status     TEXT    NOT NULL DEFAULT 'Pending',
+                JobId      TEXT    NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_ExportFiles_TargetType_TargetId ON ExportFiles(TargetType, TargetId)");
+
         // Backfill Volumes.DateAdded (septembre 2026) — seul AddVolumeManuallyAsync le renseignait ;
         // les volumes ajoutés via ComicVine, Bedetheque ou synchronisation filesystem avaient tous
         // DateAdded == default, empêchant le tri "Recently added" du dashboard de les départager (ces

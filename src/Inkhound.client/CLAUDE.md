@@ -185,10 +185,11 @@ src/
 │   │   │                        #   À utiliser à la place de date:'medium'/'short' sur tout horodatage métier.
 │   │   └── services/            # AuthService, HubService, LibraryService, LibraryViewStateService,
 │   │                            # NavigationTrackerService, VolumeService, IssueService, KavitaService,
-│   │                            # OptionsService, SchedulerService, BedethequeCatalogService,
+│   │                            # OptionsService, SchedulerService, BedethequeCatalogService, ExportService,
 │   │                            # FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── download-card/       # DownloadCardComponent — vignette d'un download (cover + badge statut)
+│   │   ├── export-panel/        # ExportPanelComponent — carte Export des pages Issue/Volume (voir plus bas)
 │   │   ├── download-list/       # DownloadListComponent — tableau + actions + modales d'un download,
 │   │   │                        #   partagé par la page Downloads et la page Issue (voir plus bas)
 │   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,
@@ -245,7 +246,7 @@ src/
 │   │   │                        #   « STALLED » au lieu du bleu « DOWNLOADING ».
 │   │   ├── settings/            # SettingsComponent (options par service via OptionsService) +
 │   │   │                        #   SchedulerSettingsComponent (planificateur cron, /settings/scheduler —
-│   │   │                        #   5 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog / News,
+│   │   │                        #   6 cartes : Import downloads / Rolling refresh / Auto search / Bedetheque catalog / News / Clean export (durée de vie max des exports),
 │   │   │                        #   champs cron via app-cron-editor) +
 │   │   │                        #   BedethequeCatalogComponent (/settings/bedetheque — état du catalogue local
 │   │   │                        #   Bedetheque : encart stats, « Refresh oldest » N lettres / « Refresh all »
@@ -283,7 +284,8 @@ src/
 | `/library/:id/volume/:volumeId/edit` | `VolumeEditComponent` | Édition manuelle d'un volume |
 | `/library/:id/volume/:volumeId/match` | `VolumeMatchComponent` | Rematch (recherche multi-source) |
 | `/settings` | `SettingsComponent` | Options de configuration par service — accordéon CoreUI (`alwaysOpen`, plusieurs panneaux ouverts), état/formulaire par module (`ModuleEntry`), chargement paresseux à la 1re ouverture |
-| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) + News (N albums enrichis par flux et par run) |
+| `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) + News (N albums enrichis par flux et par run) + Clean export (durée de vie max des fichiers exportés, en jours) |
+| `/settings/export` | `ExportSettingsComponent` | Module Export : formulaire généré depuis `GET /api/options/Export` (dossier, format par défaut, qualité/hauteur max/format d'image pour PDF et CBZ), groupé par section. La durée de vie des fichiers se règle dans `/settings/scheduler` (carte Clean export) |
 | `/settings/chatbot` | `ChatbotSettingsComponent` | Module Chatbot (bot Matrix) : fiche d'état (`GET /api/chatbot/status`, rafraîchie toutes les 10 s), boutons Démarrer/Arrêter, et **console de traces temps réel** avec historique local (voir « Traces par service » plus bas). La configuration se fait depuis `/settings` (accordéon Modules). ⚠️ Deux indicateurs distincts à ne pas confondre : le **badge d'en-tête** vient de `managerState()` et reflète la **santé des dépendances** (homeserver Matrix + modèle vision joignables), tandis que la ligne **« Exécution »** dit si la boucle `/sync` tourne. Un bot volontairement arrêté dont les dépendances répondent affiche donc `OK` |
 | `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
 | `/settings/system` | `SystemSettingsComponent` | Empreinte mémoire du backend (`GET /api/system/memory`) et purge manuelle (`POST /api/system/memory/compact`). **Aucun rafraîchissement automatique** : la mesure est ponctuelle, un timer entretiendrait l'illusion d'un monitoring continu qu'Inkhound ne fait pas. La page signale explicitement un Server GC actif ou une limite mémoire de conteneur absente, et annonce que la purge ne récupère que le managé (les pics SkiaSharp/PDFium sont en mémoire native) |
@@ -534,7 +536,8 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `QBittorrentService` | — | `getDownloads(statuses, page, pageSize)`, `getVolumeDownloads(volumeId)`, `getStalledDownloads(limit)`, `deleteDownload(id, removeTorrent, ban)`, `processDownload()`, `updateDownloadHash()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
 | `OptionsService` | — | `getServices()`, `getOptions()`, `updateOptions()` |
-| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog' \| 'News'` |
+| `SchedulerService` | — | `get()`, `update(req)`, `runNow(key)` — config `/api/scheduler` (planificateur cron, page `/settings/scheduler`) ; `SchedulerTaskKey = 'ProcessDownloads' \| 'RollingRefresh' \| 'AutoSearch' \| 'BedethequeCatalog' \| 'News' \| 'CleanExports'` |
+| `ExportService` | — | `exportIssue(id, format)` / `exportVolume(id, format)` → `{ jobId }`, `list(targetType, targetId)`, `delete(id)`, `getDefaultFormat()`, `download(id)` (ticket à usage unique puis `<a download>`) — `/api/exports`, composant `app-export-panel` |
 | `NewsService` | — | `getTopSales(period)`, `getReleases(category, month, page, pageSize)`, `getAlbum(albumId)`, `resolveSeries(albumId)`, `refresh(force)` — `/api/news` ; helper `newsItemLabel()` |
 | `BedethequeCatalogService` | — | `getStatus()`, `refresh(req)` → `{ jobId }` (409 si un refresh tourne déjà) — page `/settings/bedetheque` |
 | `SystemService` | — | `getMemory()`, `compactMemory()` — `/api/system/memory`, page `/settings/system` |
@@ -714,6 +717,35 @@ nom du torrent (tronqués, complets en infobulle). Cliquable vers la page de l'i
 
 Utilisé par les deux sections du Dashboard (« Stalled downloads » et « Downloads in progress »),
 sur le même gabarit que les cartes « Most wanted » pour que la page se lise d'un coup d'œil.
+
+## Composant réutilisable : ExportPanelComponent
+
+`app-export-panel` (`views/export-panel/`) — carte **Export** des pages Issue et Volume : bouton
+**Download** (menu PDF / CBZ ; sur un volume « ZIP of PDF/CBZ », le format par défaut vient du module
+Export via `ExportService.getDefaultFormat()`), suivi du job d'export (`app-job-panel`) et tableau
+`.table-stack` des fichiers déjà produits (Download / Delete, colonnes taille, créé le, expire le).
+
+```html
+<app-export-panel targetType="Issue"  [targetId]="issueId"     [canExport]="!!issue()!.cbzFilename" />
+<app-export-panel targetType="Volume" [targetId]="volume()!.id" />
+```
+
+- **Blocage croisé** : la carte émet `(busy)` (job d'export actif ou en démarrage) → la page le range dans
+  `exportBusy` et désactive Import / Refresh / Rematch / Delete (volume) ou Import / Delete file (issue) ;
+  inversement `[blocked]="!!activeJobId()"` désactive Download pendant un job de la page.
+- **Autonome** : suit son propre job via `PageJobService` avec la clé `${router.url}#export` (distincte
+  de celle de la page : deux jobs ne se mélangent pas), recharge la liste à la fin du job
+  (`effect()` sur `hub.jobs()`, rechargement explicite — les jobs n'émettent pas toujours de
+  `ManagerDataUpdated` exploitable) et sur toute mise à jour SignalR dont le `dataType` finit par `ExportFile`
+  (génération terminée, suppression, nettoyage planifié).
+- **Téléchargement** (`ExportService.download(id)`) : un lien natif ne porte pas le JWT et `HttpClient` +
+  blob chargerait tout le fichier en mémoire. On demande un **ticket à usage unique** (`POST
+  /api/exports/{id}/ticket`, authentifié) puis on déclenche un `<a download>` vers `url` : le navigateur
+  télécharge en streaming. Un ticket est valable 60 s et consommable une fois.
+- **Suppression** : modale de confirmation (pattern de `issue.component.html`, signaux
+  `deleteVisible/deleteTarget/deleting/deleteError`) ; une ligne `Pending` (« Generating… ») n'a pas d'actions.
+- Les dates passent par `smartDate` ; `expiresAt` est `null` si la tâche scheduler « Clean export » est
+  désactivée (affiché « — »).
 
 ## Composant réutilisable : DownloadListComponent
 

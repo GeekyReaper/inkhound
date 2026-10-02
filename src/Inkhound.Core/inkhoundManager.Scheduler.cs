@@ -36,11 +36,14 @@ public partial class InkhoundManager
     /// <param name="BedethequeCatalogLetterCount">Nombre de lettres d'index rafraîchies par exécution.</param>
     /// <param name="News">Tâche de rafraîchissement des flux News.</param>
     /// <param name="NewsEnrichBatchSize">Nombre d'albums enrichis par flux et par exécution.</param>
+    /// <param name="CleanExports">Tâche de nettoyage des fichiers d'export.</param>
+    /// <param name="CleanExportsMaxAgeDays">Durée de vie maximale (jours) d'un fichier d'export.</param>
     public record SchedulerStatus(
         SchedulerTaskStatus ProcessDownloads, SchedulerTaskStatus RollingRefresh, int RollingRefreshBatchSize,
         SchedulerTaskStatus AutoSearch, int AutoSearchBatchSize, int AutoSearchMinScore,
         SchedulerTaskStatus BedethequeCatalog, int BedethequeCatalogLetterCount,
-        SchedulerTaskStatus News, int NewsEnrichBatchSize);
+        SchedulerTaskStatus News, int NewsEnrichBatchSize,
+        SchedulerTaskStatus CleanExports, int CleanExportsMaxAgeDays);
 
     /// <summary>Clé de la tâche « import des downloads ».</summary>
     public const string SchedulerTaskProcessDownloads = "ProcessDownloads";
@@ -56,6 +59,9 @@ public partial class InkhoundManager
 
     /// <summary>Clé de la tâche « rafraîchissement des flux News ».</summary>
     public const string SchedulerTaskNews = "News";
+
+    /// <summary>Clé de la tâche « nettoyage des fichiers d'export ».</summary>
+    public const string SchedulerTaskCleanExports = "CleanExports";
 
     /// <summary>Indique si <paramref name="cron"/> est une expression cron 5 champs valide (parsing Cronos).</summary>
     public static bool IsValidCronExpression(string? cron)
@@ -124,6 +130,11 @@ public partial class InkhoundManager
                     SchedulerTaskNews,
                     scheduler.NewsEnabled, scheduler.NewsCron,
                     lastCheckUtc, nowUtc, RunScheduledNewsAsync);
+
+                EvaluateScheduledTask(
+                    SchedulerTaskCleanExports,
+                    scheduler.CleanExportsEnabled, scheduler.CleanExportsCron,
+                    lastCheckUtc, nowUtc, RunScheduledCleanExportsAsync);
             }
             catch (Exception ex)
             {
@@ -317,7 +328,7 @@ public partial class InkhoundManager
     /// <summary>
     /// Déclenche immédiatement une tâche planifiée (bouton « Run now »). <paramref name="key"/> doit
     /// valoir <see cref="SchedulerTaskProcessDownloads"/>, <see cref="SchedulerTaskRollingRefresh"/>
-    /// <see cref="SchedulerTaskAutoSearch"/>, <see cref="SchedulerTaskBedethequeCatalog"/> ou <see cref="SchedulerTaskNews"/>.
+    /// <see cref="SchedulerTaskAutoSearch"/>, <see cref="SchedulerTaskBedethequeCatalog"/>, <see cref="SchedulerTaskNews"/> ou <see cref="SchedulerTaskCleanExports"/>.
     /// </summary>
     /// <exception cref="ArgumentException">Clé de tâche inconnue.</exception>
     public void RunSchedulerTaskNow(string key)
@@ -329,13 +340,14 @@ public partial class InkhoundManager
             SchedulerTaskAutoSearch => RunScheduledAutoSearchAsync,
             SchedulerTaskBedethequeCatalog => RunScheduledBedethequeCatalogAsync,
             SchedulerTaskNews => RunScheduledNewsAsync,
+            SchedulerTaskCleanExports => RunScheduledCleanExportsAsync,
             _ => throw new ArgumentException($"Unknown scheduler task '{key}'.", nameof(key))
         };
 
         FireScheduledTask(key, action);
     }
 
-    /// <summary>État courant des cinq tâches planifiées (config + dernier / prochain déclenchement).</summary>
+    /// <summary>État courant des six tâches planifiées (config + dernier / prochain déclenchement).</summary>
     public SchedulerStatus GetSchedulerStatus()
     {
         var scheduler = GetService<SchedulerService, SchedulerOptions>();
@@ -349,7 +361,9 @@ public partial class InkhoundManager
             BuildTaskStatus(SchedulerTaskBedethequeCatalog, scheduler.BedethequeCatalogEnabled, scheduler.BedethequeCatalogCron),
             scheduler.BedethequeCatalogLetterCount,
             BuildTaskStatus(SchedulerTaskNews, scheduler.NewsEnabled, scheduler.NewsCron),
-            scheduler.NewsEnrichBatchSize);
+            scheduler.NewsEnrichBatchSize,
+            BuildTaskStatus(SchedulerTaskCleanExports, scheduler.CleanExportsEnabled, scheduler.CleanExportsCron),
+            scheduler.CleanExportsMaxAgeDays);
     }
 
     private SchedulerTaskStatus BuildTaskStatus(string key, bool enabled, string cron)

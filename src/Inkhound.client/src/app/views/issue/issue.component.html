@@ -114,7 +114,7 @@
     <c-row class="mb-3">
       <c-col class="d-flex gap-2 align-items-center">
         <button cButton color="primary" size="sm"
-                [disabled]="!!activeJobId() || importing()"
+                [disabled]="!!activeJobId() || importing() || exportBusy()"
                 (click)="importVisible.set(true)">
           @if (importing()) {
             <c-spinner size="sm" class="me-1"></c-spinner>
@@ -128,11 +128,19 @@
           Edit
         </button>
         <button cButton color="danger" size="sm"
-                [disabled]="!issue()!.cbzFilename || !!activeJobId()"
+                [disabled]="!issue()!.cbzFilename || !!activeJobId() || exportBusy()"
                 (click)="requestDeleteFile()">
           <svg cIcon name="cilTrash" size="sm" class="me-1"></svg>
           Delete file
         </button>
+      </c-col>
+    </c-row>
+
+    <!-- Export : PDF ou CBZ de l'issue + fichiers déjà produits -->
+    <c-row class="mb-3">
+      <c-col>
+        <app-export-panel targetType="Issue" [targetId]="issueId" [canExport]="!!issue()!.cbzFilename"
+                          [blocked]="!!activeJobId()" (busy)="exportBusy.set($event)" />
       </c-col>
     </c-row>
 

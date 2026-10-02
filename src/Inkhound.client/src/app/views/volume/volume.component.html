@@ -147,7 +147,7 @@
     <c-row class="mb-3">
       <c-col class="d-flex gap-2 align-items-center">
         <button cButton color="primary" size="sm"
-                [disabled]="!!activeJobId()"
+                [disabled]="!!activeJobId() || exportBusy()"
                 (click)="importVisible.set(true)">
           <svg cIcon name="cilFolderOpen" class="me-1"></svg>
           Import
@@ -159,16 +159,16 @@
           </button>
         }
         @if (isRefreshable()) {
-          <button cButton color="secondary" size="sm" [disabled]="!!activeJobId()" (click)="openRefreshModal()">
+          <button cButton color="secondary" size="sm" [disabled]="!!activeJobId() || exportBusy()" (click)="openRefreshModal()">
             <svg cIcon name="cilReload" class="me-1"></svg>
             Refresh
           </button>
         }
-        <button cButton color="secondary" size="sm" [disabled]="!!activeJobId()" (click)="goMatch()">
+        <button cButton color="secondary" size="sm" [disabled]="!!activeJobId() || exportBusy()" (click)="goMatch()">
           <svg cIcon name="cilSync" class="me-1"></svg>
           Rematch
         </button>
-        <button cButton color="danger" size="sm" (click)="requestDelete()">
+        <button cButton color="danger" size="sm" [disabled]="exportBusy()" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete
         </button>
@@ -182,6 +182,14 @@
         </c-col>
       </c-row>
     }
+
+    <!-- Export : ZIP du volume (PDF ou CBZ) + fichiers déjà produits -->
+    <c-row class="mb-3">
+      <c-col>
+        <app-export-panel targetType="Volume" [targetId]="volume()!.id"
+                          [blocked]="!!activeJobId()" (busy)="exportBusy.set($event)" />
+      </c-col>
+    </c-row>
 
     <!-- Manual Search -->
     <div class="mb-3">
