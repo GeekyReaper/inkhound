@@ -189,7 +189,7 @@ src/
 │   │                            # FilesystemService, ImageService
 │   ├── views/                   # Pages / vues de l'application
 │   │   ├── download-card/       # DownloadCardComponent — vignette d'un download (cover + badge statut)
-│   │   ├── export-panel/        # ExportPanelComponent — carte Export des pages Issue/Volume (voir plus bas)
+│   │   ├── export-panel/        # ExportPanelComponent — carte « Download available » des pages Issue/Volume, masquée sans fichier ; son bouton Download est exposé par `downloadButton` (TemplateRef) et rendu par la page dans sa barre d'actions via `ngTemplateOutlet`
 │   │   ├── download-list/       # DownloadListComponent — tableau + actions + modales d'un download,
 │   │   │                        #   partagé par la page Downloads et la page Issue (voir plus bas)
 │   │   ├── dashboard/           # DashboardComponent (KPI, Libraries, Most wanted, Recently added,

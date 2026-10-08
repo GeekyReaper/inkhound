@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, DestroyRef, effect, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
@@ -54,7 +55,7 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
     ModalFooterComponent, ModalTitleDirective, ButtonCloseDirective,
     FormCheckComponent, FormCheckInputDirective, FormCheckLabelDirective,
     ProgressComponent, ProgressBarComponent, TooltipDirective,
-    JobPanelComponent, ExportPanelComponent, IssueCardComponent, SmartDatePipe
+    JobPanelComponent, ExportPanelComponent, NgTemplateOutlet, IssueCardComponent, SmartDatePipe
   ]
 })
 export class VolumeComponent {

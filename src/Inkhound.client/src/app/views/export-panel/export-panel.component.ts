@@ -1,4 +1,4 @@
-import { Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { Component, DestroyRef, TemplateRef, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, finalize } from 'rxjs';
@@ -20,9 +20,9 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 import { formatSize } from '../../core/util/format-size';
 import { JobPanelComponent } from '../job-panel/job-panel.component';
 
-// Carte « Export » des pages Issue et Volume : bouton Download (choix PDF / CBZ), suivi du job
-// d'export, et liste des fichiers déjà produits (téléchargement direct, suppression avec
-// confirmation). Autonome : elle suit son propre job (clé de page dédiée) et se recharge sur les
+// Carte « Download available » des pages Issue et Volume : suivi du job d'export et liste des fichiers déjà produits (téléchargement direct, suppression avec
+// confirmation), affichée seulement s'il y a un fichier (ou un export en cours). Le bouton Download
+// (choix PDF / CBZ) est exposé par `downloadButton` pour la barre d'actions de la page. Autonome : elle suit son propre job (clé de page dédiée) et se recharge sur les
 // mises à jour SignalR des fichiers d'export (génération terminée, nettoyage planifié…).
 @Component({
   selector: 'app-export-panel',
@@ -56,6 +56,9 @@ export class ExportPanelComponent {
   readonly busy = output<boolean>();
 
   readonly formatSize = formatSize;
+
+  /** Bouton Download (menu PDF / CBZ), à rendre dans la barre d'actions de la page via ngTemplateOutlet. */
+  readonly downloadButton = viewChild.required<TemplateRef<unknown>>('downloadButton');
 
   // Clé distincte de celle de la page : l'export ne bloque pas Import/Refresh et inversement.
   private readonly pageKey = `${this.router.url}#export`;

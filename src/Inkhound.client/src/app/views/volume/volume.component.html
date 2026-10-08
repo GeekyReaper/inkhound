@@ -168,6 +168,7 @@
           <svg cIcon name="cilSync" class="me-1"></svg>
           Rematch
         </button>
+        <ng-container [ngTemplateOutlet]="exportPanel.downloadButton()" />
         <button cButton color="danger" size="sm" [disabled]="exportBusy()" (click)="requestDelete()">
           <svg cIcon name="cilTrash" class="me-1"></svg>
           Delete
@@ -183,10 +184,10 @@
       </c-row>
     }
 
-    <!-- Export : ZIP du volume (PDF ou CBZ) + fichiers déjà produits -->
-    <c-row class="mb-3">
+    <!-- Download available : fichiers exportés du volume (visible seulement s'il y en a) -->
+    <c-row>
       <c-col>
-        <app-export-panel targetType="Volume" [targetId]="volume()!.id"
+        <app-export-panel #exportPanel targetType="Volume" [targetId]="volume()!.id"
                           [blocked]="!!activeJobId()" (busy)="exportBusy.set($event)" />
       </c-col>
     </c-row>

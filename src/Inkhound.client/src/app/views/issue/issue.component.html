@@ -127,6 +127,7 @@
           <svg cIcon name="cilPencil" size="sm" class="me-1"></svg>
           Edit
         </button>
+        <ng-container [ngTemplateOutlet]="exportPanel.downloadButton()" />
         <button cButton color="danger" size="sm"
                 [disabled]="!issue()!.cbzFilename || !!activeJobId() || exportBusy()"
                 (click)="requestDeleteFile()">
@@ -136,10 +137,10 @@
       </c-col>
     </c-row>
 
-    <!-- Export : PDF ou CBZ de l'issue + fichiers déjà produits -->
-    <c-row class="mb-3">
+    <!-- Download available : fichiers exportés de l'issue (visible seulement s'il y en a) -->
+    <c-row>
       <c-col>
-        <app-export-panel targetType="Issue" [targetId]="issueId" [canExport]="!!issue()!.cbzFilename"
+        <app-export-panel #exportPanel targetType="Issue" [targetId]="issueId" [canExport]="!!issue()!.cbzFilename"
                           [blocked]="!!activeJobId()" (busy)="exportBusy.set($event)" />
       </c-col>
     </c-row>

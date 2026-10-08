@@ -2,7 +2,7 @@ import { Component, DestroyRef, computed, effect, inject, signal } from '@angula
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { filter, finalize, interval, merge, switchMap } from 'rxjs';
-import { DatePipe, SlicePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet, SlicePipe } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   AlertComponent, BadgeComponent, ButtonDirective,
@@ -37,7 +37,7 @@ import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
     FormControlDirective, FormLabelDirective, FormSelectDirective, ReactiveFormsModule,
     DatePipe, SlicePipe, SmartDatePipe,
     JobPanelComponent,
-    ExportPanelComponent,
+    ExportPanelComponent, NgTemplateOutlet,
     ProwlarrSearchComponent,
     SelectPathComponent,
     DownloadListComponent
