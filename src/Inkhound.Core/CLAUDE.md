@@ -288,6 +288,18 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
   (`RunAddBedethequeIssuesJobAsync`), Refresh complet (`RematchVolumeFromBedethequeAsync`) et
   Refresh "NEW only" (`SyncNewBedethequeAlbumsAsync`). Côté ComicVine, le bloc `allIssueAuthors`
   ne fait que compléter les rôles vides de `cvVolume.People`, il n'ajoute pas d'auteurs.
+- **Template du site refait en ~10/2026** (portage des sélecteurs validés sur pages live dans `bdguest-scrapper`,
+  commit `98b1e85`) : `bandeau-info` / `serie-info` / `nav-liste` / `liste-albums` / `menu-informations` et les
+  icônes `icon-*` ont cédé la place à `section.bdt-ah--serie`, `div.bdt-ah-top|by|meta|credit`, `ul.bdt-ah-pastilles`,
+  `ul.bdt-liste`, `article.bdt-edition` et aux icônes Font Awesome (`fa-building|calendar|clock|star`). Plus de lien
+  « Internet » : `BdSerie.SiteWeb` est toujours `null`. Le nombre d'albums vient de l'onglet `nav.bdt-tabs … /albums-… small`.
+  - ⚠️ **`AnneeDebut` → `Volume.Year` → dossier du volume** : l'année est lue par `ParseYearRange` dans le texte de
+    `div.bdt-ah-by` (plage « 1990 - 2024 » ou année seule). Un échec de lecture renomme le dossier
+    (`{Titre} ({Année})` recalculé) — d'où le test `ParseSerie_ExtraitAnneesTitreEtMetadonnees` et le garde-fou de
+    `RematchVolumeFromBedethequeAsync` (`volume.Year = mapped.Year ?? volume.Year` : une année non lue n'efface pas l'existante).
+  - Parseurs `ParseSerie`, `ParseAlbumList`, `ParseAlbum`, `ParseYearRange` en `internal`, testés par
+    `BedethequeSerieAlbumParsingTests`. `ParseAlbumImages` cible désormais `article.bdt-edition` ; ses classes
+    `browse-couvertures|planches|versos` restent à confirmer sur une page album live.
 - Pas d'authentification ; `CookieContainer` partagé + headers façon navigateur requis
   (le site bloque les requêtes qui ressemblent à du scraping automatisé)
 - Options dans `BedethequeOptions` ; `RateLimiter` obligatoire, comme pour ComicVine
@@ -823,7 +835,7 @@ l'historique ; la page ne lit que la base, seul le détail d'un album passe par 
   `ParseReleaseDates`, `ParseFrenchMonth` (`Inkhound.Core.Tests/Bedetheque/BedethequeNewsParsingTests.cs`).
 - Visuels d'album : `BedethequeSourceService.ParseAlbumImages` alimente `BdAlbum.Images`
   (`BdImage(Kind "Cover"/"Plate"/"Back", ThumbUrl, Url)`) depuis `a.browse-couvertures/planches/versos`,
-  **circonscrit au `<li>` de l'édition demandée** (la page liste aussi les autres éditions).
+  **circonscrit à l'`article.bdt-edition` de l'édition demandée** (la page liste aussi les autres éditions).
   `ToLargeCoverUrl` : `/cache/thb_couv/X` → `/media/Couvertures/X`.
 
 **Tables** (migration `CREATE TABLE IF NOT EXISTS` dans `ApplyPendingMigrationsAsync`) :

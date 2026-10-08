@@ -119,10 +119,10 @@ public class BedethequeNewsProvider(BedethequeSourceService bedetheque) : INewsP
 
     // <h1>… Top des ventes - <span class="orange">Semaine du 14/09/2026</span></h1>
     // <ol class="top-ventes"><li><div class="place">n°1</div><a class="couv" href="…-{albumId}.html"><img src="thb_couv…"></a>
-    //   <div class="evolution">(icon-star | span.plus "+2" | span.moins "-3" | vide)</div>
+    //   <div class="evolution">(fa-star | span.plus "+2" | span.moins "-3" | vide)</div>
     //   <div class="main"><h3><a>Série</a><br>14. Titre</h3>
-    //     <div class="infos"><i class="icon-building"/> <span>Éditeur</span> <i class="icon-calendar"/> Parution: <span>18/09/2026</span>
-    //       <i class="icon-time"/> <span>4ème semaine</span></div><p>Résumé[…]</p></div></li>
+    //     <div class="infos"><i class="fa-building"/> <span>Éditeur</span> <i class="fa-calendar"/> Parution: <span>18/09/2026</span>
+    //       <i class="fa-clock"/> <span>4ème semaine</span></div><p>Résumé[…]</p></div></li>
     internal static NewsTopSalesSnapshot? ParseTopSales(HtmlDocument doc)
     {
         var items = doc.DocumentNode.SelectNodes("//ol[contains(@class,'top-ventes')]/li");
@@ -166,9 +166,9 @@ public class BedethequeNewsProvider(BedethequeSourceService bedetheque) : INewsP
                 seriesTitle = BedethequeSourceService.CleanScrapedText(link?.GetAttributeValue("title", string.Empty));
 
             var infos = li.SelectSingleNode(".//div[contains(@class,'infos')]");
-            var publisher = InfoAfterIcon(infos, "icon-building");
-            var releaseDate = ParseFrenchDate(InfoAfterIcon(infos, "icon-calendar"));
-            var weeksText = InfoAfterIcon(infos, "icon-time");
+            var publisher = InfoAfterIcon(infos, "fa-building");
+            var releaseDate = ParseFrenchDate(InfoAfterIcon(infos, "fa-calendar"));
+            var weeksText = InfoAfterIcon(infos, "fa-clock");
             int? weeks = weeksText is not null && Regex.Match(weeksText, @"\d+") is { Success: true } wm ? int.Parse(wm.Value) : null;
 
             var (evolution, delta) = ParseEvolution(li.SelectSingleNode(".//div[contains(@class,'evolution')]"));
@@ -207,7 +207,7 @@ public class BedethequeNewsProvider(BedethequeSourceService bedetheque) : INewsP
     private static (string Evolution, int? Delta) ParseEvolution(HtmlNode? node)
     {
         if (node is null) return ("Stable", null);
-        if (node.SelectSingleNode(".//i[contains(@class,'icon-star')]") is not null) return ("New", null);
+        if (node.SelectSingleNode(".//i[contains(@class,'fa-star')]") is not null) return ("New", null);
         if (node.SelectSingleNode(".//span[contains(@class,'plus')]") is { } plus)
             return ("Up", Regex.Match(plus.InnerText, @"\d+") is { Success: true } m ? int.Parse(m.Value) : null);
         if (node.SelectSingleNode(".//span[contains(@class,'moins')]") is { } minus)

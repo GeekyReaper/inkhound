@@ -7,23 +7,23 @@ public class BedethequeCatalogPageParsingTests
 {
     private const string SampleHtml = """
         <html><body>
-        <ul class="nav-liste">
+        <ul class="bdt-liste">
           <li>
-            <span class="ico"><img src="https://www.bedetheque.com/media/flags/France.png" /></span>
+            <span class="bdt-liste-flag"><img src="https://www.bedetheque.com/media/flags/France.png" /></span>
             <a href="https://www.bedetheque.com/serie-1234-BD-Schtroumpfs.html">
-              <span class="libelle">Schtroumpfs&nbsp;(Les)</span>
+              <span class="bdt-liste-libelle">Schtroumpfs&nbsp;(Les)</span>
             </a>
           </li>
           <li>
-            <span class="ico"><img src="https://www.bedetheque.com/media/flags/Japan.png" /></span>
+            <span class="bdt-liste-flag"><img src="https://www.bedetheque.com/media/flags/Japan.png" /></span>
             <a href="https://www.bedetheque.com/serie-99-BD-Naruto.html">
-              <span class="libelle">
+              <span class="bdt-liste-libelle">
                   Naruto
               </span>
             </a>
           </li>
-          <li><a href="https://www.bedetheque.com/auteur-5-BD-Peyo.html"><span class="libelle">Pas une série</span></a></li>
-          <li><a href="https://www.bedetheque.com/serie-77-BD-Vide.html"><span class="libelle"></span></a></li>
+          <li><a href="https://www.bedetheque.com/auteur-5-BD-Peyo.html"><span class="bdt-liste-libelle">Pas une série</span></a></li>
+          <li><a href="https://www.bedetheque.com/serie-77-BD-Vide.html"><span class="bdt-liste-libelle"></span></a></li>
         </ul>
         </body></html>
         """;

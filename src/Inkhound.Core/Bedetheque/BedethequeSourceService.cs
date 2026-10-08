@@ -190,12 +190,13 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return doc;
     }
 
-    // Structure de page : <ul class="nav-liste"><li><span class="ico"><img src="…/flags/France.png"></span>
-    // <a href="…/serie-{id}-BD-…"><span class="libelle">Titre</span></a></li>…
+    // Structure de page : <ul class="bdt-liste"><li><span class="bdt-liste-flag"><img src="…/flags/France.png"></span>
+    // <a href="…/serie-{id}-BD-…"><span class="bdt-liste-libelle">Titre</span></a></li>…
+    // Anciennement ul.nav-liste / span.ico / span.libelle — renommé lors de la refonte du template (~10/2026).
     internal static List<BedethequeCatalogEntry> ParseCatalogPage(HtmlDocument doc, string letter, DateTime fetchedAtUtc)
     {
         var results = new List<BedethequeCatalogEntry>();
-        var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'nav-liste')]/li");
+        var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'bdt-liste')]/li");
         if (items is null) return results;
 
         foreach (var li in items)
@@ -209,7 +210,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             var title = CleanScrapedText(li.SelectSingleNode(".//span[contains(@class,'libelle')]")?.InnerText ?? link.InnerText);
             if (string.IsNullOrEmpty(title)) continue;
 
-            var flagSrc = li.SelectSingleNode(".//span[contains(@class,'ico')]/img")?.GetAttributeValue("src", string.Empty) ?? string.Empty;
+            var flagSrc = li.SelectSingleNode(".//span[contains(@class,'flag')]/img")?.GetAttributeValue("src", string.Empty) ?? string.Empty;
 
             results.Add(new BedethequeCatalogEntry
             {
@@ -375,89 +376,68 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
         // Les lettres de tête sont bornées pour ne jamais entamer un vrai mot, et un chiffre reste
         // exigé : un titre comme "L'Intégrale - Tomes 4 à 6" n'est pas touché.
-        return Regex.Replace(titre, @"^[A-Za-z]{0,4}\d+[a-zA-Z']*\s*[.-]\s*", string.Empty).Trim();
+        var stripped = Regex.Replace(titre, @"^[A-Za-z]{0,4}\d+[a-zA-Z']*\s*[.-]\s*", string.Empty).Trim();
+        if (stripped != titre) return stripped;
+
+        // Depuis la refonte du template (~10/2026), un code sans chiffre peut être accolé au point
+        // ("HC. L'épilogue…"). Majuscules uniquement pour ne pas tronquer un titre comme "Dr. Stone".
+        return Regex.Replace(titre, @"^[A-Z]{2,5}\.\s+", string.Empty).Trim();
     }
 
-    private BdSerie? ParseSerie(HtmlDocument doc, int id, string serieUrl)
+    // Template Bedetheque refait en ~10/2026 : l'ancien div.bandeau-info / ul.serie-info / icônes icon-*
+    // sont remplacés par section.bdt-ah--serie (icônes Font Awesome). Plus de lien « Internet » visible
+    // pour le site officiel de la série : SiteWeb reste donc toujours null.
+    internal static BdSerie? ParseSerie(HtmlDocument doc, int id, string serieUrl)
     {
-        var titre = CleanScrapedText(doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h1/a")?.InnerText);
+        var topSection = doc.DocumentNode.SelectSingleNode("//section[contains(@class,'bdt-ah--serie')]");
+        if (topSection is null) return null;
+
+        var titre = CleanScrapedText(topSection.SelectSingleNode(".//div[contains(@class,'bdt-ah-top')]//h1/a")?.InnerText);
         if (string.IsNullOrEmpty(titre)) return null;
 
-        var h3 = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h3");
-
-        string? genre = h3?.SelectSingleNode(".//span[contains(@class,'style')]")?.InnerText.Trim();
-        string? parution = h3?.SelectSingleNode(".//span/i[contains(@class,'icon-info-sign')]/..")?.InnerText.Trim();
-        string? origine = h3?.SelectSingleNode(".//span/i[contains(@class,'icon-globe')]/..")?.InnerText.Trim();
-
-        int? nombreAlbums = null;
-        var albumsText = h3?.SelectSingleNode(".//span/i[contains(@class,'icon-book')]/..")?.InnerText;
-        if (albumsText is not null)
-        {
-            var m = Regex.Match(albumsText, @"\d+");
-            if (m.Success) nombreAlbums = int.Parse(m.Value);
-        }
-
+        string? genre = null, parution = null, origine = null, langue = null;
         string? anneeDebut = null, anneeFin = null;
-        var anneeText = h3?.SelectSingleNode(".//span/i[contains(@class,'icon-calendar')]/..")?.InnerText;
-        if (anneeText is not null)
+        int? nombreAlbums = null;
+
+        var byDiv = topSection.SelectSingleNode(".//div[contains(@class,'bdt-ah-by')]");
+        if (byDiv is not null)
         {
-            var m = Regex.Match(anneeText, @"(\d{4})(?:-(\d{4}))?");
-            if (m.Success)
-            {
-                anneeDebut = m.Groups[1].Value;
-                anneeFin = m.Groups[2].Success ? m.Groups[2].Value : anneeDebut;
-            }
+            genre = byDiv.SelectSingleNode(".//span[contains(@class,'bdt-sh-genres')]//a")?.InnerText.Trim();
+            parution = byDiv.SelectSingleNode(".//b[contains(@class,'bdt-sh-parution')]")?.InnerText.Trim();
+            (anneeDebut, anneeFin) = ParseYearRange(byDiv.InnerText);
         }
 
-        var flagSrc = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//img[contains(@class,'flag')]")?.GetAttributeValue("src", string.Empty) ?? string.Empty;
-        var langue = ExtractLangueFromFlag(flagSrc);
-
-        // Certaines pages utilisent une mise en page alternative où ces informations sont
-        // exposées comme une simple liste plutôt que dans le bloc <h3> — fallback nécessaire.
-        if (genre is null || nombreAlbums is null || origine is null || parution is null || langue is null)
+        var pastilles = topSection.SelectNodes(".//ul[contains(@class,'bdt-ah-pastilles')]/li");
+        if (pastilles is not null)
         {
-            var fallbackItems = doc.DocumentNode.SelectNodes("//ul[contains(@class,'serie-info')]/li");
-            if (fallbackItems is not null)
+            foreach (var li in pastilles)
             {
-                foreach (var li in fallbackItems)
+                var pastilleTitle = li.GetAttributeValue("title", string.Empty);
+                if (pastilleTitle.Contains("Origine", StringComparison.OrdinalIgnoreCase))
+                    origine = li.InnerText.Trim();
+                else if (pastilleTitle.Contains("Langue", StringComparison.OrdinalIgnoreCase))
                 {
-                    var label = li.SelectSingleNode(".//label")?.InnerText.Trim() ?? string.Empty;
-                    var value = li.InnerText.Replace(label, string.Empty).Trim();
-                    if (genre is null && label.Contains("Genre", StringComparison.OrdinalIgnoreCase)) genre = value;
-                    else if (nombreAlbums is null && label.Contains("Tome", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var m = Regex.Match(value, @"\d+");
-                        if (m.Success) nombreAlbums = int.Parse(m.Value);
-                    }
-                    else if (origine is null && label.Contains("Origine", StringComparison.OrdinalIgnoreCase)) origine = value;
-                    else if (parution is null && label.Contains("Parution", StringComparison.OrdinalIgnoreCase)) parution = value;
-                    else if (langue is null && label.Contains("Langue", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var flagImg = li.SelectSingleNode(".//img");
-                        langue = flagImg is not null
-                            ? ExtractLangueFromFlag(flagImg.GetAttributeValue("src", string.Empty))
-                            : value;
-                    }
+                    var flagImg = li.SelectSingleNode(".//img");
+                    langue = flagImg is not null
+                        ? ExtractLangueFromFlag(flagImg.GetAttributeValue("src", string.Empty))
+                        : li.InnerText.Trim();
                 }
             }
         }
 
-        // Site officiel de la série — absent sur beaucoup de séries, échec silencieux attendu.
-        string? siteWeb = null;
-        try
-        {
-            siteWeb = doc.DocumentNode
-                .SelectSingleNode("//ul[contains(@class,'serie-info')]//li[label[contains(text(),'Internet')]]/a")
-                ?.GetAttributeValue("href", string.Empty) is { Length: > 0 } sw ? sw : null;
-        }
-        catch (Exception ex)
-        {
-            SendTrace($"Bedetheque: SiteWeb parsing failed for serie {id}: {ex.Message}", ETraceLevel.DEBUG);
-        }
+        // Nombre total d'albums (rééditions/intégrales comprises) lu sur l'onglet « Albums (N) » : distinct
+        // du nombre de « tomes » des pastilles (tomes numérotés seulement). C'est ce total qui décide si la
+        // page 1 suffit pour le cache (voir GetOrFetchSerieAsync).
+        var albumsTabText = doc.DocumentNode
+            .SelectSingleNode("//nav[contains(@class,'bdt-tabs')]/a[contains(@href,'/albums-')]/small")
+            ?.InnerText;
+        if (albumsTabText is not null && Regex.Match(albumsTabText, @"\d+") is { Success: true } am)
+            nombreAlbums = int.Parse(am.Value);
 
-        var description = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'single-content')]//p")?.InnerText.Trim()
-            ?? doc.DocumentNode.SelectSingleNode("//div[contains(@class,'serie')]//p")?.InnerText.Trim();
+        var description = doc.DocumentNode.SelectSingleNode("//p[contains(@class,'bdt-sh-resume')]")?.InnerText.Trim();
         if (description is not null) description = WebUtility.HtmlDecode(description);
+
+        string? siteWeb = null;
 
         var albums = ParseAlbumList(doc);
 
@@ -470,15 +450,12 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             coverUrl = albums.FirstOrDefault()?.CoverUrl;
 
         // L'éditeur de la série est affiché sous forme d'une mention "© Editeur - Année" juste
-        // sous l'image de couverture (ex : "© Le Lombard - 2026"), PAS dans <ul class="serie-info">.
-        // Le XPath doit être circonscrit à div.serie-image : une recherche non circonscrite peut
-        // matcher un autre élément portant "copyrightserie" dans sa classe ailleurs sur la page et
-        // renvoyer null (confirmé par comparaison avec bdguest-scrapper, qui scope cette recherche
-        // et récupère l'éditeur correctement). Le "©" est optionnel dans le regex (certaines pages
-        // omettent le symbole). Repli sur l'éditeur du premier album si la mention est absente
-        // ("souvent affiché sous l'image", pas toujours).
+        // sous l'image de couverture (ex : "© Le Lombard - 2026"), désormais dans div.bdt-ah-credit
+        // (anciennement div.copyrightserie sous div.serie-image). Le "©" est optionnel dans le regex
+        // (certaines pages omettent le symbole). Repli sur l'éditeur du premier album si la mention
+        // est absente ("souvent affiché sous l'image", pas toujours).
         var copyrightText = doc.DocumentNode
-            .SelectSingleNode("//div[contains(@class,'serie-image')]//div[contains(@class,'copyrightserie')]")
+            .SelectSingleNode("//div[contains(@class,'bdt-ah-credit')]")
             ?.InnerText.Trim();
         string? editeur = null;
         if (!string.IsNullOrEmpty(copyrightText))
@@ -491,9 +468,25 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return new BdSerie(id, titre, genre, parution, nombreAlbums, origine, langue, anneeDebut, anneeFin, description, coverUrl, serieUrl, albums, editeur, siteWeb);
     }
 
-    private static List<BdAlbumSummary> ParseAlbumList(HtmlDocument doc)
+    /// <summary>
+    /// Années de parution lues dans le texte de l'en-tête (<c>div.bdt-ah-by</c>) : plage « 1990 - 2024 »
+    /// ou année seule (dans ce cas la fin = le début). Plus de span dédié depuis la refonte (~10/2026) —
+    /// c'est ce qui alimente <c>Volume.Year</c> donc le dossier du volume : un échec ici renomme le dossier.
+    /// </summary>
+    internal static (string? Debut, string? Fin) ParseYearRange(string? text)
     {
-        var items = doc.DocumentNode.SelectNodes("//ul[contains(@class,'liste-albums')]/li[@itemscope]");
+        if (string.IsNullOrWhiteSpace(text)) return (null, null);
+        var range = Regex.Match(text, @"\b(\d{4})\s*[-–]\s*(\d{4})\b");
+        if (range.Success) return (range.Groups[1].Value, range.Groups[2].Value);
+        var single = Regex.Match(text, @"\b(\d{4})\b");
+        return single.Success ? (single.Groups[1].Value, single.Groups[1].Value) : (null, null);
+    }
+
+    // Depuis la refonte du template (~10/2026), chaque album est un article.bdt-edition (anciennement
+    // li dans ul.liste-albums). Les attributs microdata ont survécu à l'identique.
+    internal static List<BdAlbumSummary> ParseAlbumList(HtmlDocument doc)
+    {
+        var items = doc.DocumentNode.SelectNodes("//article[contains(@class,'bdt-edition')][@itemscope]");
         if (items is null) return [];
 
         // Champs bruts collectés en une passe, la Category/Idx est résolue juste après (nécessite
@@ -508,7 +501,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
 
             var href = li.SelectSingleNode(".//a[@itemprop='url']")?.GetAttributeValue("href", string.Empty) ?? string.Empty;
 
-            var img = li.SelectSingleNode(".//div[contains(@class,'couv')]//img[@itemprop='image']");
+            var img = li.SelectSingleNode(".//img[@itemprop='image']");
             var coverUrl = img?.GetAttributeValue("src", string.Empty) is { Length: > 0 } cs ? cs : null;
 
             var nameSpan = li.SelectSingleNode(".//span[@itemprop='name']");
@@ -518,10 +511,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             {
                 var raw = CleanScrapedText(nameSpan.InnerText);
                 // Le préfixe (numéro/code, ex. "1", "HS1", "INT FL") peut contenir des espaces
-                // (ex. "INT FL . La voie fiscale...") — on coupe au premier " . " littéral (lazy)
-                // plutôt que de supposer un préfixe sans espace, sinon ces codes restent collés au
-                // titre et échappent à la classification ci-dessous.
-                var m = Regex.Match(raw, @"^(.+?)\s\.\s(.+)$");
+                // (ex. "INT FL . La voie fiscale...") — on coupe au premier point littéral (lazy,
+                // espace avant optionnel depuis la refonte : "1. Chinook", "HC. L'épilogue") plutôt
+                // que de supposer un préfixe sans espace, sinon ces codes restent collés au titre et
+                // échappent à la classification ci-dessous.
+                var m = Regex.Match(raw, @"^(.+?)\s?\.\s(.+)$");
                 if (m.Success) { numero = m.Groups[1].Value.Trim(); titre = m.Groups[2].Value.Trim(); }
                 else titre = raw;
             }
@@ -553,9 +547,12 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         return result;
     }
 
-    private BdAlbum? ParseAlbum(HtmlDocument doc, int id, string url)
+    // Même refonte de template que ParseSerie (~10/2026) : div.bandeau-info → div.bdt-ah-top / h2.bdt-ah-sub,
+    // rôles d'auteurs span.metier → <small>, éditeur/collection/année sans span dédié, div.menu-informations →
+    // ul.bdt-ah-pastilles.
+    internal BdAlbum? ParseAlbum(HtmlDocument doc, int id, string url)
     {
-        var serieLink = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h1/a");
+        var serieLink = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bdt-ah-top')]//h1/a");
         if (serieLink is null) return null;
 
         var serieHref = serieLink.GetAttributeValue("href", string.Empty);
@@ -571,14 +568,14 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             if (m.Success) numAlbum = m.Groups[1].Value.Trim();
         }
 
-        var titre = CleanAlbumTitle(doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h2")?.InnerText);
+        var titre = CleanAlbumTitle(doc.DocumentNode.SelectSingleNode("//h2[contains(@class,'bdt-ah-sub')]")?.InnerText);
 
-        var h3 = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bandeau-info')]//h3");
+        var byDiv = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bdt-ah-by')]");
 
         var auteurs = new List<BdAuteur>();
         var listeAuteurs = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'liste-auteurs')]");
         var auteurLinks = listeAuteurs?.SelectNodes(".//a[@href]");
-        var metierSpans = listeAuteurs?.SelectNodes(".//span[contains(@class,'metier')]");
+        var metierSpans = listeAuteurs?.SelectNodes(".//small");
         if (auteurLinks is not null)
         {
             for (var i = 0; i < auteurLinks.Count; i++)
@@ -594,17 +591,24 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
                 auteurs.Add(new BdAuteur(nom, role, string.IsNullOrEmpty(auteurUrl) ? null : auteurUrl));
             }
         }
-        if (auteurs.Count == 0 && h3 is not null)
+        if (auteurs.Count == 0 && byDiv is not null)
         {
-            var author = h3.SelectSingleNode(".//span[@itemprop='author']")?.InnerText.Trim();
-            var illustrator = h3.SelectSingleNode(".//span[@itemprop='illustrator']")?.InnerText.Trim();
+            var author = byDiv.SelectSingleNode(".//span[@itemprop='author']")?.InnerText.Trim();
+            var illustrator = byDiv.SelectSingleNode(".//span[@itemprop='illustrator']")?.InnerText.Trim();
             if (!string.IsNullOrEmpty(author)) auteurs.Add(new BdAuteur(author, "Scénario", null));
             if (!string.IsNullOrEmpty(illustrator)) auteurs.Add(new BdAuteur(illustrator, "Dessin", null));
         }
 
-        var editeur = h3?.SelectSingleNode(".//span[contains(@class,'editeur')]")?.InnerText.Trim();
-        var collection = h3?.SelectSingleNode(".//span[contains(@class,'collection')]")?.InnerText.Trim().Trim('(', ')');
-        var annee = h3?.SelectSingleNode(".//span[contains(@class,'annee')]")?.InnerText.Trim();
+        // Éditeur : span itemprop dédié, unique sur la page. Collection : plus de span dans l'en-tête, seule
+        // source = la fiche <dl> de l'édition demandée (souvent absente → null, comme avant la refonte).
+        // Année : plus de span dédié, lue dans le texte de l'en-tête ("Une BD de X · Éditeur · 1974").
+        var editeur = doc.DocumentNode.SelectSingleNode("//span[@itemprop='publisher']")?.InnerText.Trim();
+        var collection = doc.DocumentNode
+            .SelectSingleNode($"//article[@id='ed-{id}']//dt[normalize-space(text())='Collection']/following-sibling::dd[1]")
+            ?.InnerText.Trim().Trim('(', ')');
+        var annee = byDiv is not null && Regex.Match(byDiv.InnerText, @"\b(\d{4})\b") is { Success: true } ym
+            ? ym.Groups[1].Value
+            : null;
 
         var ean = doc.DocumentNode.SelectSingleNode("//input[@id='EAN']")?.GetAttributeValue("value", string.Empty) is { Length: > 0 } ev ? ev : null;
 
@@ -612,7 +616,7 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
         if (string.IsNullOrEmpty(coverUrl))
             coverUrl = doc.DocumentNode.SelectSingleNode("//img[@itemprop='image']")?.GetAttributeValue("src", string.Empty);
 
-        var descriptionRaw = doc.DocumentNode.SelectSingleNode("//span[@itemprop='description']")?.InnerText;
+        var descriptionRaw = doc.DocumentNode.SelectSingleNode("//p[contains(@class,'bdt-ah-resume')]")?.InnerText;
         string? description = null;
         if (!string.IsNullOrEmpty(descriptionRaw))
         {
@@ -620,22 +624,23 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
             description = WebUtility.HtmlDecode(description);
         }
 
-        // Dépôt légal + nombre de pages officiel — bloc "menu-informations", absent sur certaines pages.
+        // Dépôt légal + nombre de pages officiel — pastilles de l'en-tête (anciennement "menu-informations"),
+        // absentes sur certaines pages.
         string? depotLegal = null;
         int? planches = null;
         try
         {
-            var menuInfos = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'menu-informations')]");
+            var menuInfos = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'bdt-ah-meta')]//ul[contains(@class,'bdt-ah-pastilles')]");
             if (menuInfos is not null)
             {
-                var calendarSpan = menuInfos.SelectSingleNode(".//span[@title='Dépot légal' or @title='Dépôt légal']");
+                var calendarSpan = menuInfos.SelectSingleNode(".//li[@title='Dépot légal' or @title='Dépôt légal']");
                 if (calendarSpan is not null)
                 {
                     var m = Regex.Match(calendarSpan.InnerText, @"\d{2}/\d{4}");
                     depotLegal = m.Success ? m.Value : calendarSpan.InnerText.Trim();
                 }
 
-                var pagesSpan = menuInfos.SelectSingleNode(".//span[@itemprop='numberOfPages']");
+                var pagesSpan = menuInfos.SelectSingleNode(".//*[@itemprop='numberOfPages']");
                 if (pagesSpan is not null && int.TryParse(pagesSpan.InnerText.Trim(), out var p))
                     planches = p;
             }
@@ -685,11 +690,11 @@ public class BedethequeSourceService : BaseService<BedethequeOptions>, ISourceSe
     /// <c>a.browse-planches</c>, <c>a.browse-versos</c> (href = grand format <c>/media/…</c>, img =
     /// miniature <c>/cache/thb_…</c>). La page album liste aussi les autres éditions du même album
     /// ("Toutes les éditions de cet album") avec leurs propres visuels : la recherche est donc
-    /// circonscrite au <c>&lt;li&gt;</c> de l'édition demandée (ancre <c>&lt;a name="{id}"&gt;</c>).
+    /// circonscrite à l'<c>article.bdt-edition</c> de l'édition demandée (ancre <c>&lt;a name="{id}"&gt;</c>).
     /// </summary>
     internal static List<BdImage> ParseAlbumImages(HtmlDocument doc, int id)
     {
-        var scope = doc.DocumentNode.SelectSingleNode($"//ul[contains(@class,'liste-albums')]/li[.//a[@name='{id}']]");
+        var scope = doc.DocumentNode.SelectSingleNode($"//article[contains(@class,'bdt-edition')][.//a[@name='{id}']]");
         if (scope is null) return [];
 
         var results = new List<BdImage>();

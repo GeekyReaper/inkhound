@@ -16,16 +16,16 @@ public class BedethequeNewsParsingTests
             <div class="place">n°1</div>
             <a href="https://www.bedetheque.com/BD-Nestor-Burma-Tome-14-Nestor-Burma-dans-l-ile-543160.html" class="couv" title="Nestor Burma"><img src="https://www.bedetheque.com/cache/thb_couv/Couv_543160_b5a8ef.jpg" class="fadeover"></a>
             <div class="evolution">
-              <i class="icon-star icon-large orange" title="Entrée dans le classement"></i>
+              <i class="fa-solid fa-star orange" title="Entrée dans le classement"></i>
             </div>
             <div class="main">
               <h3>
                 <a href="https://www.bedetheque.com/BD-Nestor-Burma-Tome-14-Nestor-Burma-dans-l-ile-543160.html">Nestor Burma</a><br>
                 14.                                         Nestor Burma dans l'ïle                                </h3>
               <div class="infos">
-                <i class="icon-building"></i> <span class="orange">Casterman</span>
-                <i class="icon-calendar"></i> Parution: <span class="orange">18/09/2026</span>
-                <i class="icon-time"></i> <span class="orange">1ème semaine</span>
+                <i class="fa-solid fa-building"></i> <span class="orange">Casterman</span>
+                <i class="fa-regular fa-calendar"></i> Parution: <span class="orange">18/09/2026</span>
+                <i class="fa-regular fa-clock"></i> <span class="orange">1ème semaine</span>
               </div>
               <p>
                 Après le XXe arrondissement, nouvel album de Nestor Burma en Bretagne ![…]                                </p>
@@ -42,9 +42,9 @@ public class BedethequeNewsParsingTests
                 <a href="https://www.bedetheque.com/BD-Ezechiel-Tome-1-Le-pays-de-la-nuit-541192.html">Ezechiel</a><br>
                 1.                                         Le pays de la nuit                                </h3>
               <div class="infos">
-                <i class="icon-building"></i> <span class="orange">Delcourt</span>
-                <i class="icon-calendar"></i> Parution: <span class="orange">27/08/2026</span>
-                <i class="icon-time"></i> <span class="orange">4ème semaine</span>
+                <i class="fa-solid fa-building"></i> <span class="orange">Delcourt</span>
+                <i class="fa-regular fa-calendar"></i> Parution: <span class="orange">27/08/2026</span>
+                <i class="fa-regular fa-clock"></i> <span class="orange">4ème semaine</span>
               </div>
               <p>Résumé.</p>
             </div>
@@ -134,8 +134,8 @@ public class BedethequeNewsParsingTests
 
     private const string AlbumHtml = """
         <html><body>
-        <ul class="liste-albums">
-          <li class="">
+        <div>
+          <article class="bdt-edition" itemscope>
             <a name="543160"></a>
             <div class="album-side">
               <div class="couv">
@@ -156,16 +156,16 @@ public class BedethequeNewsParsingTests
                 </a>
               </div>
             </div>
-          </li>
-          <li class="">
+          </article>
+          <article class="bdt-edition" itemscope>
             <a name="544478"></a>
             <div class="sous-couv">
               <a class="zoom-format-icon browse-planches cboxElement" href="https://www.bedetheque.com/media/Planches/PlancheA_544478.jpg">
                 <img src="https://www.bedetheque.com/cache/thb_planches/PlancheA_544478.jpg">
               </a>
             </div>
-          </li>
-        </ul>
+          </article>
+        </div>
         </body></html>
         """;
 

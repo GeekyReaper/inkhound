@@ -1845,7 +1845,9 @@ public partial class InkhoundManager : BaseServiceManager
         volume.SourceId     = mapped.SourceId;
         volume.SourceType   = mapped.SourceType;
         volume.Title        = mapped.Title;
-        volume.Year         = mapped.Year;
+        // Garde-fou : une année non lue (changement de template de la source) ne doit pas effacer
+        // l'année connue — le dossier du volume est recalculé depuis Title/Year et serait renommé.
+        volume.Year         = mapped.Year ?? volume.Year;
         volume.Description  = mapped.Description;
         volume.Image        = mapped.Image;
         volume.Publisher    = mapped.Publisher;
