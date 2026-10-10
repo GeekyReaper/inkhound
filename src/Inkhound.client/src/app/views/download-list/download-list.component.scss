@@ -26,7 +26,7 @@
 //   4. Barre de progression                                (pleine largeur)
 //   5. Icône date + "dd/MM HH:mm"                          (droite)
 //   ───────────────── séparateur ─────────────────
-//   6. Boutons d'action edit / delete                      (droite)
+//   6. Lien vers l'issue (gauche) · boutons d'action edit / delete (droite)
 // La colonne 1 est absente quand `showVolume` est false (page Issue) : les `order` restent
 // cohérents, la carte commence alors directement par le nom du torrent.
 @media (max-width: 767.98px) {
@@ -61,6 +61,12 @@
       border-top: var(--cui-border-width, 1px) solid var(--cui-border-color);
       margin-top: 0.125rem;
       padding-top: 0.5rem;
+    }
+
+    // Lien vers l'issue : sur la même ligne que les autres actions, mais calé à gauche
+    // (les autres boutons restent à droite).
+    td.col-actions .btn-go-issue {
+      margin-right: auto;
     }
 
     // Ligne 2 : nom du torrent en graisse normale (le socle `.col-identity` le force à 600).

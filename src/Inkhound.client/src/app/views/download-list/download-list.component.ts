@@ -2,6 +2,7 @@ import { Component, DestroyRef, inject, input, output, signal } from '@angular/c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
 import { DecimalPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import {
   AlertComponent, BadgeComponent, ButtonCloseDirective, ButtonDirective,
   FormControlDirective, FormLabelDirective,
@@ -25,7 +26,7 @@ import {
   standalone: true,
   imports: [
     TableDirective, BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent,
-    ProgressComponent, ProgressBarComponent, DecimalPipe, IconDirective,
+    ProgressComponent, ProgressBarComponent, DecimalPipe, IconDirective, RouterLink,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalFooterComponent,
     ModalTitleDirective, ButtonCloseDirective, FormControlDirective, FormLabelDirective
   ],

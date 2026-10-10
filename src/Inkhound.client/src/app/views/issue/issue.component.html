@@ -112,14 +112,14 @@
 
     <!-- Barre d'actions -->
     <c-row class="mb-3">
-      <c-col class="d-flex gap-2 align-items-center">
+      <c-col class="d-flex flex-wrap gap-2 align-items-center">
         <button cButton color="primary" size="sm"
                 [disabled]="!!activeJobId() || importing() || exportBusy()"
                 (click)="importVisible.set(true)">
           @if (importing()) {
             <c-spinner size="sm" class="me-1"></c-spinner>
           } @else {
-            <svg cIcon name="cilCloudDownload" size="sm" class="me-1"></svg>
+            <svg cIcon name="cilFolderOpen" size="sm" class="me-1"></svg>
           }
           Import
         </button>
@@ -127,13 +127,17 @@
           <svg cIcon name="cilPencil" size="sm" class="me-1"></svg>
           Edit
         </button>
-        <ng-container [ngTemplateOutlet]="exportPanel.downloadButton()" />
         <button cButton color="danger" size="sm"
                 [disabled]="!issue()!.cbzFilename || !!activeJobId() || exportBusy()"
                 (click)="requestDeleteFile()">
           <svg cIcon name="cilTrash" size="sm" class="me-1"></svg>
           Delete file
         </button>
+        <!-- Download : à droite en grand format, sur la ligne du dessous en petit format -->
+        <div class="w-100 d-md-none"></div>
+        <div class="ms-md-auto">
+          <ng-container [ngTemplateOutlet]="exportPanel.downloadButton()" />
+        </div>
       </c-col>
     </c-row>
 
