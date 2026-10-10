@@ -122,6 +122,12 @@ export class DefaultHeaderComponent extends HeaderComponent {
       }
       route = child;
     }
+    // La racine (« Home ») EST le Dashboard : on fusionne la racine et la route /dashboard en un seul
+    // crumb « Dashboard » (cliquable vers /dashboard), au lieu de « Dashboard / Dashboard ».
+    if (items.length > 1 && items[1].url === '/dashboard/' && items[1].label === items[0].label) {
+      items.splice(1, 1);
+      items[0] = { ...items[0], url: '/dashboard/' };
+    }
     return items;
   }
 }
