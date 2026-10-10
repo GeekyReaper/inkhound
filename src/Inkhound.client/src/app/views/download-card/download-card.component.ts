@@ -5,8 +5,8 @@ import { DownloadItem } from '../../core/services/qbittorrent.service';
 import { downloadStatusColor } from '../../core/util/download-format';
 
 // Vignette d'un téléchargement : couverture de l'issue, titre du volume + numéro, début du nom du
-// torrent, et badge de statut en surimpression. Utilisée par les deux sections du Dashboard
-// (« Stalled downloads » et « Downloads in progress ») — même gabarit que les cartes « Most
+// torrent, et badge de statut en surimpression. Utilisée par la carte « Downloads » du Dashboard
+// et sa sous-page (bloqués puis en cours) — même gabarit que les cartes « Most
 // wanted » juste au-dessus, pour que le tableau de bord se lise d'un seul coup d'œil.
 @Component({
   selector: 'app-download-card',

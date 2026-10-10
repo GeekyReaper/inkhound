@@ -268,6 +268,7 @@ public partial class InkhoundManager : BaseServiceManager
     // de MostWantedMaxMissing issues Standard ; MostWantedRowLimit lignes sont renvoyées.
     private const int MostWantedMaxMissing = 2;
     private const int MostWantedRowLimit   = 6;
+    private const int DashboardRecentRowLimit = 6;
 
     // Vue d'ensemble toutes bibliothèques confondues pour la page Dashboard — aucun agrégat de
     // ce type n'existait jusqu'ici (les autres méthodes de lecture sont scopées à une
@@ -326,10 +327,31 @@ public partial class InkhoundManager : BaseServiceManager
                 downloaded, downloading, missing);
         }).ToList();
 
-        var recentVolumes = await ctx.Volumes
+        var recentVolumes = await GetRecentVolumesAsync(DashboardRecentRowLimit, ct);
+        var mostWanted    = await GetMostWantedAsync(MostWantedRowLimit, ct);
+
+        return new DashboardStats(
+            librariesCount,
+            volumesCount, volumesMonitored, volumesCompleted, volumesPaused,
+            issuesCount, issuesDownloaded, issuesDownloading, issuesMissing,
+            totalDownloadedBytes,
+            libraryStats,
+            recentVolumes,
+            mostWanted);
+    }
+
+    // Derniers volumes ajoutés (tri DateAdded décroissant) — la page Dashboard en affiche 6, la
+    // sous-page « Recently added » en demande davantage.
+    public async Task<List<Volume>> GetRecentVolumesAsync(int limit, CancellationToken ct = default)
+        => await GetDb().Volumes
             .OrderByDescending(v => v.DateAdded)
-            .Take(6)
+            .Take(limit)
             .ToListAsync(ct);
+
+    // « Most wanted » : issues MISSING (Standard) dont l'acquisition rapproche leur volume de 100 %.
+    public async Task<List<DashboardMostWantedIssue>> GetMostWantedAsync(int limit, CancellationToken ct = default)
+    {
+        var ctx = GetDb();
 
         // ---- Most wanted : issues MISSING dont l'acquisition rapproche un volume de 100 % ----
 
@@ -365,16 +387,9 @@ public partial class InkhoundManager : BaseServiceManager
         // 4. Construire + trier + limiter (logique pure, testée : RankMostWanted).
         var mostWanted = RankMostWanted(
             missingIssues.Select(i => (i, volumeById[i.VolumeId], missingCountByVolume[i.VolumeId])),
-            MostWantedRowLimit);
+            limit);
 
-        return new DashboardStats(
-            librariesCount,
-            volumesCount, volumesMonitored, volumesCompleted, volumesPaused,
-            issuesCount, issuesDownloaded, issuesDownloading, issuesMissing,
-            totalDownloadedBytes,
-            libraryStats,
-            recentVolumes,
-            mostWanted);
+        return mostWanted;
     }
 
     // Statistiques d'UNE library pour l'encart de sa page — même logique de comptage que

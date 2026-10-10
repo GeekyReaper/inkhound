@@ -20,6 +20,8 @@ export interface DashboardRecentVolume {
   title:     string;
   image:     VolumeImage | null;
   dateAdded: string;
+  /** Complétude (issues Standard téléchargées / total), 0-100. */
+  completionPercent: number;
 }
 
 export interface DashboardMostWantedIssue {
@@ -59,5 +61,13 @@ export class DashboardService {
 
   getStats() {
     return this.http.get<DashboardStats>('/api/dashboard/stats');
+  }
+
+  getRecentVolumes(limit = 50) {
+    return this.http.get<DashboardRecentVolume[]>('/api/dashboard/recent-volumes', { params: { limit } });
+  }
+
+  getMostWanted(limit = 50) {
+    return this.http.get<DashboardMostWantedIssue[]>('/api/dashboard/most-wanted', { params: { limit } });
   }
 }

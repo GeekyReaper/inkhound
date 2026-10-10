@@ -274,6 +274,7 @@ src/
 | Route | Composant | Description |
 |---|---|---|
 | `/dashboard` | `DashboardComponent` | Tableau de bord |
+| `/dashboard/recently-added` · `/dashboard/most-wanted` · `/dashboard/downloads` | `DashboardListComponent` (`data.kind`) | Sous-pages du Dashboard : 50 derniers volumes ajoutés (badge de complétude %) / 50 issues « Most wanted » / 50 downloads (bloqués d'abord, puis en cours ; la carte « Downloads » du Dashboard fusionne « Stalled downloads » et « Downloads in progress ») — cartes partagées `views/dashboard/cards/` |
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |

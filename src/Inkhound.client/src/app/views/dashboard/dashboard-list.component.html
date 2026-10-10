@@ -1,0 +1,55 @@
+<c-container class="py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">{{ title }}</h2>
+    <button cButton color="secondary" variant="outline" size="sm" (click)="goBack()">
+      <svg cIcon name="cilChevronLeft" size="sm"></svg>
+      Back
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="d-flex justify-content-center py-5">
+      <c-spinner color="primary"></c-spinner>
+    </div>
+  } @else if (error()) {
+    <c-alert color="danger">{{ error() }}</c-alert>
+  } @else if (kind === 'downloads') {
+    @if (downloads().length === 0) {
+      <p class="text-body-secondary">No download in progress.</p>
+    } @else {
+      <c-row class="g-3">
+        @for (item of downloads(); track item.id) {
+          <c-col xs="6" sm="4" md="3" xl="2">
+            <app-download-card [item]="item" />
+          </c-col>
+        }
+      </c-row>
+    }
+  } @else if (kind === 'most-wanted') {
+    @if (wanted().length === 0) {
+      <p class="text-body-secondary">No volume close to completion.</p>
+    } @else {
+      <c-row class="g-3">
+        @for (item of wanted(); track item.issueId) {
+          <c-col xs="6" sm="4" md="3" xl="2">
+            <app-most-wanted-card [item]="item" />
+          </c-col>
+        }
+      </c-row>
+    }
+  } @else {
+    @if (recent().length === 0) {
+      <p class="text-body-secondary">No volume added yet.</p>
+    } @else {
+      <c-row class="g-3">
+        @for (volume of recent(); track volume.id) {
+          <c-col xs="6" sm="4" md="3" xl="2">
+            <app-recent-volume-card [volume]="volume" />
+          </c-col>
+        }
+      </c-row>
+    }
+  }
+
+</c-container>

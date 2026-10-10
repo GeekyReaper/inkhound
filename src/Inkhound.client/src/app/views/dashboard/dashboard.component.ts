@@ -1,5 +1,4 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
@@ -21,12 +20,14 @@ import {
   WidgetStatCComponent
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
-import { DashboardService, DashboardStats, DashboardMostWantedIssue, DashboardLibraryStats } from '../../core/services/dashboard.service';
+import { DashboardService, DashboardStats, DashboardLibraryStats } from '../../core/services/dashboard.service';
 import { HubService } from '../../core/services/hub.service';
 import { QBittorrentService, DownloadItem, DownloadStatus } from '../../core/services/qbittorrent.service';
 import { VolumeStatus } from '../../core/services/volume.service';
 import { formatSize } from '../../core/util/download-format';
 import { DownloadCardComponent } from '../download-card/download-card.component';
+import { MostWantedCardComponent } from './cards/most-wanted-card.component';
+import { RecentVolumeCardComponent } from './cards/recent-volume-card.component';
 
 @Component({
   selector: 'app-dashboard',
@@ -36,8 +37,8 @@ import { DownloadCardComponent } from '../download-card/download-card.component'
     CardComponent, CardBodyComponent,
     SpinnerComponent, AlertComponent, BadgeComponent, ButtonDirective,
     ProgressComponent, ProgressBarComponent, ProgressStackedComponent, TooltipDirective,
-    WidgetStatCComponent, TemplateIdDirective, IconDirective, DatePipe, RouterLink,
-    DownloadCardComponent
+    WidgetStatCComponent, TemplateIdDirective, IconDirective, RouterLink,
+    DownloadCardComponent, MostWantedCardComponent, RecentVolumeCardComponent
   ]
 })
 export class DashboardComponent {
@@ -66,6 +67,11 @@ export class DashboardComponent {
   readonly activeJobs = computed(() =>
     this.hub.jobs().filter(j => j.state === 'RUNNING' || j.state === 'INITIALIZING').slice(0, 5)
   );
+
+  // Carte « Downloads » : les bloqués d'abord (alerte), puis les téléchargements en cours.
+  readonly dashboardDownloads = computed(() =>
+    [...this.stalledDownloads(), ...this.recentDownloads()].slice(0, 6));
+  readonly downloadsTotal = computed(() => this.stalledDownloads().length + this.recentDownloadsTotal());
 
   readonly issuesProgressPercent = computed(() => {
     const s = this.stats();
@@ -121,18 +127,6 @@ export class DashboardComponent {
   libraryTooltip(lib: DashboardLibraryStats): string {
     return `${lib.downloadedIssuesCount} downloaded / ${lib.downloadingIssuesCount} downloading `
          + `/ ${lib.missingIssuesCount} missing — ${lib.issuesCount} total`;
-  }
-
-  mostWantedCover(item: DashboardMostWantedIssue): string | null {
-    return item.image?.smallUrl ?? item.image?.thumbUrl ?? null;
-  }
-
-  mostWantedGainPercent(item: DashboardMostWantedIssue): number {
-    return item.projectedCompletionPercent - item.currentCompletionPercent;
-  }
-
-  mostWantedTooltip(item: DashboardMostWantedIssue): string {
-    return `${item.ownedCount} / ${item.totalCount} owned · ${item.missingCount} missing`;
   }
 
   volumeStatusBadgeColor(status: VolumeStatus): string {
