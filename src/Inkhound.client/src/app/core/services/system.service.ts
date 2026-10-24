@@ -45,6 +45,11 @@ export class SystemService {
     return this.http.get<MemorySnapshot>('/api/system/memory');
   }
 
+  // Lance le job de sauvegarde de la base SQLite dans le dossier donné ; renvoie { jobId }.
+  backupDatabase(directoryPath: string) {
+    return this.http.post<{ jobId: string }>('/api/system/backup-database', { directoryPath });
+  }
+
   // Bloquant côté serveur de l'ordre de la seconde.
   compactMemory() {
     return this.http.post<MemoryCompactionResult>('/api/system/memory/compact', {});

@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,4 +21,19 @@ public class SystemController(InkhoundManager manager) : ControllerBase
     // compactante. Bloquant de l'ordre de la seconde : action manuelle uniquement.
     [HttpPost("memory/compact")]
     public async Task<IActionResult> CompactMemory() => Ok(await manager.CompactMemoryAsync());
+
+    public record BackupDatabaseRequest(string? DirectoryPath);
+
+    // POST /api/system/backup-database — job qui copie la base SQLite, horodatée, dans le dossier
+    // demandé ; renvoie { jobId }.
+    [HttpPost("backup-database")]
+    public IActionResult BackupDatabase([FromBody] BackupDatabaseRequest request)
+    {
+        var parameters = new BackupDatabaseJobParameters { DirectoryPath = request.DirectoryPath ?? string.Empty };
+        if (!parameters.IsValid(out var errors))
+            return BadRequest(new { message = string.Join(" ", errors) });
+
+        var job = manager.LaunchJobBackupDatabase(parameters);
+        return Accepted(new { jobId = job.JobId });
+    }
 }

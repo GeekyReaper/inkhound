@@ -20,6 +20,55 @@
     <c-alert color="danger" [dismissible]="true" (visibleChange)="!$event && error.set(null)">{{ error() }}</c-alert>
   }
 
+  <!-- Sauvegarde de la base SQLite -->
+  <c-card class="mb-4">
+    <c-card-header><strong>Backup database</strong></c-card-header>
+    <c-card-body>
+      <p class="text-body-secondary">
+        Copies the SQLite database into the folder of your choice, in a file named with the current date
+        and time. It runs as a job; the copy is a consistent snapshot taken while the application keeps running.
+      </p>
+
+      <div class="input-group mb-3">
+        <input class="form-control" type="text" readonly placeholder="Select a destination folder…"
+               [value]="backupDirectory()" aria-label="Backup folder" />
+        <button cButton color="secondary" type="button" (click)="pathPickerVisible.set(true)"
+                [disabled]="backupStarting() || !!backupJobId()" title="Choose folder">
+          <svg cIcon name="cilFolder"></svg>
+        </button>
+      </div>
+
+      <button cButton color="primary" [disabled]="!backupDirectory() || backupStarting() || !!backupJobId()"
+              (click)="backupDatabase()">
+        @if (backupStarting()) {
+          <c-spinner size="sm" class="me-2"></c-spinner>
+        } @else {
+          <svg cIcon name="cilSave" class="me-2"></svg>
+        }
+        Backup now
+      </button>
+
+      @if (backupJobId(); as jobId) {
+        <div class="mt-3"><app-job-panel [jobId]="jobId" /></div>
+      }
+      @if (backupError()) {
+        <c-alert color="danger" class="mt-3 mb-0">{{ backupError() }}</c-alert>
+      }
+      @if (backupResult() === 'success') {
+        <c-alert color="success" class="mt-3 mb-0">Backup completed — see the job console for the file path.</c-alert>
+      } @else if (backupResult() === 'error') {
+        <c-alert color="danger" class="mt-3 mb-0">Backup failed — see the job console for details.</c-alert>
+      }
+    </c-card-body>
+  </c-card>
+
+  <app-select-path
+    mode="directory"
+    [(visible)]="pathPickerVisible"
+    [initialPath]="backupDirectory()"
+    (pathSelected)="onBackupPathSelected($event)"
+  />
+
   @if (loading() && !snapshot()) {
     <div class="d-flex justify-content-center py-5">
       <c-spinner color="primary"></c-spinner>

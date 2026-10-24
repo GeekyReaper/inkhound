@@ -78,6 +78,7 @@ Inkhound.Core/
 ├── inkhoundManager.Scheduler.cs   # partial — boucle cron + tâches planifiées
 ├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
 ├── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
+├── inkhoundManager.Backup.cs    # partial — job « Backup database » (copie horodatée de la base SQLite)
 ├── inkhoundManager.Export.cs    # partial — jobs d'export, liste/suppression, tickets de téléchargement, nettoyage
 └── inkhoundManager.News.cs  # partial — job News, lectures paginées des flux, détail live d'un album
 ```
@@ -645,6 +646,13 @@ Les opérations simples et rapides restent des méthodes `async Task<T>` classiq
   résultats d'analyse + les lignes `IssueDownload` de l'issue (torrent qBittorrent non touché),
   recalcule les stats du volume, déclenche un scan Kavita. Un seul `File.Delete` + un appel Kavita.
 - `DeleteVolumeAsync(id, deleteFiles)` — voir ci-dessous.
+
+### Sauvegarde de la base (`inkhoundManager.Backup.cs`)
+
+`LaunchJobBackupDatabase(BackupDatabaseJobParameters { DirectoryPath })` → `JobContext` (`POST /api/system/backup-database`,
+admin, renvoie `{ jobId }`). Le job appelle `DbStorageService.BackupAsync(directory)` : **`VACUUM INTO`** (instantané
+transactionnel, jamais un `File.Copy` d'une base ouverte en écriture) vers `{nom}_{yyyy-MM-dd_HH-mm-ss}.db` (heure locale),
+écrit en `.tmp` puis renommé ; dossier créé au besoin, sauvegarde existante jamais écrasée. Testé par `DbStorageBackupTests`.
 
 ### `DeleteVolumeAsync(Guid id, bool deleteFiles = false)`
 

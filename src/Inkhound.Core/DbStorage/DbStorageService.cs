@@ -19,6 +19,48 @@ public class DbStorageService : BaseService<DbStorageOption>
     // une variable locale et ne pas la faire persister au-delà d'une seule opération.
     public DbStorageContext? Database => _contextOptions is null ? null : new DbStorageContext(_contextOptions);
 
+    /// <summary>
+    /// Nom du fichier de sauvegarde : nom de la base + horodatage local
+    /// (<c>dbstorage_2026-10-24_14-30-05.db</c>).
+    /// </summary>
+    public static string BuildBackupFileName(string databasePath, DateTime now)
+    {
+        var baseName = Path.GetFileNameWithoutExtension(databasePath);
+        if (string.IsNullOrWhiteSpace(baseName)) baseName = "dbstorage";
+        return $"{baseName}_{now:yyyy-MM-dd_HH-mm-ss}.db";
+    }
+
+    /// <summary>
+    /// Copie cohérente de la base dans <paramref name="directory"/> via <c>VACUUM INTO</c> : contrairement à
+    /// un <c>File.Copy</c>, l'instantané est transactionnel (pas de fichier tronqué ni de WAL manquant
+    /// pendant que l'application écrit) et reste compact. Le dossier est créé s'il n'existe pas ;
+    /// l'écriture passe par un fichier <c>.tmp</c> renommé à la fin, pour ne jamais laisser de sauvegarde
+    /// partielle sous son nom définitif. Retourne le chemin complet de la sauvegarde.
+    /// </summary>
+    public async Task<string> BackupAsync(string directory, CancellationToken ct = default)
+    {
+        using var db = Database ?? throw new InvalidOperationException("Database is not initialized.");
+
+        Directory.CreateDirectory(directory);
+        var finalPath = Path.GetFullPath(Path.Combine(directory, BuildBackupFileName(Options.Path, DateTime.Now)));
+        if (File.Exists(finalPath))
+            throw new IOException($"A backup named '{Path.GetFileName(finalPath)}' already exists.");
+
+        var tmpPath = finalPath + ".tmp";
+        try
+        {
+            if (File.Exists(tmpPath)) File.Delete(tmpPath);
+            await db.Database.ExecuteSqlRawAsync("VACUUM INTO {0}", [tmpPath], ct);
+            File.Move(tmpPath, finalPath);
+        }
+        catch
+        {
+            if (File.Exists(tmpPath)) File.Delete(tmpPath);
+            throw;
+        }
+        return finalPath;
+    }
+
     public DbStorageService()
     {
 

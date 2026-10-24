@@ -1,4 +1,4 @@
-import { Component, computed, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, DestroyRef, effect, inject, OnInit, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { finalize } from 'rxjs/operators';
@@ -9,6 +9,10 @@ import {
   SpinnerComponent, TableDirective
 } from '@coreui/angular';
 import { IconDirective } from '@coreui/icons-angular';
+import { HubService } from '../../core/services/hub.service';
+import { PageJobService } from '../../core/services/page-job.service';
+import { JobPanelComponent } from '../job-panel/job-panel.component';
+import { SelectPathComponent } from '../select-path/select-path.component';
 import { MemoryCompactionResult, MemorySnapshot, SystemService } from '../../core/services/system.service';
 
 // Page /settings/system — empreinte mémoire du backend et purge manuelle.
@@ -20,13 +24,28 @@ import { MemoryCompactionResult, MemorySnapshot, SystemService } from '../../cor
   imports: [
     ContainerComponent, RowComponent, ColComponent,
     CardComponent, CardHeaderComponent, CardBodyComponent,
-    BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent, TableDirective, IconDirective
+    BadgeComponent, ButtonDirective, SpinnerComponent, AlertComponent, TableDirective, IconDirective,
+    JobPanelComponent, SelectPathComponent
   ],
   templateUrl: './system.component.html'
 })
 export class SystemSettingsComponent implements OnInit {
   private systemService = inject(SystemService);
+  private hub           = inject(HubService);
+  private pageJobs      = inject(PageJobService);
   readonly #destroyRef  = inject(DestroyRef);
+
+  private static readonly BACKUP_DIR_KEY = 'inkhound.backupDirectory';
+  private readonly backupPageKey = 'settings-system#backup';
+  private handledBackupJobIds = new Set<string>();
+
+  // --- Sauvegarde de la base ---
+  backupDirectory = signal(SystemSettingsComponent.readStoredDirectory());
+  pathPickerVisible = signal(false);
+  backupStarting  = signal(false);
+  backupError     = signal<string | null>(null);
+  backupResult    = signal<'success' | 'error' | null>(null);
+  readonly backupJobId = this.pageJobs.activeJobId(this.backupPageKey);
 
   snapshot   = signal<MemorySnapshot | null>(null);
   loading    = signal(true);
@@ -43,6 +62,46 @@ export class SystemSettingsComponent implements OnInit {
     const snap = this.snapshot();
     return !!snap && snap.totalAvailableMemoryBytes > 8 * 1024 * 1024 * 1024;
   });
+
+  constructor() {
+    // Fin du job de sauvegarde : on libère la page et on affiche le résultat (le détail est dans le job panel).
+    effect(() => {
+      const jobId = this.backupJobId();
+      const job = jobId ? this.hub.jobs().find(j => j.jobId === jobId) ?? null : null;
+      if (!job || this.handledBackupJobIds.has(job.jobId)) return;
+      if (job.state !== 'SUCCESS' && job.state !== 'ERROR') return;
+
+      this.handledBackupJobIds.add(job.jobId);
+      untracked(() => {
+        this.pageJobs.clear(this.backupPageKey);
+        this.backupResult.set(job.state === 'SUCCESS' ? 'success' : 'error');
+      });
+    });
+  }
+
+  private static readStoredDirectory(): string {
+    try { return localStorage.getItem(SystemSettingsComponent.BACKUP_DIR_KEY) ?? ''; } catch { return ''; }
+  }
+
+  onBackupPathSelected(path: string): void {
+    this.backupDirectory.set(path);
+    try { localStorage.setItem(SystemSettingsComponent.BACKUP_DIR_KEY, path); } catch { /* stockage indisponible */ }
+  }
+
+  backupDatabase(): void {
+    const directory = this.backupDirectory().trim();
+    if (!directory || this.backupStarting() || this.backupJobId()) return;
+
+    this.backupStarting.set(true);
+    this.backupError.set(null);
+    this.backupResult.set(null);
+    this.systemService.backupDatabase(directory)
+      .pipe(takeUntilDestroyed(this.#destroyRef), finalize(() => this.backupStarting.set(false)))
+      .subscribe({
+        next: res => this.pageJobs.register(this.backupPageKey, res.jobId),
+        error: (err: HttpErrorResponse) => this.backupError.set(err.error?.message ?? 'Could not start the backup.')
+      });
+  }
 
   ngOnInit(): void {
     this.load();
