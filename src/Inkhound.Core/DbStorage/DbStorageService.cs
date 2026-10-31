@@ -442,6 +442,32 @@ public class DbStorageService : BaseService<DbStorageOption>
         await db.Database.ExecuteSqlRawAsync(
             "CREATE INDEX IF NOT EXISTS IX_ExportFiles_TargetType_TargetId ON ExportFiles(TargetType, TargetId)");
 
+        // VolumeRequests ajouté en octobre 2026 — demandes d'ajout de volume émises par les Guests,
+        // approuvées ou refusées par un admin.
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS VolumeRequests (
+                Id                TEXT    NOT NULL PRIMARY KEY,
+                RequestedByUserId TEXT    NOT NULL,
+                RequestedByLogin  TEXT    NOT NULL DEFAULT '',
+                Source            TEXT    NOT NULL DEFAULT '',
+                SourceId          TEXT    NOT NULL DEFAULT '',
+                Title             TEXT    NOT NULL DEFAULT '',
+                Year              INTEGER NULL,
+                Image             TEXT    NULL,
+                LibraryId         TEXT    NOT NULL,
+                AgeRating         TEXT    NOT NULL DEFAULT 'Unknown',
+                Status            TEXT    NOT NULL DEFAULT 'Pending',
+                CreatedAt         TEXT    NOT NULL DEFAULT '',
+                UpdatedAt         TEXT    NOT NULL DEFAULT '',
+                ResolvedAt        TEXT    NULL,
+                VolumeId          TEXT    NULL
+            )
+            """);
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_VolumeRequests_RequestedByUserId ON VolumeRequests(RequestedByUserId)");
+        await db.Database.ExecuteSqlRawAsync(
+            "CREATE INDEX IF NOT EXISTS IX_VolumeRequests_Status ON VolumeRequests(Status)");
+
         // Backfill Volumes.DateAdded (septembre 2026) — seul AddVolumeManuallyAsync le renseignait ;
         // les volumes ajoutés via ComicVine, Bedetheque ou synchronisation filesystem avaient tous
         // DateAdded == default, empêchant le tri "Recently added" du dashboard de les départager (ces

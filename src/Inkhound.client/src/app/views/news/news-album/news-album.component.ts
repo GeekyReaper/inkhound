@@ -106,7 +106,7 @@ export class NewsAlbumComponent {
 
   onVolumeAdded(added: AddedVolume): void {
     this.addOpen.set(false);
-    this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
+    if (added.jobId) this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
     this.detail.update(d => d ? { ...d, library: { libraryId: added.libraryId, volumeId: added.id } } : d);
   }
 }

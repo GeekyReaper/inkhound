@@ -323,7 +323,7 @@ export class NewsComponent {
     const seriesId = this.addSeriesId();
     this.closeAddDialog();
     // Le peuplement des issues continue en tâche de fond — suivi sur la page Library.
-    this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
+    if (added.jobId) this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
     if (item && seriesId)
       this.patchItems(item.albumId, seriesId, { libraryId: added.libraryId, volumeId: added.id });
   }

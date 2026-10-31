@@ -202,6 +202,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
 
     // PATCH /api/volumes/{volumeId}/age-rating
     [HttpPatch("/api/volumes/{volumeId:guid}/age-rating")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> PatchAgeRating(Guid volumeId, [FromBody] PatchVolumeAgeRatingRequest req)
     {
         if (!Enum.TryParse<AgeRating>(req.AgeRating, out var rating))

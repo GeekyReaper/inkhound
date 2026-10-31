@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, effect, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { of } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { Router } from '@angular/router';
 import {
   AlertComponent,
   ButtonCloseDirective,
@@ -15,13 +14,15 @@ import {
   ModalTitleDirective,
   SpinnerComponent
 } from '@coreui/angular';
-import { AGE_RATINGS, AgeRating, AgeRatingOption, SourceKey, VolumeService } from '../../../core/services/volume.service';
+import { AGE_RATINGS, AgeRating, AgeRatingOption, SourceKey } from '../../../core/services/volume.service';
 import { LibraryService } from '../../../core/services/library.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { VolumeRequestService } from '../../../core/services/volume-request.service';
 
 /** Volume créé par la dialog — le peuplement des issues continue dans le job `jobId`. */
 export interface AddedVolume {
   id: string;
-  jobId: string;
+  jobId: string | null;
   libraryId: string;
 }
 
@@ -29,6 +30,9 @@ export interface AddedVolume {
 // age rating optionnel, puis POST /api/libraries/{id}/volumes { source, sourceId } et PATCH de
 // l'age rating. Partagée par la page Add Volume et par le module News — l'appelant décide de la
 // suite (navigation, suivi du job) via l'output `added`.
+// Dans les deux cas la modale passe par POST /api/volume-requests : un admin obtient une demande
+// auto-approuvée (volume créé, `jobId` pour suivre le peuplement des issues → output `added`), un
+// Guest une demande en attente (age rating obligatoire → output `closed`).
 @Component({
   selector: 'app-volume-add-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -39,8 +43,10 @@ export interface AddedVolume {
   templateUrl: './volume-add-dialog.component.html'
 })
 export class VolumeAddDialogComponent {
-  private readonly volumeService  = inject(VolumeService);
   private readonly libraryService = inject(LibraryService);
+  private readonly requestService = inject(VolumeRequestService);
+  private readonly router         = inject(Router);
+  readonly isAdmin                = inject(AuthService).isAdmin;
   readonly #destroyRef            = inject(DestroyRef);
 
   readonly visible  = input(false);
@@ -48,6 +54,9 @@ export class VolumeAddDialogComponent {
   readonly sourceId = input<string | null>(null);
   /** Titre affiché en tête de la modale (série ajoutée). */
   readonly title    = input<string | null>(null);
+  /** Année et couverture de la série — recopiées dans la demande d'un Guest (aperçu de la liste). */
+  readonly year     = input<number | null>(null);
+  readonly image    = input<string | null>(null);
   /** Library imposée par l'appelant (ex. ?library= de la page Add Volume) — masque le select. */
   readonly presetLibraryId = input<string | null>(null);
 
@@ -97,21 +106,34 @@ export class VolumeAddDialogComponent {
     this.error.set(null);
     const ageRating = this.selectedAgeRating();
 
-    this.volumeService.addFromSource(libraryId, source, sourceId)
-      .pipe(
-        switchMap(res => {
-          const patch$ = ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0);
-          return patch$.pipe(map(() => res));
-        }),
-        takeUntilDestroyed(this.#destroyRef)
-      )
+    // Admin : la demande est auto-approuvée (le volume est créé tout de suite, âge facultatif).
+    // Guest : demande en attente, âge obligatoire.
+    if (!this.isAdmin() && !ageRating) {
+      this.error.set('Age rating is required.');
+      this.adding.set(false);
+      return;
+    }
+
+    this.requestService.create({
+      libraryId, source, sourceId, ageRating: ageRating || 'Unknown',
+      title: this.title() ?? '', year: this.year(), image: this.image()
+    })
+      .pipe(takeUntilDestroyed(this.#destroyRef))
       .subscribe({
-        next: res => {
+        next: request => {
           this.adding.set(false);
-          this.added.emit({ id: res.id, jobId: res.jobId, libraryId });
+          // Demande auto-approuvée (volume créé) : on rejoint la library, avec ou sans job à suivre.
+          if (request.volumeId) {
+            this.added.emit({ id: request.volumeId, jobId: request.jobId ?? null, libraryId });
+            return;
+          }
+          this.closed.emit();
+          // Depuis la page Requests la liste se rafraîchit seule (hub) ; ailleurs (News) on y conduit le Guest.
+          if (!this.router.url.startsWith('/requests')) this.router.navigate(['/requests']);
         },
         error: err => {
-          this.error.set(err?.error?.message ?? 'Failed to add volume.');
+          this.error.set(err?.error?.message
+            ?? (this.isAdmin() ? 'Failed to add volume.' : 'Failed to send request.'));
           this.adding.set(false);
         }
       });

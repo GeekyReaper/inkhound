@@ -80,6 +80,7 @@ Inkhound.Core/
 ├── inkhoundManager.AutoSearch.cs  # partial — job Auto search (acquisition auto via Prowlarr)
 ├── inkhoundManager.BedethequeCatalog.cs  # partial — chargement/état/job de refresh du catalogue Bedetheque
 ├── inkhoundManager.Backup.cs    # partial — job « Backup database » (copie horodatée de la base SQLite)
+├── inkhoundManager.Requests.cs  # partial — demandes d'ajout de volume des Guests (voir VolumeRequest)
 ├── inkhoundManager.Export.cs    # partial — jobs d'export, liste/suppression, tickets de téléchargement, nettoyage
 └── inkhoundManager.News.cs  # partial — job News, lectures paginées des flux, détail live d'un album
 ```
@@ -263,6 +264,20 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 - `Omnibus` — intégrale (préfixe `INT*`, ou titre contenant `" / "` / `"Tomes N à M"` / `"intégrale"`)
 - `Roman` — roman/novélisation (préfixe `ROMAN*`)
 - `BestOf` — compilation "Best Of" (préfixe `BO*`)
+
+### VolumeRequest
+Demande d'ajout d'un volume émise par un Guest — table `VolumeRequests` (`CREATE TABLE IF NOT EXISTS` dans
+`ApplyPendingMigrationsAsync`).
+```
+Id, RequestedByUserId, RequestedByLogin (dénormalisé), Source ("comicvine"|"bedetheque"), SourceId, Title, Year?, Image?,
+LibraryId, AgeRating, Status (Pending | Approved | Rejected), CreatedAt, UpdatedAt, ResolvedAt?, VolumeId?
+```
+Logique dans `inkhoundManager.Requests.cs` (opérations simples, pas de job) : `CreateVolumeRequestAsync` (refuse un volume
+déjà présent dans la library ou une demande `Pending` identique → `InvalidOperationException`), `GetVolumeRequestsAsync(userId?,
+status?)` (`userId` posé = périmètre Guest), `UpdateVolumeRequestAsync` (library / âge, `Pending` seulement),
+`ApproveVolumeRequestAsync` (= `AddVolumeFromSourceAsync` puis `UpdateVolumeAgeRatingAsync` ; si l'ajout échoue la demande
+reste `Pending`), `RejectVolumeRequestAsync`, `DeleteVolumeRequestAsync(id, userId?)`. Chaque changement émet
+`OnDataUpdated(VolumeRequest)`. Un admin passe par `CreateApprovedVolumeRequestAsync` (volume créé d'abord via le helper partagé avec l'approbation, puis demande insérée directement `Approved` ; retourne `(Request, JobId)`). Seule la recherche multi-source est couverte : `AddVolumeManuallyAsync` a été supprimé (les volumes `SourceType = "manual"` existants restent gérés : `UpdateVolumeManuallyAsync`, scheduler).
 
 ## Intégrations externes
 

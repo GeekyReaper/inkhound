@@ -135,25 +135,6 @@ export interface SearchVolumesJobResult {
   stats: SourceSearchStats[];
 }
 
-export interface ManualIssueRequest {
-  issueNumber:  number;
-  title:        string | null;
-  year:         number | null;
-  description:  string | null;
-  imageUrl:     string | null;
-}
-
-export interface AddVolumeManuallyRequest {
-  title:       string;
-  year:        number | null;
-  publisher:   string | null;
-  description: string | null;
-  imageUrl:    string | null;
-  authors:     VolumeAuthor[];
-  genres:      string[];
-  issues:      ManualIssueRequest[];
-}
-
 export interface UpdateIssueRequest {
   id:          string | null;
   issueNumber: number;
@@ -215,22 +196,6 @@ export class VolumeService {
     return this.http.post<{ jobId: string }>(
       `/api/volumes/${volumeId}/import`,
       { importDirectory, fileIssueMap }
-    );
-  }
-
-  // Le Volume est créé immédiatement (retourné tout de suite) ; le peuplement des issues se
-  // poursuit en tâche de fond — jobId permet de suivre sa progression (cf. PageJobService).
-  addFromSource(libraryId: string, source: SourceKey, sourceId: string) {
-    return this.http.post<{ id: string; jobId: string }>(
-      `/api/libraries/${libraryId}/volumes`,
-      { source, sourceId }
-    );
-  }
-
-  addManually(libraryId: string, request: AddVolumeManuallyRequest) {
-    return this.http.post<{ id: string }>(
-      `/api/libraries/${libraryId}/volumes/manual`,
-      request
     );
   }
 

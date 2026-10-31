@@ -147,7 +147,7 @@
           <svg cIcon name="cilReload" class="me-1"></svg>
           Refresh
         </button>
-        <button cButton color="primary" [routerLink]="['/add-volume']" [queryParams]="{ library: library()?.id }" [disabled]="activeJobId() !== null">
+        <button cButton color="primary" [routerLink]="['/requests']" [queryParams]="{ library: library()?.id }" [disabled]="activeJobId() !== null">
           @if (activeJobId()) { <c-spinner size="sm" class="me-1"></c-spinner> } @else { <svg cIcon name="cilPlus" class="me-1"></svg> }
           Add
         </button>

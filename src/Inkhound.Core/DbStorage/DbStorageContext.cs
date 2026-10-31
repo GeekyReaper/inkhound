@@ -23,6 +23,8 @@ public class DbStorageContext : DbContext
 
     public DbSet<ExportFile> ExportFiles => Set<ExportFile>();
 
+    public DbSet<VolumeRequest> VolumeRequests => Set<VolumeRequest>();
+
     public DbSet<ApiToken> ApiTokens => Set<ApiToken>();
 
     public DbSet<User> Users => Set<User>();
@@ -79,6 +81,15 @@ public class DbStorageContext : DbContext
             entity.Property(e => e.Format).HasConversion<string>();
             entity.Property(e => e.Status).HasConversion<string>();
             entity.HasIndex(e => new { e.TargetType, e.TargetId });
+        });
+
+        // Demandes d'ajout des Guests — enums en texte, lues par demandeur (liste du Guest) et par statut.
+        modelBuilder.Entity<VolumeRequest>(entity =>
+        {
+            entity.Property(r => r.Status).HasConversion<string>();
+            entity.Property(r => r.AgeRating).HasConversion<string>();
+            entity.HasIndex(r => r.RequestedByUserId);
+            entity.HasIndex(r => r.Status);
         });
 
         modelBuilder.Entity<User>()

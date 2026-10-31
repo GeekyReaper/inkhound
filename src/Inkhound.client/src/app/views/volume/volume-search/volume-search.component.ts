@@ -1,9 +1,7 @@
 import { Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
-import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { of } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
 import {
   AlertComponent,
   ButtonCloseDirective,
@@ -11,19 +9,11 @@ import {
   CardBodyComponent,
   CardComponent,
   CardFooterComponent,
-  CardHeaderComponent,
   ColComponent,
-  ContainerComponent,
-  FormControlDirective,
-  FormLabelDirective,
-  FormSelectDirective,
   ModalBodyComponent,
   ModalComponent,
   ModalHeaderComponent,
   ModalTitleDirective,
-  NavComponent,
-  NavItemComponent,
-  NavLinkDirective,
   PageItemComponent,
   PageLinkDirective,
   PaginationComponent,
@@ -33,57 +23,52 @@ import {
 import { NgClass, SlicePipe } from '@angular/common';
 import { IconDirective } from '@coreui/icons-angular';
 import {
-  AddVolumeManuallyRequest,
-  AGE_RATINGS,
-  AgeRating,
-  AgeRatingOption,
   PageResult,
   SEARCH_ERROR_CATALOG_NOT_LOADED,
   SourceSearchStats,
   VolumeSearchResult,
   VolumeService
-} from '../../core/services/volume.service';
-import { SourceIssue, IssueService } from '../../core/services/issue.service';
-import { ImageService } from '../../core/services/image.service';
-import { HubService } from '../../core/services/hub.service';
-import { PageJobService } from '../../core/services/page-job.service';
-import { Library, libraryPageKey, LibraryService } from '../../core/services/library.service';
-import { JobPanelComponent } from '../job-panel/job-panel.component';
-import { LanguageFlagComponent } from '../language-flag/language-flag.component';
-import { AddedVolume, VolumeAddDialogComponent } from './volume-add-dialog/volume-add-dialog.component';
+} from '../../../core/services/volume.service';
+import { SourceIssue, IssueService } from '../../../core/services/issue.service';
+import { HubService } from '../../../core/services/hub.service';
+import { PageJobService } from '../../../core/services/page-job.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Library, libraryPageKey, LibraryService } from '../../../core/services/library.service';
+import { JobPanelComponent } from '../../job-panel/job-panel.component';
+import { LanguageFlagComponent } from '../../language-flag/language-flag.component';
+import { AddedVolume, VolumeAddDialogComponent } from '../volume-add-dialog/volume-add-dialog.component';
 
+// Section « New request » de la page Requests : recherche multi-source (ComicVine + Bedetheque) puis
+// modale library + age rating. Un admin ajoute le volume tout de suite (demande auto-approuvée), un
+// Guest dépose une demande en attente — la différence est gérée par VolumeAddDialogComponent.
 @Component({
-  selector: 'app-volume-add',
-  templateUrl: './volume-add.component.html',
-  styleUrl: './volume-add.component.scss',
+  selector: 'app-volume-search',
+  templateUrl: './volume-search.component.html',
+  styleUrl: './volume-search.component.scss',
   imports: [
-    ContainerComponent, RowComponent, ColComponent,
-    CardComponent, CardHeaderComponent, CardBodyComponent, CardFooterComponent,
+    RowComponent, ColComponent,
+    CardComponent, CardFooterComponent, CardBodyComponent,
     ModalComponent, ModalHeaderComponent, ModalBodyComponent, ModalTitleDirective, ButtonCloseDirective,
     SpinnerComponent, AlertComponent, ButtonDirective,
     PaginationComponent, PageItemComponent, PageLinkDirective,
-    NavComponent, NavItemComponent, NavLinkDirective,
-    FormControlDirective, FormLabelDirective, FormSelectDirective,
-    FormsModule, ReactiveFormsModule, NgClass, IconDirective, SlicePipe,
+    FormsModule, NgClass, IconDirective, SlicePipe,
     JobPanelComponent, LanguageFlagComponent, RouterLink, VolumeAddDialogComponent
   ]
 })
-export class VolumeAddComponent {
+export class VolumeSearchComponent {
   private route          = inject(ActivatedRoute);
   private router         = inject(Router);
   private volumeService  = inject(VolumeService);
   private issueService   = inject(IssueService);
-  private imageService   = inject(ImageService);
   private hub            = inject(HubService);
   private pageJobs       = inject(PageJobService);
-  private fb             = inject(FormBuilder);
   private libraryService = inject(LibraryService);
+  readonly isAdmin       = inject(AuthService).isAdmin;
   readonly #destroyRef   = inject(DestroyRef);
 
   // Library cible : pré-remplie via ?library=<id> (bouton "+ Add" d'une page Library), sinon
-  // choisie par l'utilisateur dans le workflow d'ajout (modal en mode recherche, select en tête
-  // du formulaire manuel). Un id inconnu des libraries chargées est traité comme non pré-rempli.
-  readonly libraryId  = signal<string | null>(this.route.snapshot.queryParamMap.get('library'));
+  // choisie par l'utilisateur dans la modale. Un id inconnu des libraries chargées est traité
+  // comme non pré-rempli.
   readonly libraries  = this.libraryService.libraries;
   readonly presetLibrary = computed<Library | null>(() => {
     const id = this.route.snapshot.queryParamMap.get('library');
@@ -92,19 +77,10 @@ export class VolumeAddComponent {
   readonly hasLibraries = computed(() => this.libraries().length > 0);
 
   readonly issuesPageSize = 12;
-  readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
 
   // Clé de page pour PageJobService — inclut le query string (?library=...), donc stable pour
   // toute la durée de vie de ce composant.
   private readonly pageKey = this.router.url;
-
-  readonly AUTHOR_ROLES = [
-    'Writer', 'Penciler', 'Inker', 'Colorist',
-    'Letterer', 'Editor', 'Artist', 'Translator'
-  ];
-
-  // ── Mode ──────────────────────────────────────────────────────────────────
-  mode = signal<'search' | 'manual'>('search');
 
   // ── Search state (multi-source : ComicVine + Bedetheque, via un Job) ─────
   query            = signal('');
@@ -157,28 +133,6 @@ export class VolumeAddComponent {
       }
     });
   }
-
-  // ── Manual form state ─────────────────────────────────────────────────────
-  manualForm = this.fb.group({
-    title:       ['', Validators.required],
-    year:        [null as number | null],
-    publisher:   [''],
-    description: [''],
-    imageUrl:    [null as string | null],
-    ageRating:   ['' as AgeRating | ''],
-    authors:     this.fb.array<FormGroup>([]),
-    genres:      this.fb.array<FormGroup>([]),
-    issues:      this.fb.array<FormGroup>([])
-  });
-
-  volumeImagePreview   = signal<string | null>(null);
-  uploadingVolumeImage = signal(false);
-  manualError          = signal<string | null>(null);
-  issueImagePreviews   = signal<Record<number, string>>({});
-
-  get authorsArray() { return this.manualForm.get('authors') as FormArray; }
-  get genresArray()  { return this.manualForm.get('genres')  as FormArray; }
-  get issuesArray()  { return this.manualForm.get('issues')  as FormArray; }
 
   // ── ComicVine pagination ──────────────────────────────────────────────────
   visiblePages = computed(() => {
@@ -272,123 +226,7 @@ export class VolumeAddComponent {
   // son job à la page Library qu'on rejoint, pour y afficher sa progression (cf. LibraryComponent).
   onVolumeAdded(added: AddedVolume): void {
     this.ageRatingModalVisible.set(false);
-    this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
+    if (added.jobId) this.pageJobs.register(libraryPageKey(added.libraryId), added.jobId);
     this.router.navigate(['/library', added.libraryId]);
-  }
-
-  // ── Manual form methods ───────────────────────────────────────────────────
-  addAuthor(): void {
-    this.authorsArray.push(this.fb.group({ name: ['', Validators.required], role: [''] }));
-  }
-
-  removeAuthor(i: number): void {
-    this.authorsArray.removeAt(i);
-  }
-
-  addGenre(): void {
-    this.genresArray.push(this.fb.group({ value: ['', Validators.required] }));
-  }
-
-  removeGenre(i: number): void {
-    this.genresArray.removeAt(i);
-  }
-
-  addIssue(): void {
-    this.issuesArray.push(this.fb.group({
-      issueNumber: [null as number | null, Validators.required],
-      title:       [''],
-      year:        [null as number | null],
-      description: [''],
-      imageUrl:    [null as string | null]
-    }));
-  }
-
-  removeIssue(i: number): void {
-    this.issuesArray.removeAt(i);
-    const previews = { ...this.issueImagePreviews() };
-    delete previews[i];
-    // Re-index remaining previews
-    const reindexed: Record<number, string> = {};
-    Object.keys(previews).forEach(k => {
-      const idx = Number(k);
-      reindexed[idx > i ? idx - 1 : idx] = previews[idx];
-    });
-    this.issueImagePreviews.set(reindexed);
-  }
-
-  onVolumeImageSelected(event: Event): void {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-
-    this.uploadingVolumeImage.set(true);
-    this.imageService.upload(file)
-      .pipe(takeUntilDestroyed(this.#destroyRef))
-      .subscribe({
-        next: res => {
-          this.manualForm.patchValue({ imageUrl: res.url });
-          this.volumeImagePreview.set(res.url);
-          this.uploadingVolumeImage.set(false);
-        },
-        error: err => {
-          this.manualError.set(err?.error?.message ?? 'Image upload failed.');
-          this.uploadingVolumeImage.set(false);
-        }
-      });
-  }
-
-  onIssueImageSelected(index: number, event: Event): void {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-
-    this.imageService.upload(file)
-      .pipe(takeUntilDestroyed(this.#destroyRef))
-      .subscribe({
-        next: res => {
-          (this.issuesArray.at(index) as FormGroup).patchValue({ imageUrl: res.url });
-          this.issueImagePreviews.update(prev => ({ ...prev, [index]: res.url }));
-        },
-        error: err => {
-          this.manualError.set(err?.error?.message ?? 'Image upload failed.');
-        }
-      });
-  }
-
-  onSubmitManual(): void {
-    const libraryId = this.libraryId();
-    if (this.manualForm.invalid || !libraryId) return;
-
-    const val = this.manualForm.getRawValue();
-    const request: AddVolumeManuallyRequest = {
-      title:       val.title ?? '',
-      year:        val.year ?? null,
-      publisher:   val.publisher || null,
-      description: val.description || null,
-      imageUrl:    val.imageUrl ?? null,
-      authors:     (val.authors as { name: string; role: string }[]).map(a => ({ name: a.name, role: a.role ?? '' })),
-      genres:      (val.genres as { value: string }[]).map(g => g.value),
-      issues:      (val.issues as { issueNumber: number; title: string; year: number | null; description: string; imageUrl: string | null }[]).map(i => ({
-        issueNumber:  i.issueNumber,
-        title:        i.title || null,
-        year:         i.year ?? null,
-        description:  i.description || null,
-        imageUrl:     i.imageUrl ?? null
-      }))
-    };
-    const ageRating = val.ageRating as AgeRating | '' | null;
-
-    this.adding.set(true);
-    this.manualError.set(null);
-    this.volumeService.addManually(libraryId, request)
-      .pipe(
-        switchMap(res => ageRating ? this.volumeService.patchAgeRating(res.id, ageRating) : of(void 0)),
-        takeUntilDestroyed(this.#destroyRef)
-      )
-      .subscribe({
-        next:  () => this.router.navigate(['/library', libraryId]),
-        error: err => {
-          this.manualError.set(err?.error?.message ?? 'Failed to add volume.');
-          this.adding.set(false);
-        }
-      });
   }
 }

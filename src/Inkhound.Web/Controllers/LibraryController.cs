@@ -90,6 +90,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     // peuplement des issues se poursuit en tâche de fond (Job) ; JobId permet au frontend de
     // suivre sa progression sans attendre sa fin pour naviguer.
     [HttpPost("{id:guid}/volumes")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> AddVolumeFromSource(
         Guid id, [FromBody] AddVolumeFromSourceRequest request)
     {
@@ -103,38 +104,6 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
         catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
         { return Conflict(new { message = ex.Message }); }
-        catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
-    }
-
-    public record ManualAuthorRequest(string Name, string Role);
-    public record ManualIssueRequest(int IssueNumber, string? Title, int? Year, string? Description, string? ImageUrl);
-    public record AddVolumeManuallyRequest(
-        string Title, int? Year, string? Publisher, string? Description,
-        string? ImageUrl, List<ManualAuthorRequest>? Authors,
-        List<string>? Genres, List<ManualIssueRequest>? Issues);
-
-    // POST /api/libraries/{id}/volumes/manual
-    [HttpPost("{id:guid}/volumes/manual")]
-    public async Task<IActionResult> AddVolumeManually(Guid id, [FromBody] AddVolumeManuallyRequest request)
-    {
-        try
-        {
-            var authors = request.Authors?
-                .Select(a => new VolumeAuthor(a.Name, a.Role))
-                .ToList() ?? [];
-
-            var issues = request.Issues?
-                .Select(i => (i.IssueNumber, i.Title, i.Year, i.Description, i.ImageUrl))
-                .ToList() ?? [];
-
-            var volume = await manager.AddVolumeManuallyAsync(
-                id, request.Title, request.Year, request.Publisher, request.Description,
-                request.ImageUrl, authors, request.Genres ?? [], issues);
-
-            return CreatedAtAction(null, new AddedVolumeDto(
-                volume.Id, volume.LibraryId, volume.SourceId, volume.Title, volume.Year));
-        }
-        catch (KeyNotFoundException ex) { return NotFound(new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }
     }
 

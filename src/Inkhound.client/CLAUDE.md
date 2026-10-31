@@ -240,8 +240,9 @@ src/
 │   │   ├── news/                # NewsComponent (/news — onglets Top Sales / New Releases), news-card/
 │   │   │                        #   (NewsCardComponent), news-album/ (NewsAlbumComponent, /news/album/:albumId)
 │   │   ├── image-lightbox/      # ImageLightboxComponent — visionneuse plein écran (grand format → repli miniature)
-│   │   ├── volume/              # VolumeComponent, VolumeAddComponent, VolumeEditComponent, VolumeMatchComponent
-│   │   │   ├── volume-add-dialog/ # VolumeAddDialogComponent — modale « Add to Library » partagée (Add Volume + News)
+│   │   ├── volume/              # VolumeComponent, VolumeEditComponent, VolumeMatchComponent
+│   │   │   ├── volume-search/   # VolumeSearchComponent — recherche multi-source (section « New request » de /requests)
+│   │   │   ├── volume-add-dialog/ # VolumeAddDialogComponent — modale « Add to Library / Request » partagée (Requests + News)
 │   │   │   └── issue-card/      # IssueCardComponent — mini-carte issue réutilisée par les blocs "Issues"/"Extra".
 │   │   │                        #   Input optionnel `downloadStatus` (alimenté par VolumeComponent via
 │   │   │                        #   GET /api/volumes/{id}/downloads, un seul appel et seulement s'il existe
@@ -281,7 +282,7 @@ src/
 | `/libraries` | `LibraryManagementComponent` | Gestion CRUD des bibliothèques |
 | `/library/:id` | `LibraryComponent` | Détail bibliothèque + liste volumes (paginée 20/page + filtres côté client) |
 | `/library/:id/edit` | `LibraryEditComponent` | Édition d'une bibliothèque (Name/Path/Kavita + indexers) |
-| `/add-volume?library=<id>` | `VolumeAddComponent` | Page dédiée (entrée de menu « Add Volume » sous la liste des libraries). Ajouter un volume (recherche multi-source ou manuel). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans le workflow (select dans le modal « Add to Library » en mode recherche, select en tête du formulaire manuel). Après ajout → `/library/<id>`. Plus de route imbriquée sous `/library/:id`. |
+| `/requests?library=<id>` | `VolumeRequestsComponent` | **Fusion des anciennes pages Add Volume et Requests** (entrée de menu « Requests » ; `/add-volume` redirige ici en conservant `?library=`). Deux sections : **Requests** (`VolumeRequestListComponent`, liste des demandes) puis **New request** (`VolumeSearchComponent`, recherche multi-source puis modale `app-volume-add-dialog`). `?library=` optionnel : pré-rempli par le bouton « + Add » d'une page Library ; sinon la library est demandée dans la modale. Admin : l'ajout est une demande auto-approuvée → volume créé, puis navigation vers `/library/<id>` ; Guest : demande `Pending`, la liste se rafraîchit. Plus d'ajout manuel. |
 | `/news?tab=top-sales\|releases` | `NewsComponent` | Module News (menu sous « Downloads ») : onglet **Top Sales** (classement hebdo, sélecteur de semaine = historique) et **New Releases** (filtre All/BD/Manga/Comics, mois, pagination 24/page). Données lues en base (job News). Cover cliquable → page détail ; loupe → `ImageLightboxComponent` avec bouton « Details » (input `link`) ; « Add » → `resolve-series` si l'item n'est pas enrichi, puis `VolumeAddDialogComponent` ; l'item passe en « In library » sans navigation (le job d'ajout est rattaché à `libraryPageKey`). Bouton « Refresh » → job suivi par `app-job-panel` (pageKey `/news`). « Add » est **grisé** si la série est déjà en bibliothèque (icône « Open in library » à côté). Onglet, semaine du top ventes, filtres/mois/page des nouveautés et scroll par onglet persistés par `NewsViewStateService` (voir ci-dessous) |
 | `/news/album/:albumId` | `NewsAlbumComponent` | Détail live d'un album : cover + visuels (planche d'extrait, verso) en visionneuse, fiche album, fiche série + grille de ses albums (liens vers leur propre détail), Add / Open in library |
 | `/library/:id/volume/:volumeId` | `VolumeComponent` | Détail volume + liste issues |
@@ -291,7 +292,7 @@ src/
 | `/settings/scheduler` | `SchedulerSettingsComponent` | Planificateur cron : import downloads + rolling refresh (N volumes/run, les moins récemment sync) + auto search (N volumes/run, score minimum 0-100 — acquisition automatique via Prowlarr/qBittorrent) + Bedetheque catalog (N lettres/run, les moins récemment chargées) + News (N albums enrichis par flux et par run) + Clean export (durée de vie max des fichiers exportés, en jours) |
 | `/settings/export` | `ExportSettingsComponent` | Module Export : formulaire généré depuis `GET /api/options/Export` (dossier, format par défaut, qualité/hauteur max/format d'image pour PDF et CBZ), groupé par section. La durée de vie des fichiers se règle dans `/settings/scheduler` (carte Clean export) |
 | `/settings/chatbot` | `ChatbotSettingsComponent` | Module Chatbot (bot Matrix) : fiche d'état (`GET /api/chatbot/status`, rafraîchie toutes les 10 s), boutons Démarrer/Arrêter, et **console de traces temps réel** avec historique local (voir « Traces par service » plus bas). La configuration se fait depuis `/settings` (accordéon Modules). ⚠️ Deux indicateurs distincts à ne pas confondre : le **badge d'en-tête** vient de `managerState()` et reflète la **santé des dépendances** (homeserver Matrix + modèle vision joignables), tandis que la ligne **« Exécution »** dit si la boucle `/sync` tourne. Un bot volontairement arrêté dont les dépendances répondent affiche donc `OK` |
-| `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Add Volume / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
+| `/settings/bedetheque` | `BedethequeCatalogComponent` | Catalogue local des séries Bedetheque : état (`GET /api/bedetheque/catalog`), refresh manuel N lettres / toutes / une lettre (`POST /api/bedetheque/catalog/refresh` → job). Cible du lien affiché par Requests / Match quand la recherche Bedetheque renvoie `errorCode = 'CATALOG_NOT_LOADED'` |
 | `/settings/system` | `SystemSettingsComponent` | Empreinte mémoire du backend (`GET /api/system/memory`) et purge manuelle (`POST /api/system/memory/compact`). **Aucun rafraîchissement automatique** : la mesure est ponctuelle, un timer entretiendrait l'illusion d'un monitoring continu qu'Inkhound ne fait pas. La page signale explicitement un Server GC actif ou une limite mémoire de conteneur absente, et annonce que la purge ne récupère que le managé (les pics SkiaSharp/PDFium sont en mémoire native). Carte **Backup database** : dossier choisi via `app-select-path` (mémorisé en localStorage) puis job `POST /api/system/backup-database`, suivi par `app-job-panel` |
 | `/jobs` | `JobsComponent` | Historique des jobs |
 | `/login` | `LoginComponent` | Authentification — écran de marque : fond plein écran `assets/images/login-background.svg` (SVG fait maison, concept « de la chasse au rayon » : couvertures BD/manga/comics éparpillées à gauche « HUNTED », piste de pattes et silhouette du chien-plume au centre « SORTED », étagère rangée par type avec tomes cochés à droite « READY TO READ », sur le bleu de marque `#06468d` — titres inventés) et carte vitrée centrée (`backdrop-filter`, `data-coreui-theme="dark"` forcé pour rester identique en thème clair/sombre, bouton au bleu de marque via les variables `--cui-btn-*`). Styles dans `login.component.scss` |
@@ -535,7 +536,7 @@ interface UpdatedData { dataType: string; id: string; updatedAt: string; }
 | `HubService` | `managerState`, `currentJob`, `lastTrace`, `lastDataUpdated`, `jobs`, `jobTraces`, `serviceTraces` | `ensureConnected()`, `disconnect()`, `clearServiceTraces(name)` |
 | `ChatbotService` | — | `getStatus()`, `start()`, `stop()` — `/api/chatbot`, page `/settings/chatbot` |
 | `LibraryService` | `libraries` | `loadLibraries()`, `getAll()`, `create()`, `update()`, `delete()`, `sync()`, `refresh()`, `patchVolumesStatus(id, 'PAUSED' \| 'MONITORED')` (boutons « Pause all » / « Resume all » de la page Library, affichés selon `monitoredCount()` / `pausedCount()`) |
-| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `addFromSource()`, `addManually()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `patchStatus(id, 'MONITORED' \| 'PAUSED')` (bouton Pause/Resume de la page Volume, masqué si `COMPLETED`), `delete(id, deleteFiles?)`, `importFromDirectory()` |
+| `VolumeService` | — | `getById()`, `getByLibrary()`, `search()`, `update()`, `rematchFromSource()`, `regenerateComicInfo()`, `patchAgeRating()`, `patchStatus(id, 'MONITORED' \| 'PAUSED')` (bouton Pause/Resume de la page Volume, masqué si `COMPLETED`), `delete(id, deleteFiles?)`, `importFromDirectory()` |
 | `IssueService` | — | `getByVolume()`, `getBySourceVolume()`, `getDownloads(issueId)` (carte « Download » de la page Issue), `getBans(issueId)` / `deleteBan(banId)` (carte « Banned torrents ») |
 | `QBittorrentService` | — | `getDownloads(statuses, page, pageSize)`, `getVolumeDownloads(volumeId)`, `getStalledDownloads(limit)`, `deleteDownload(id, removeTorrent, ban)`, `processDownload()`, `updateDownloadHash()` |
 | `KavitaService` | `libraries`, `loading` | `loadLibraries()`, `scanLibrary()` |
@@ -624,7 +625,7 @@ sources de traces différentes, un seul rendu.
 ### LibraryViewStateService — persistance de la vue Library
 
 `LibraryComponent` (`path: ''` sous `library/:id`) est **détruit** quand on ouvre un volume ou
-quitte vers `/add-volume`, mais **réutilisé** quand seul `:id` change (library A → library B). Ses
+quitte vers `/requests`, mais **réutilisé** quand seul `:id` change (library A → library B). Ses
 filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewStateService`
 (`sessionStorage`, clé = id de library, même pattern que `PageJobService`) mémorise
 `{ search, letter, completeness, source, year, ageRating, page, scrollY }` par library ;
@@ -642,7 +643,7 @@ filtres/pagination (signaux locaux) repartaient donc à zéro. `LibraryViewState
 - **Restauration scroll** : uniquement quand on « revient » sur la page —
   `navTracker.isReturnInto('/library/{id}')` = retour depuis une sous-page (`/library/{id}/volume/…`
   — via le bouton *Back* de la page volume, le breadcrumb, ou le back navigateur) **ou**
-  back/forward navigateur. Le retour depuis `/add-volume` (page dédiée, hors `/library/:id`)
+  back/forward navigateur. Le retour depuis `/requests` (page dédiée, hors `/library/:id`)
   n'est **pas** un « retour » : liste rechargée en haut, ce qui convient après un ajout. **Pas** lors d'une arrivée depuis la sidebar / un
   autre écran. Le bouton *Back* de `VolumeComponent` fait `router.navigate()` → navigation
   `imperative`, d'où la détection par URL quittée (`NavigationTrackerService.previousUrl`) plutôt
@@ -694,12 +695,14 @@ page Issue (bouton « Import » → `POST /api/issues/{id}/import { filePath }`)
 
 ## Composant réutilisable : VolumeAddDialogComponent
 
-`views/volume/volume-add-dialog/` — modale « Add to Library » du workflow d'ajout classique, extraite
-de `VolumeAddComponent` et réutilisée par le module News. Inputs : `visible`, `source` (`SourceKey`),
-`sourceId`, `title` (affiché en tête), `presetLibraryId` (masque le select). Elle appelle
-`addFromSource` puis `patchAgeRating` si un age rating est choisi, affiche ses propres erreurs, et émet
-`added` (`{ id, jobId, libraryId }`) ou `closed`. **L'appelant décide de la suite** : Add Volume
-navigue vers la library, News reste sur place et marque l'item « In library ».
+`views/volume/volume-add-dialog/` — modale « Add to Library » (admin) / « Request this volume » (Guest), partagée
+par la page Requests et le module News. Inputs : `visible`, `source` (`SourceKey`), `sourceId`, `title`, `year`,
+`image` (recopiés dans la demande), `presetLibraryId` (masque le select). **Dans les deux cas elle appelle
+`VolumeRequestService.create`** (`POST /api/volume-requests`). Admin : demande auto-approuvée, age rating
+facultatif, la réponse porte `volumeId` + `jobId` → output `added` (`{ id, jobId, libraryId }`). Guest : demande
+`Pending`, age rating obligatoire → output `closed` (et navigation vers `/requests` si on n'y est pas déjà, ex. News).
+**L'appelant décide de la suite** : la page Requests navigue vers la library, News reste sur place et marque
+l'item « In library ».
 
 ## Composant réutilisable : ImageLightboxComponent
 
@@ -731,11 +734,25 @@ sur le même gabarit que les cartes « Most wanted » pour que la page se lise d
   guest ne voit donc ni ces sections ni leurs entrées. L'appel `/api/options` (état des API Tokens) n'est fait que pour un admin.
 - **Routes** : `adminGuard` (`core/guards/admin.guard.ts`) sur `settings`, `libraries`, `users` et `library/:id/edit` ;
   un guest est renvoyé vers `/dashboard`. Header : liens Users / Settings et « Service settings » masqués pour un guest ;
-  bouton Edit de la page Library masqué. Les liens-conseils vers `/settings/*` dans certains messages (News, Add Volume)
+  bouton Edit de la page Library masqué. Les liens-conseils vers `/settings/*` dans certains messages (News, Requests)
   restent affichés : un guest qui les suit est redirigé vers le dashboard.
 - **Page Users** : colonne **Role** (badge Admin/Guest), sélecteur de rôle dans le formulaire (défaut Guest ; verrouillé sur
   Admin pour le tout premier compte et pour le dernier admin), bouton Delete désactivé pour le dernier admin
   (`isLastAdmin`). Le backend refuse de toute façon (409) et son message s'affiche dans la modale.
+
+## Demandes d'ajout de volume (page `/requests`)
+
+Plus personne n'ajoute de volume « en direct » depuis l'UI : `POST /api/libraries/{id}/volumes` n'est plus appelé
+(l'endpoint admin subsiste) et l'ajout manuel a été supprimé (UI + backend ; les volumes `manual` existants restent
+éditables). `volume/:id/edit` et `volume/:id/match` sont sous `adminGuard`.
+
+Page `/requests` (`VolumeRequestsComponent`, conteneur) = deux sections :
+- **Requests** (`VolumeRequestListComponent`) : le Guest voit ses seules demandes (périmètre imposé par le serveur) et
+  annule les `Pending` ; l'admin voit par défaut les `Pending`, avec des boutons radio Pending / Accepted / Rejected (style de la page Downloads)
+  (les ajouts directs d'un admin y figurent en `Approved`), colonne « Requested by », changement de library / age rating
+  (`PATCH`) puis Approve / Reject. Rechargement sur `ManagerDataUpdated` (type `VolumeRequest`).
+- **New request** (`VolumeSearchComponent`) : l'ancien onglet Search d'Add Volume (job de recherche, résultats, modale des
+  issues, `?library=`) + `VolumeAddDialogComponent`.
 
 ## Composant réutilisable : ExportPanelComponent
 

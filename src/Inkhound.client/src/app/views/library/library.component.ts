@@ -352,7 +352,7 @@ export class LibraryComponent {
     });
 
     // Filet de sécurité : commit final de la position de scroll à la destruction (ouverture d'un
-    // volume, add-volume…) — au moment du onDestroy `window.scrollY` peut déjà valoir 0 (retrait
+    // volume, requests…) — au moment du onDestroy `window.scrollY` peut déjà valoir 0 (retrait
     // du DOM), d'où le repli sur `lastScrollY`.
     this.#destroyRef.onDestroy(() => {
       const lib = this.library();
@@ -450,7 +450,7 @@ export class LibraryComponent {
   // aucun état : indispensable puisque le composant est réutilisé d'une library à l'autre — sans
   // reset, les filtres de la précédente resteraient collés). Écriture directe sur les signaux (pas
   // via les setters) → aucun scroll parasite. La position de scroll n'est ré-armée que si on
-  // « revient » sur la page (retour depuis un volume / add-volume, ou back/forward navigateur) —
+  // « revient » sur la page (retour depuis un volume / requests, ou back/forward navigateur) —
   // pas lors d'une arrivée depuis la sidebar ou un autre écran (cf. NavigationTrackerService).
   private restoreViewState(libraryId: string): void {
     const saved = this.viewState.get(libraryId);

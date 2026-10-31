@@ -121,11 +121,13 @@ export const routes: Routes = [
               },
               {
                 path: 'edit',
+                canActivate: [adminGuard],
                 data: { title: 'Edit' },
                 loadComponent: () => import('./views/volume/volume-edit.component').then(m => m.VolumeEditComponent)
               },
               {
                 path: 'match',
+                canActivate: [adminGuard],
                 data: { title: 'Match' },
                 loadComponent: () => import('./views/volume/volume-match.component').then(m => m.VolumeMatchComponent)
               },
@@ -139,12 +141,18 @@ export const routes: Routes = [
         ]
       },
       {
-        // Page dédiée, accessible depuis le menu ; la library cible est optionnelle en query
-        // param (?library=<id>, pré-remplie par le bouton "+ Add" d'une library) et sinon
-        // demandée dans le workflow d'ajout.
+        // Ancienne page Add Volume, fusionnée dans /requests ; ?library=<id> (bouton « + Add » d'une
+        // library) est conservé pour pré-remplir la library cible.
         path: 'add-volume',
-        loadComponent: () => import('./views/volume/volume-add.component').then(m => m.VolumeAddComponent),
-        data: { title: 'Add Volume' }
+        redirectTo: 'requests',
+        pathMatch: 'full'
+      },
+      {
+        // Demandes d'ajout + recherche/ajout d'un volume : un Guest y voit ses demandes, l'admin toutes
+        // (+ approbation) ; ?library=<id> pré-remplit la library cible de la recherche.
+        path: 'requests',
+        loadComponent: () => import('./views/volume-request/volume-requests.component').then(m => m.VolumeRequestsComponent),
+        data: { title: 'Requests' }
       }
     ]
   },

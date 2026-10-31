@@ -1,0 +1,139 @@
+<section class="mb-5">
+
+  <c-row class="mb-3 align-items-center">
+    <c-col>
+      <h3 class="mb-0">{{ isAdmin() ? 'Requests' : 'My requests' }}</h3>
+    </c-col>
+    <c-col xs="auto" class="d-flex gap-2">
+      @if (isAdmin()) {
+        <div class="btn-group" role="group" aria-label="Status filter">
+          <input type="radio" class="btn-check" name="requestStatusFilter" id="request-status-pending" autocomplete="off"
+                 [checked]="statusFilter() === 'Pending'" (change)="statusFilter.set('Pending')" />
+          <label class="btn btn-outline-secondary btn-sm" for="request-status-pending">Pending</label>
+
+          <input type="radio" class="btn-check" name="requestStatusFilter" id="request-status-accepted" autocomplete="off"
+                 [checked]="statusFilter() === 'Approved'" (change)="statusFilter.set('Approved')" />
+          <label class="btn btn-outline-secondary btn-sm" for="request-status-accepted">Accepted</label>
+
+          <input type="radio" class="btn-check" name="requestStatusFilter" id="request-status-rejected" autocomplete="off"
+                 [checked]="statusFilter() === 'Rejected'" (change)="statusFilter.set('Rejected')" />
+          <label class="btn btn-outline-secondary btn-sm" for="request-status-rejected">Rejected</label>
+        </div>
+      }
+    </c-col>
+  </c-row>
+
+  @if (error(); as e) {
+    <c-row class="mb-3">
+      <c-col><c-alert color="danger" [dismissible]="true" (visibleChange)="error.set(null)">{{ e }}</c-alert></c-col>
+    </c-row>
+  }
+
+  @if (loading()) {
+    <c-row>
+      <c-col class="d-flex justify-content-center py-5">
+        <c-spinner color="primary"></c-spinner>
+      </c-col>
+    </c-row>
+  } @else if (filtered().length === 0) {
+    <c-row>
+      <c-col>
+        <p class="text-muted">
+          {{ !isAdmin() ? 'You have not requested any volume yet.' : statusFilter() === 'Pending' ? 'No pending request.' : statusFilter() === 'Approved' ? 'No accepted request.' : 'No rejected request.' }}
+        </p>
+      </c-col>
+    </c-row>
+  } @else {
+    <c-row>
+      <c-col>
+        <table cTable [hover]="true" [responsive]="true" class="align-middle">
+          <thead>
+            <tr>
+              <th>Volume</th>
+              <th>Source</th>
+              @if (isAdmin()) { <th>Requested by</th> }
+              <th>Library</th>
+              <th>Age rating</th>
+              <th>Status</th>
+              <th>Requested</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of filtered(); track r.id) {
+              <tr>
+                <td>
+                  <div class="d-flex align-items-center gap-2">
+                    @if (r.image) {
+                      <img [src]="r.image" alt="" width="36" height="52" style="object-fit: cover" />
+                    }
+                    <div>
+                      @if (r.status === 'Approved' && r.volumeId) {
+                        <a [routerLink]="['/library', r.libraryId, 'volume', r.volumeId]">{{ r.title }}</a>
+                      } @else {
+                        <span>{{ r.title }}</span>
+                      }
+                      @if (r.year) { <span class="text-body-secondary"> ({{ r.year }})</span> }
+                    </div>
+                  </div>
+                </td>
+                <td>{{ r.source }}</td>
+                @if (isAdmin()) { <td>{{ r.requestedByLogin }}</td> }
+                <td>
+                  @if (isAdmin() && r.status === 'Pending') {
+                    <select cSelect size="sm" [disabled]="isBusy(r.id)" [attr.aria-label]="'Library of ' + r.title"
+                            (change)="setLibrary(r, $any($event.target).value)">
+                      @for (lib of libraries(); track lib.id) {
+                        <option [value]="lib.id" [selected]="lib.id === r.libraryId">{{ lib.name }}</option>
+                      }
+                    </select>
+                  } @else {
+                    {{ libraryName(r.libraryId) }}
+                  }
+                </td>
+                <td>
+                  @if (isAdmin() && r.status === 'Pending') {
+                    <select cSelect size="sm" [disabled]="isBusy(r.id)" [attr.aria-label]="'Age rating of ' + r.title"
+                            (change)="setAgeRating(r, $any($event.target).value)">
+                      @for (a of ageRatings; track a.value) {
+                        <option [value]="a.value" [selected]="a.value === r.ageRating">{{ a.label }}</option>
+                      }
+                    </select>
+                  } @else {
+                    {{ ageRatingLabel(r.ageRating) }}
+                  }
+                </td>
+                <td><c-badge [color]="statusColor(r.status)">{{ r.status }}</c-badge></td>
+                <td>{{ r.createdAt | smartDate }}</td>
+                <td class="text-end text-nowrap">
+                  @if (r.status === 'Pending') {
+                    @if (isAdmin()) {
+                      <button cButton color="success" size="sm" class="me-1" [disabled]="isBusy(r.id)"
+                              (click)="approve(r)" title="Approve">
+                        @if (isBusy(r.id)) { <c-spinner size="sm"></c-spinner> } @else { <svg cIcon name="cilCheck"></svg> }
+                      </button>
+                      <button cButton color="danger" variant="ghost" size="sm" [disabled]="isBusy(r.id)"
+                              (click)="reject(r)" title="Reject">
+                        <svg cIcon name="cilXCircle"></svg>
+                      </button>
+                    } @else {
+                      <button cButton color="danger" variant="ghost" size="sm" [disabled]="isBusy(r.id)"
+                              (click)="cancel(r)" title="Cancel request">
+                        <svg cIcon name="cilTrash"></svg>
+                      </button>
+                    }
+                  } @else if (isAdmin()) {
+                    <button cButton color="danger" variant="ghost" size="sm" [disabled]="isBusy(r.id)"
+                            (click)="cancel(r)" title="Delete">
+                      <svg cIcon name="cilTrash"></svg>
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </c-col>
+    </c-row>
+  }
+</section>

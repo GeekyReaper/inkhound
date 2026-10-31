@@ -102,6 +102,15 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 - Migration : `Users.Role TEXT NOT NULL DEFAULT 'admin'` ajoutée par `AddColumnIfMissingAsync` → les comptes existants deviennent admin.
 - Tokens API (`X-Api-Key`) et mode bootstrap ouvert restent **admin** ; le login virtuel du mode ouvert est `open-access` (à ne pas confondre avec le rôle guest).
 
+## Demandes d'ajout de volume (`VolumeRequestController`, `/api/volume-requests`)
+
+`POST /` (tout authentifié ; **admin : demande auto-approuvée** — le volume est créé tout de suite via `CreateApprovedVolumeRequestAsync`, la réponse porte `jobId` pour suivre le peuplement des issues, rien n'est enregistré si l'ajout échoue ; Guest : demande `Pending` ; 409 doublon/volume déjà présent, 404 library, 400 source/âge invalide), `GET /?status=`
+(admin : tout ; **Guest : ses demandes uniquement, périmètre posé côté serveur depuis le claim `sub`**), `PATCH /{id}`
+(admin : library cible / age rating d'une demande `Pending`), `POST /{id}/approve` et `/reject` (admin), `DELETE /{id}`
+(admin : toute demande ; Guest : sa propre demande `Pending`, 404 sinon). Conséquence côté rôles : `POST
+/api/libraries/{id}/volumes` et `PATCH /api/volumes/{id}/age-rating` sont **réservés aux admins**. L'ajout manuel
+(`POST /api/libraries/{id}/volumes/manual`) a été supprimé.
+
 ## Routes API
 
 | Méthode | Route | Auth | Description |

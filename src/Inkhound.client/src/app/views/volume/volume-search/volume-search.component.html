@@ -1,4 +1,4 @@
-<c-container class="py-4">
+<section>
 
   <!-- Library cible : pré-remplie (?library=) ou à choisir dans le workflow d'ajout -->
   @if (!hasLibraries()) {
@@ -12,22 +12,7 @@
     </div>
   }
 
-  <!-- Mode switcher -->
-  <c-nav variant="tabs" class="mb-4">
-    <c-nav-item>
-      <a cNavLink [active]="mode() === 'search'" (click)="mode.set('search')" style="cursor:pointer">
-        Search
-      </a>
-    </c-nav-item>
-    <c-nav-item>
-      <a cNavLink [active]="mode() === 'manual'" (click)="mode.set('manual')" style="cursor:pointer">
-        Manual entry
-      </a>
-    </c-nav-item>
-  </c-nav>
-
-  <!-- ── Search mode (ComicVine + Bedetheque) ────────────────────────────── -->
-  @if (mode() === 'search') {
+  <!-- ── Recherche multi-source (ComicVine + Bedetheque) ───────────────────── -->
 
     <!-- Search bar -->
     <c-row class="mb-4">
@@ -205,224 +190,14 @@
           <c-col class="d-flex justify-content-end">
             <button cButton color="primary" [disabled]="!selected() || adding()" (click)="onAdd()">
               @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-              Add to Library
+              {{ isAdmin() ? 'Add to Library' : 'Request this volume' }}
             </button>
           </c-col>
         </c-row>
 
       }
     }
-
-  }
-
-  <!-- ── Manual mode ─────────────────────────────────────────────────────── -->
-  @if (mode() === 'manual') {
-
-    @if (manualError()) {
-      <c-alert color="danger" class="mb-3">{{ manualError() }}</c-alert>
-    }
-
-    <form [formGroup]="manualForm" (ngSubmit)="onSubmitManual()">
-
-      <!-- Library cible (seulement si non pré-remplie via ?library=) -->
-      @if (!presetLibrary()) {
-        <c-card class="mb-4">
-          <c-card-body>
-            <label cLabel for="manualLibrary">Library <span class="text-danger">*</span></label>
-            <select cSelect id="manualLibrary"
-                    [value]="libraryId() ?? ''"
-                    (change)="libraryId.set($any($event.target).value || null)">
-              <option value="">Choose a library…</option>
-              @for (lib of libraries(); track lib.id) {
-                <option [value]="lib.id">{{ lib.name }}</option>
-              }
-            </select>
-          </c-card-body>
-        </c-card>
-      }
-
-      <!-- Volume info -->
-      <c-card class="mb-4">
-        <c-card-header><strong>Volume information</strong></c-card-header>
-        <c-card-body>
-          <c-row class="g-3">
-
-            <c-col [md]="8">
-              <label cLabel for="title">Title <span class="text-danger">*</span></label>
-              <input cFormControl id="title" formControlName="title" placeholder="e.g. Batman" />
-            </c-col>
-
-            <c-col [md]="2">
-              <label cLabel for="year">Year</label>
-              <input cFormControl id="year" type="number" formControlName="year" placeholder="2024" />
-            </c-col>
-
-            <c-col [md]="2">
-              <label cLabel for="publisher">Publisher</label>
-              <input cFormControl id="publisher" formControlName="publisher" placeholder="e.g. DC Comics" />
-            </c-col>
-
-            <c-col [md]="4">
-              <label cLabel for="ageRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
-              <select cSelect id="ageRating" formControlName="ageRating">
-                <option value="">Not set</option>
-                @for (r of ageRatings; track r.value) {
-                  <option [value]="r.value">{{ r.label }}</option>
-                }
-              </select>
-            </c-col>
-
-            <c-col [md]="12">
-              <label cLabel for="description">Description</label>
-              <textarea cFormControl id="description" formControlName="description" rows="3" placeholder="Synopsis…"></textarea>
-            </c-col>
-
-          </c-row>
-        </c-card-body>
-      </c-card>
-
-      <!-- Cover image -->
-      <c-card class="mb-4">
-        <c-card-header><strong>Cover image</strong></c-card-header>
-        <c-card-body>
-          <div class="d-flex align-items-start gap-3 flex-wrap">
-            <div>
-              <input
-                type="file"
-                class="form-control"
-                accept="image/jpeg,image/png,image/webp"
-                (change)="onVolumeImageSelected($event)"
-                [disabled]="uploadingVolumeImage()" />
-              <div class="form-text">JPEG, PNG or WebP — 5 MB max</div>
-            </div>
-            @if (uploadingVolumeImage()) {
-              <c-spinner size="sm" class="mt-2"></c-spinner>
-            }
-            @if (volumeImagePreview()) {
-              <img [src]="volumeImagePreview()" alt="Cover" class="cover-preview rounded" />
-            }
-          </div>
-        </c-card-body>
-      </c-card>
-
-      <!-- Authors -->
-      <c-card class="mb-4">
-        <c-card-header><strong>Authors</strong></c-card-header>
-        <c-card-body>
-          <div formArrayName="authors">
-            @for (ctrl of authorsArray.controls; track $index) {
-              <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                <input cFormControl formControlName="name" placeholder="Name" />
-                <select cSelect formControlName="role">
-                  <option value="" disabled>Role…</option>
-                  @for (r of AUTHOR_ROLES; track r) {
-                    <option [value]="r">{{ r }}</option>
-                  }
-                </select>
-                <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeAuthor($index)">
-                  <svg cIcon name="cilTrash" size="sm"></svg>
-                </button>
-              </div>
-            }
-          </div>
-          <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addAuthor()">
-            <svg cIcon name="cilPlus" size="sm"></svg>
-            Add an author
-          </button>
-        </c-card-body>
-      </c-card>
-
-      <!-- Genres -->
-      <c-card class="mb-4">
-        <c-card-header><strong>Genres</strong></c-card-header>
-        <c-card-body>
-          <div formArrayName="genres">
-            @for (ctrl of genresArray.controls; track $index) {
-              <div [formGroupName]="$index" class="d-flex gap-2 mb-2 align-items-center">
-                <input cFormControl formControlName="value" placeholder="e.g. Superhero" />
-                <button type="button" cButton color="danger" size="sm" variant="outline" (click)="removeGenre($index)">
-                  <svg cIcon name="cilTrash" size="sm"></svg>
-                </button>
-              </div>
-            }
-          </div>
-          <button type="button" cButton color="secondary" size="sm" variant="outline" class="mt-1" (click)="addGenre()">
-            <svg cIcon name="cilPlus" size="sm"></svg>
-            Add a genre
-          </button>
-        </c-card-body>
-      </c-card>
-
-      <!-- Issues -->
-      <c-card class="mb-4">
-        <c-card-header><strong>Issues</strong></c-card-header>
-        <c-card-body>
-          <div formArrayName="issues">
-            @for (ctrl of issuesArray.controls; track $index) {
-              <c-card class="mb-3 border" [formGroupName]="$index">
-                <c-card-body>
-                  <c-row class="g-2 mb-2">
-                    <c-col [sm]="2">
-                      <label cLabel>#</label>
-                      <input cFormControl type="number" formControlName="issueNumber" placeholder="1" />
-                    </c-col>
-                    <c-col [sm]="6">
-                      <label cLabel>Title</label>
-                      <input cFormControl formControlName="title" placeholder="Issue title" />
-                    </c-col>
-                    <c-col [sm]="2">
-                      <label cLabel>Year</label>
-                      <input cFormControl type="number" formControlName="year" placeholder="2024" />
-                    </c-col>
-                    <c-col [sm]="2" class="d-flex align-items-end">
-                      <button type="button" cButton color="danger" size="sm" variant="outline" class="w-100" (click)="removeIssue($index)">
-                        <svg cIcon name="cilTrash" size="sm"></svg>
-                      </button>
-                    </c-col>
-                  </c-row>
-
-                  <c-row class="g-2">
-                    <c-col [sm]="12">
-                      <label cLabel>Description</label>
-                      <textarea cFormControl formControlName="description" rows="2" placeholder="Issue synopsis…"></textarea>
-                    </c-col>
-                    <c-col [sm]="12">
-                      <label cLabel>Thumbnail</label>
-                      <div class="d-flex align-items-start gap-3 flex-wrap">
-                        <input
-                          type="file"
-                          class="form-control"
-                          accept="image/jpeg,image/png,image/webp"
-                          (change)="onIssueImageSelected($index, $event)" />
-                        @if (issueImagePreviews()[$index]) {
-                          <img [src]="issueImagePreviews()[$index]" alt="Thumbnail" class="issue-preview rounded" />
-                        }
-                      </div>
-                    </c-col>
-                  </c-row>
-                </c-card-body>
-              </c-card>
-            }
-          </div>
-          <button type="button" cButton color="secondary" size="sm" variant="outline" (click)="addIssue()">
-            <svg cIcon name="cilPlus" size="sm"></svg>
-            Add an issue
-          </button>
-        </c-card-body>
-      </c-card>
-
-      <!-- Submit -->
-      <div class="d-flex justify-content-end">
-        <button cButton color="primary" type="submit" [disabled]="manualForm.invalid || adding() || !libraryId()">
-          @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-          Add to Library
-        </button>
-      </div>
-
-    </form>
-  }
-
-</c-container>
+</section>
 
 <!-- Issues modal -->
 <c-modal
@@ -520,6 +295,8 @@
   [source]="selected()?.source ?? null"
   [sourceId]="selected()?.sourceId ?? null"
   [title]="selected()?.title ?? null"
+  [year]="selected()?.year ?? null"
+  [image]="selected()?.imageUrl ?? null"
   [presetLibraryId]="presetLibrary()?.id ?? null"
   (added)="onVolumeAdded($event)"
   (closed)="cancelAddModal()" />

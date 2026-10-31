@@ -32,3 +32,5 @@ public interface IInkhoundChatbotGateway
     /// <summary>Positionne la classification d'âge d'un volume existant.</summary>
     Task SetVolumeAgeRatingAsync(Guid volumeId, AgeRating ageRating, CancellationToken ct = default);
 }
+
+

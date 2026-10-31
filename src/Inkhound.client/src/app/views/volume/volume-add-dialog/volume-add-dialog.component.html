@@ -3,7 +3,7 @@
   (visibleChange)="!$event && cancel()"
   backdrop="static">
   <c-modal-header>
-    <h5 cModalTitle>Add to Library</h5>
+    <h5 cModalTitle>{{ isAdmin() ? 'Add to Library' : 'Request this volume' }}</h5>
     <button cButtonClose (click)="cancel()"></button>
   </c-modal-header>
   <c-modal-body>
@@ -30,7 +30,7 @@
         </select>
       </div>
     }
-    <label cLabel for="addAgeRating">Age Rating <span class="text-body-secondary">(optional)</span></label>
+    <label cLabel for="addAgeRating">Age Rating @if (isAdmin()) { <span class="text-body-secondary">(optional)</span> } @else { <span class="text-danger">*</span> }</label>
     <select cSelect id="addAgeRating"
             [value]="selectedAgeRating()"
             (change)="selectedAgeRating.set($any($event.target).value)">
@@ -42,9 +42,9 @@
   </c-modal-body>
   <c-modal-footer>
     <button cButton color="secondary" [disabled]="adding()" (click)="cancel()">Cancel</button>
-    <button cButton color="primary" [disabled]="adding() || !libraryId()" (click)="confirm()">
+    <button cButton color="primary" [disabled]="adding() || !libraryId() || (!isAdmin() && !selectedAgeRating())" (click)="confirm()">
       @if (adding()) { <c-spinner size="sm" class="me-1"></c-spinner> }
-      Add to Library
+      {{ isAdmin() ? 'Add to Library' : 'Send request' }}
     </button>
   </c-modal-footer>
 </c-modal>

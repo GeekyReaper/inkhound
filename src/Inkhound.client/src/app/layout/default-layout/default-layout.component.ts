@@ -77,7 +77,7 @@ export class DefaultLayoutComponent {
       url: `/library/${lib.id}`,
       iconComponent: { name: 'cil-library' }
     })),
-    { name: 'Add Volume', url: '/add-volume', iconComponent: { name: 'cil-plus' } },
+    { name: 'Requests', url: '/requests', iconComponent: { name: 'cil-list' } },
     ...navItemsBottom,
     ...(this.authService.isAdmin()
       ? navItemsAdmin.filter(item => item.name !== 'API Tokens' || this.apiTokensEnabled())
