@@ -4319,9 +4319,22 @@ public partial class InkhoundManager : BaseServiceManager
         return true;
     }
 
-    /// <summary>Index des torrents bannis pour une issue — périmètre d'une recherche par issue.</summary>
+    /// <summary>
+    /// Index des torrents bannis pour une recherche par issue. Le périmètre est le <b>volume</b> de l'issue :
+    /// un pack ou une release bannie sur une issue l'est pour toutes ses voisines — sans ça, le même torrent
+    /// refaisait surface à chaque issue et devait être rebanni autant de fois (50 bans sur 142 en production).
+    /// Un torrent à tome unique banni pour une autre issue n'a de toute façon aucune chance de passer pour celle-ci
+    /// (le scoring le ramène à ≤ 10 sur le numéro), donc l'élargissement ne coûte aucun résultat légitime.
+    /// </summary>
     public async Task<TorrentBanIndex> LoadBanIndexForIssueAsync(Guid issueId, CancellationToken ct = default)
-        => TorrentBanIndex.From(await GetDb().IssueTorrentBans.Where(b => b.IssueId == issueId).ToListAsync(ct));
+    {
+        var ctx = GetDb();
+        var volumeId = await ctx.Issues.Where(i => i.Id == issueId).Select(i => (Guid?)i.VolumeId).FirstOrDefaultAsync(ct);
+        if (volumeId is null)
+            return TorrentBanIndex.From(await ctx.IssueTorrentBans.Where(b => b.IssueId == issueId).ToListAsync(ct));
+
+        return await LoadBanIndexForVolumeAsync(volumeId.Value, ct);
+    }
 
     /// <summary>
     /// Index des torrents bannis pour TOUTES les issues d'un volume — périmètre d'une recherche par

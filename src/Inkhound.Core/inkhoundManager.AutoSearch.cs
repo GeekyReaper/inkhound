@@ -56,8 +56,9 @@ public partial class InkhoundManager
         // `banned` est exclu explicitement : un ban ramène déjà le score à 0, donc sous le MinScore
         // par défaut (70) — mais un seuil abaissé à 0 ne doit pas rouvrir la porte à un torrent que
         // l'utilisateur a écarté à la main.
-        public bool IsEligible(ProwlarrSearchResult r, float score, bool banned)
+        public bool IsEligible(ProwlarrSearchResult r, float score, bool banned, bool rejected = false)
             => !banned
+               && !rejected
                && score >= MinScore
                && string.Equals(r.Protocol, "torrent", StringComparison.OrdinalIgnoreCase)
                && !string.IsNullOrWhiteSpace(r.DownloadUrl)
@@ -129,7 +130,7 @@ public partial class InkhoundManager
             // ── Phase A : recherche au niveau volume (capte les PACK et les SINGLE en une cascade) ──
             var merged = await SearchProwlarrCascadeAsync(job, prowlarr, volumeQueries, indexerIds, saved, run.QueryCache);
             var volumeCandidates = ScoringVolumePack.ScoreAndSort(volume, missing, merged, volumeBans)
-                .Where(c => run.IsEligible(c.Result, c.Score, c.Banned))
+                .Where(c => run.IsEligible(c.Result, c.Score, c.Banned, c.Rejection is not null))
                 .ToList();
 
             JobSendTrace($"[AutoSearch] Volume search: {merged.Count} result(s), {volumeCandidates.Count} eligible candidate(s)");
@@ -154,7 +155,7 @@ public partial class InkhoundManager
                 var issueMerged = await SearchProwlarrCascadeAsync(job, prowlarr, issueQueries, indexerIds, saved, run.QueryCache);
                 var issueBans = await LoadBanIndexForIssueAsync(issue.Id);
                 var issueCandidates = ScoringTorrent.ScoreAndSort(volume, issue, issueMerged, issueBans)
-                    .Where(c => run.IsEligible(c.Result, c.Score, c.Banned))
+                    .Where(c => run.IsEligible(c.Result, c.Score, c.Banned, c.Rejection is not null))
                     .ToList();
 
                 JobSendTrace($"[AutoSearch] Issue #{issue.IssueNumber}: {issueMerged.Count} result(s), {issueCandidates.Count} eligible candidate(s)");

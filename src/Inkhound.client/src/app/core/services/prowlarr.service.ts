@@ -57,12 +57,19 @@ export interface ScoreDetails {
   formatScore: number;
 }
 
+// Rejet automatique par une règle générique (mauvaise série, format non-BD, anglais seul…) : score 0.
+export interface ResultRejection {
+  code:    string;
+  message: string;
+}
+
 export interface ScoredSearchResult {
   result: ProwlarrSearchResult;
   score: number;
   details: ScoreDetails;
   // Torrent banni pour l'issue recherchée (suppression d'un download précédent) → score 0.
   banned: boolean;
+  rejection: ResultRejection | null;
 }
 
 export interface ScoreDetailsVolumePack {
@@ -84,6 +91,7 @@ export interface ScoredSearchResultVolumePack {
   totalMissingIssueCount: number;
   // Torrent banni pour au moins une issue du volume → score 0.
   banned: boolean;
+  rejection: ResultRejection | null;
 }
 
 export interface ProwlarrHistoryItem {

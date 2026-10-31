@@ -28,14 +28,15 @@ public static class ScoringTorrent
 
         var baseScore = titleMatch + issueNumberMatch + yearMatch + authorMatch + publisherMatch + sizePlausibility + seederScore + formatScore;
         var banned    = IsBanned(result, bans);
+        var rejection = TorrentRejectionRules.Evaluate(volume, issue, result);
         var total     = ApplyBan(
             ApplyNoSeederPenalty(
                 ApplyTypeAdjustment(baseScore, analysis, issue.IssueNumber, result.Size, yearMatch, authorMatch, publisherMatch),
                 result),
-            banned);
+            banned || rejection is not null);
 
         var details = new ScoreDetailsTorrent(titleMatch, issueNumberMatch, yearMatch, authorMatch, publisherMatch, sizePlausibility, seederScore, formatScore);
-        return new ScoredSearchResultTorrent(result, total, details, analysis, banned);
+        return new ScoredSearchResultTorrent(result, total, details, analysis, banned, rejection);
     }
 
     public static List<ScoredSearchResultTorrent> ScoreAndSort(
@@ -277,7 +278,8 @@ public static class ScoringTorrent
         => bans is not null && bans.IsBanned(result);
 
     // Un torrent banni est ramené à 0 — l'utilisateur l'a explicitement écarté pour cette issue en
-    // supprimant son téléchargement. Appliqué APRÈS le malus seeder, donc en toute fin de calcul,
+    // supprimant son téléchargement (ou une règle de rejet automatique, voir TorrentRejectionRules, l'a
+    // reconnu comme inadapté : même traitement). Appliqué APRÈS le malus seeder, donc en toute fin de calcul,
     // pour la même raison que lui (ApplyTypeAdjustment écrase le baseScore sur le chemin
     // SINGLE "#n" confirmé) : à 0, le résultat passe sous n'importe quel AutoSearchMinScore.
     // internal : réutilisé par ScoringVolumePack.

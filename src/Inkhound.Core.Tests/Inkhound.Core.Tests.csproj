@@ -25,6 +25,7 @@
   <ItemGroup>
     <!-- Fichiers d'exemple utilisés par les tests (ex: ArchiveServiceGetArchiveTypeTests) -->
     <None Include="data\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Scoring\Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

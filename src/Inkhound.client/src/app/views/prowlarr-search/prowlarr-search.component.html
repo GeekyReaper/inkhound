@@ -68,7 +68,7 @@
                 </thead>
                 <tbody>
                   @for (item of pagedResults(); track item.result.guid) {
-                    <tr [class.row-no-seed]="hasNoSeed(item.result)" [class.row-banned]="item.banned">
+                    <tr [class.row-no-seed]="hasNoSeed(item.result)" [class.row-banned]="item.banned || !!item.rejection">
                       <td class="align-middle" data-label="Score">
                         <div class="d-flex flex-column align-items-start gap-1">
                           <span [class]="'badge bg-' + scoreColor(item.score)">
@@ -76,6 +76,9 @@
                           </span>
                           @if (item.banned) {
                             <span class="badge bg-danger text-nowrap" [title]="bannedTitle()">Banned</span>
+                          }
+                          @if (item.rejection; as rejection) {
+                            <span class="badge bg-warning text-dark text-nowrap" [title]="rejection.message">Rejected</span>
                           }
                         </div>
                       </td>

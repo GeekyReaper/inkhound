@@ -22,7 +22,9 @@ public record ScoredSearchResultVolumePack(
     int CoveredIssueCount,
     int TotalMissingIssueCount,
     // Le torrent est banni pour au moins une issue du volume (voir TorrentBanIndex) : Score vaut 0.
-    bool Banned = false);
+    bool Banned = false,
+    // Rejeté automatiquement par une règle générique (voir TorrentRejectionRules) : Score vaut 0.
+    TorrentRejection? Rejection = null);
 
 // Score un résultat Prowlarr par rapport à un Volume entier (pas une Issue précise) : contrairement à
 // ScoringTorrent (favorise un SINGLE qui matche exactement une issue ciblée), ce scorer favorise le
@@ -61,6 +63,8 @@ public static class ScoringVolumePack
         // comme dans ScoringTorrent. Le ban (score forcé à 0) vient en dernier — ici le périmètre
         // est le volume entier : un ban posé sur N'IMPORTE LAQUELLE de ses issues écarte le torrent.
         var banned = ScoringTorrent.IsBanned(result, bans);
+        // Pas d'issue ciblée ici : les règles qui en exigent une (année anachronique) sont ignorées.
+        var rejection = TorrentRejectionRules.Evaluate(volume, null, result);
         var total = ScoringTorrent.ApplyBan(
             ScoringTorrent.ApplyNoSeederPenalty(
                 Math.Clamp(
@@ -68,13 +72,13 @@ public static class ScoringVolumePack
                     + sizePlausibility + seederScore + formatScore + coverageBonus,
                     0f, 100f),
                 result),
-            banned);
+            banned || rejection is not null);
 
         var details = new ScoreDetailsVolumePack(
             titleMatch, yearMatch, authorMatch, publisherMatch,
             sizePlausibility, seederScore, formatScore, coverageBonus);
 
-        return new ScoredSearchResultVolumePack(result, total, details, analysis, covered, missingIssues.Count, banned);
+        return new ScoredSearchResultVolumePack(result, total, details, analysis, covered, missingIssues.Count, banned, rejection);
     }
 
     public static List<ScoredSearchResultVolumePack> ScoreAndSort(

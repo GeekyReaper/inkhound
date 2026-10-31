@@ -37,12 +37,15 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
         float PublisherMatch, float SizePlausibility, float SeederScore, float FormatScore);
     // Banned : le torrent a été banni pour cette issue (resp. pour une issue du volume) — son score
     // vaut alors 0, l'UI le signale au lieu de laisser croire à un simple mauvais résultat.
-    private record ScoredResultDto(SearchResultDto Result, float Score, ScoreDetailsDto Details, bool Banned);
+    // Rejection : rejet automatique par une règle générique (mauvaise série, format non-BD…) — score 0 aussi,
+    // avec le motif pour l'infobulle.
+    private record RejectionDto(string Code, string Message);
+    private record ScoredResultDto(SearchResultDto Result, float Score, ScoreDetailsDto Details, bool Banned, RejectionDto? Rejection);
     private record ScoreDetailsVolumeDto(float TitleMatch, float YearMatch, float AuthorMatch, float PublisherMatch,
         float SizePlausibility, float SeederScore, float FormatScore, float CoverageBonus);
     private record ScoredVolumeResultDto(
         SearchResultDto Result, float Score, ScoreDetailsVolumeDto Details,
-        int CoveredIssueCount, int TotalMissingIssueCount, bool Banned);
+        int CoveredIssueCount, int TotalMissingIssueCount, bool Banned, RejectionDto? Rejection);
     private record HistoryItemDto(int Id, string EventType, string SourceTitle, int IndexerId);
 
     private static SearchResultDto ToResultDto(ProwlarrSearchResult r, TorrentAnalysis analysis)
@@ -51,6 +54,8 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
                r.Categories?.Select(c => new ProwlarrCategoryDto(c.Id, c.Name)).ToList() ?? [],
                analysis.Type, analysis.Label);
 
+    private static RejectionDto? ToRejectionDto(TorrentRejection? r) => r is null ? null : new(r.Code, r.Message);
+
     private static ScoredResultDto ToScoredDto(ScoredSearchResultTorrent s)
         => new(
             ToResultDto(s.Result, s.Analysis),
@@ -58,7 +63,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
             new ScoreDetailsDto(
                 s.Details.TitleMatch, s.Details.IssueNumberMatch, s.Details.YearMatch, s.Details.AuthorMatch,
                 s.Details.PublisherMatch, s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore),
-            s.Banned);
+            s.Banned, ToRejectionDto(s.Rejection));
 
     private static ScoredVolumeResultDto ToScoredVolumeDto(ScoredSearchResultVolumePack s)
         => new(
@@ -67,7 +72,7 @@ public class ProwlarrController(InkhoundManager manager) : ControllerBase
             new ScoreDetailsVolumeDto(
                 s.Details.TitleMatch, s.Details.YearMatch, s.Details.AuthorMatch, s.Details.PublisherMatch,
                 s.Details.SizePlausibility, s.Details.SeederScore, s.Details.FormatScore, s.Details.CoverageBonus),
-            s.CoveredIssueCount, s.TotalMissingIssueCount, s.Banned);
+            s.CoveredIssueCount, s.TotalMissingIssueCount, s.Banned, ToRejectionDto(s.Rejection));
 
     // GET /api/prowlarr/indexers
     [HttpGet("indexers")]

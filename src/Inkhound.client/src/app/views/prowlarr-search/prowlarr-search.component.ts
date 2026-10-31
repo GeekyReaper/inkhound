@@ -12,7 +12,7 @@ import { IconDirective } from '@coreui/icons-angular';
 import { Issue, IssueService } from '../../core/services/issue.service';
 import {
   ProwlarrCategory, ProwlarrService,
-  ProwlarrSearchResult, ScoredSearchResult, ScoredSearchResultVolumePack
+  ProwlarrSearchResult, ResultRejection, ScoredSearchResult, ScoredSearchResultVolumePack
 } from '../../core/services/prowlarr.service';
 import { PackFetchStatus, QBittorrentService, TorrentFile } from '../../core/services/qbittorrent.service';
 import { HubService } from '../../core/services/hub.service';
@@ -29,6 +29,8 @@ export interface SearchResultRow {
   coverage: { covered: number; total: number } | null;
   // Torrent banni (couple issue/torrent mémorisé à la suppression d'un download) : score forcé à 0.
   banned: boolean;
+  // Rejet automatique par une règle générique (motif en infobulle) : score forcé à 0 aussi.
+  rejection: ResultRejection | null;
 }
 
 @Component({
@@ -219,11 +221,11 @@ export class ProwlarrSearchComponent {
       const result$ = this.mode() === 'issue'
         ? this.prowlarrService.getSearchJobResult(job.jobId).pipe(
             map(results => results.map((r: ScoredSearchResult): SearchResultRow =>
-              ({ result: r.result, score: r.score, coverage: null, banned: r.banned })))
+              ({ result: r.result, score: r.score, coverage: null, banned: r.banned, rejection: r.rejection })))
           )
         : this.prowlarrService.getVolumeSearchJobResult(job.jobId).pipe(
             map(results => results.map((r: ScoredSearchResultVolumePack): SearchResultRow =>
-              ({ result: r.result, score: r.score, coverage: { covered: r.coveredIssueCount, total: r.totalMissingIssueCount }, banned: r.banned })))
+              ({ result: r.result, score: r.score, coverage: { covered: r.coveredIssueCount, total: r.totalMissingIssueCount }, banned: r.banned, rejection: r.rejection })))
           );
 
       result$

@@ -226,6 +226,9 @@ src/
 │   │   │                        #   atténuée .row-banned : torrent banni pour l'issue (ou une issue du volume
 │   │   │                        #   en mode 'volume'), score 0 — levable depuis la page Issue. bannedTitle()
 │   │   │                        #   adapte l'infobulle au mode.
+│   │   │                        #   `row.rejection` ({ code, message }) → badge jaune « Rejected » (infobulle = motif) :
+│   │   │                        #   rejet automatique par une règle générique du backend (mauvaise série, format non-BD…),
+│   │   │                        #   score 0 et ligne atténuée comme un ban — voir TorrentRejectionRules (Inkhound.Core).
 │   │   │                        #   Carte mobile (<768px) : mise en page dédiée via `order` + largeurs en %
 │   │   │                        #   totalisant 100 % par rangée (score|indexer+seeders, titre,
 │   │   │                        #   catégories+format|type, coverage, taille|date, bouton), labels ::before

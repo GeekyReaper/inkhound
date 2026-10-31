@@ -72,6 +72,7 @@ Inkhound.Core/
 │   └── ExportFormat.cs / ExportTargetType.cs / ExportStatus.cs / ExportImageFormat.cs  # enums
 ├── Blob/                # Gestion fichiers binaires (non utilisé)
 │   └── BlobService.cs
+├── Scoring/             # Scoring Prowlarr + ban (TorrentBanIndex) + règles de rejet (TorrentRejectionRules, SeriesNameMatcher)
 ├── Mapper.cs            # Mapping entre modèles domaine et DTOs
 ├── inkhoundManager.cs   # Orchestrateur principal des jobs
 ├── inkhoundManager.Memory.cs      # partial — instantané mémoire + purge/compaction (voir section)
@@ -186,12 +187,54 @@ puis par **titre normalisé** (`TextSimilarity.Normalize`) — une clé vide ne 
 ⚠️ `ProwlarrSearchResult` n'expose **pas** d'`InfoHash` (il n'existe qu'après l'ajout à
 qBittorrent) : `TorrentHash` sert à la traçabilité et au repli par `Guid`, pas au matching direct.
 
+⚠️ **Périmètre volume** : `LoadBanIndexForIssueAsync(issueId)` charge désormais les bans de **toutes les issues du
+volume de l'issue** (comme `LoadBanIndexForVolumeAsync`). Avant, un pack banni sur l'issue 1 refaisait surface à
+l'issue 2 et devait être rebanni (50 bans redondants sur 142 en production). Un torrent à tome unique banni pour une
+autre issue n'aurait de toute façon pas passé (le scoring le ramène à ≤ 10 sur le numéro).
+
 `ScoringTorrent.ApplyBan(score, banned)` force le score à **0** et le record scoré porte
 `Banned = true` ; comme `ApplyNoSeederPenalty`, il s'applique **en tout dernier** (voir l'avertissement
 de la section « Malus aucun seeder »). Les 4 points de scoring passent l'index : les deux jobs de
 recherche manuelle et les phases A/B de l'auto search — dont `AutoSearchRun.IsEligible` exclut aussi
 explicitement `banned`, pour qu'un `MinScore` abaissé à 0 ne rouvre pas la porte à un torrent écarté
 à la main.
+
+### Règles de rejet automatique (`Scoring/TorrentRejectionRules.cs`)
+
+Complètent le ban manuel : un résultat qui enfreint une règle est ramené à **0** (même mécanique et même ordre que
+`ApplyBan`, en tout dernier) et porte `Rejection` (`TorrentRejection(Code, Message)`) — `Banned` reste réservé au choix
+explicite de l'utilisateur. L'UI affiche un badge « Rejected » (infobulle = motif) ; `AutoSearchRun.IsEligible` exclut
+aussi les rejetés. Niveau volume (`ScoringVolumePack`, pas d'issue ciblée) : toutes les règles sauf l'année.
+
+| Code | Règle | Bans PROD évités / downloads conservés rejetés |
+|---|---|---|
+| `wrong-series` | Titre avec marqueur de tome (`T01`, `Tome 2`, `#3`, plage `1-11`) dont le **texte avant le marqueur** ne contient pas ≥ 50 % des mots du titre du volume (mots vides retirés, qualificatif entre parenthèses ignoré, préfixes ≥ 4 lettres tolérés, sigles `N.É.O.` compactés). Exemption : un nom d'auteur (≥ 4 lettres) du volume/de l'issue figure dans le titre. Sans marqueur (titre nu) : jamais rejeté. | 26 / 1 (Undertaker #1 ← « Mondo Reverso », faux grab probable) |
+| `anachronistic-year` | Tome unique (ni plage `T1 à T9`, ni intégrale/pack/collection) dont la plus grande année du titre est ≤ année de l'issue − 2. Jamais sur un pack. | 9 / 0 |
+| `non-comic-format` | `epub`/`mobi`/`azw` sans `cbz`/`cbr`/`pdf`/`comic`. | 3 / 0 |
+| `english-only` | `EN`/`ENG`/`ENGLISH` (casse respectée) sans `FR`/`FRENCH`/`VF`/`MULTI`. | 2 / 0 |
+| `non-bd-content` | Mot entier `jdr`, `rpg`, `jeu de rôle`, `artbook`, `audiobook`, `mp3`, `flac`, `dvd`, `mkv`. | 2 / 0 |
+
+Avec la propagation des bans au volume (ci-dessus), **82 bans sur 142 auraient été évités** ; les 60 autres sont des
+bans de contenu/qualité (pack qui ne contient pas le tome, scan abîmé…) qu'aucun titre ne trahit.
+
+**Garde-fou : le jeu de données de production.** `Inkhound.Core.Tests/Scoring/Fixtures/torrent-rules-dataset.json`
+(142 bans + 494 downloads conservés, titres et métadonnées uniquement) alimente `TorrentRejectionRulesDatasetTests` :
+(1) **aucune règle ne rejette un download conservé** (seule exception documentée : Undertaker #1) ; (2) chaque règle
+écarte au moins les bans mesurés. **Toute nouvelle règle doit passer ce test avant d'être ajoutée** — c'est la
+contrainte de conception : réduire les bans manuels sans jamais refuser ce que l'utilisateur a validé.
+
+Pistes essayées et **écartées** (elles rejetaient des downloads conservés) :
+- rejeter les packs/plages/intégrales (150+ downloads valides en sont) ;
+- pack dont l'année de fin précède l'issue (19-23 faux positifs : Maîtres Inquisiteurs, Marsupilami, Légende…) ;
+- titre nu sans rapport avec la série (« Canardo », « Jhen »… : 14 bans, mais `Les Petits Hommes` et `PACK.5183…` ont été
+  conservés — ce dernier est banni pour deux volumes et valide pour Yoko Tsuno, seul le contenu tranche) ;
+- réparer le mojibake (`Ã©` → `é`) avant de comparer les titres : fusionnerait un torrent banni (TR4KER) avec la même
+  release conservée via YggReborn (*Chroniques de l'Univers T1 et T2*) ;
+- comparer la série sur le titre entier plutôt que le préfixe avant marqueur : rate « Amériques », « Le pouvoir de M »,
+  « N.É.O. » (titre de volume = mot courant d'un titre d'album d'une autre série).
+
+Limite : `IssueTorrentBans` ne stocke ni date de publication, ni taille, ni seeders — les règles reposent sur le titre et
+les métadonnées du volume/de l'issue. Stocker `PublishDate` permettrait une règle « publié avant la sortie de l'album ».
 
 ### VolumeImage (record partagé Volume + Issue)
 ```

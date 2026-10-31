@@ -20,4 +20,7 @@ public record ScoredSearchResultTorrent(
     TorrentAnalysis Analysis,
     // Le torrent est banni pour l'issue recherchée (voir TorrentBanIndex) : Score vaut alors 0 et
     // l'UI l'indique explicitement plutôt que de laisser croire à un simple mauvais résultat.
-    bool Banned = false);
+    bool Banned = false,
+    // Rejeté automatiquement par une règle générique (mauvaise série, format non-BD…) : Score vaut 0 et
+    // l'UI affiche le motif. Distinct de Banned, qui est un choix explicite de l'utilisateur.
+    TorrentRejection? Rejection = null);
