@@ -265,6 +265,17 @@ Toutes les URLs sont nullable — proviennent de ComicVine, peuvent être absent
 - `Roman` — roman/novélisation (préfixe `ROMAN*`)
 - `BestOf` — compilation "Best Of" (préfixe `BO*`)
 
+### Plafond d'age rating d'un utilisateur (`User.MaxAgeRating`)
+Colonne `Users.MaxAgeRating` (`TEXT NULL`, `AddColumnIfMissingAsync`), `AgeRating?` — **Guest uniquement** (`EffectiveMaxAgeRating` la
+force à `null` pour un admin). `null` = aucune limite. Un volume dont l'age rating est **strictement supérieur** (ordre de
+l'enum, `AgeRatingExtensions.IsAllowedUnder`) est invisible et non demandable ; `Unknown`/`RatingPending` (non classés) sont
+**aussi masqués** sous un plafond, rien ne prouvant qu'ils le respectent. Les lectures prennent un `AgeRating? maxAgeRating = null` : `GetVolumesByLibraryAsync`,
+`GetDashboardStatsAsync`, `GetRecentVolumesAsync`, `GetMostWantedAsync`, `GetLibraryStatsAsync`, `GetDownloadsPageAsync`,
+`GetStalledDownloadsAsync` (helpers `WhereAgeAllowed` / `IssuesOfAllowedVolumes` — l'enum étant stocké en texte, le filtre
+passe par `AgeRatingExtensions.AllowedUpTo` + `Contains`, jamais une comparaison SQL). `IsVolumeAccessibleAsync` /
+`IsIssueAccessibleAsync` servent de garde aux routes adressées par id. `CreateUserAsync` / `UpdateUserAsync` portent le plafond
+(`clearMaxAgeRating` pour le retirer).
+
 ### VolumeRequest
 Demande d'ajout d'un volume émise par un Guest — table `VolumeRequests` (`CREATE TABLE IF NOT EXISTS` dans
 `ApplyPendingMigrationsAsync`).

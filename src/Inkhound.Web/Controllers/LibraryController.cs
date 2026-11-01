@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Web.Auth;
 using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -126,7 +127,7 @@ public class LibraryController(InkhoundManager manager) : ControllerBase
     [HttpGet("{id:guid}/stats")]
     public async Task<IActionResult> GetStats(Guid id, CancellationToken ct)
     {
-        var s = await manager.GetLibraryStatsAsync(id, ct);
+        var s = await manager.GetLibraryStatsAsync(id, ct, User.GetMaxAgeRating());
         if (s is null) return NotFound();
         return Ok(new LibraryStatsDto(
             s.VolumesCount, s.VolumesMonitored, s.VolumesCompleted, s.VolumesPaused,

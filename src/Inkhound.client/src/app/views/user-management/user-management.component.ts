@@ -1,6 +1,6 @@
 import { Component, DestroyRef, computed, inject, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   AlertComponent,
@@ -26,6 +26,7 @@ import {
 import { IconDirective } from '@coreui/icons-angular';
 import { User, UserService, CreateUserRequest, UpdateUserRequest } from '../../core/services/user.service';
 import { AuthService, UserRole } from '../../core/services/auth.service';
+import { AGE_RATINGS, AgeRating, AgeRatingOption } from '../../core/services/volume.service';
 import { SmartDatePipe } from '../../core/pipes/smart-date.pipe';
 
 type PageMode = 'list' | 'add' | 'edit';
@@ -67,10 +68,21 @@ export class UserManagementComponent implements OnInit {
   form = new FormGroup({
     login:    new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     password: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
-    role:     new FormControl<UserRole>('guest', { nonNullable: true })
+    role:     new FormControl<UserRole>('guest', { nonNullable: true }),
+    // '' = aucune limite ; sinon plafond de classification d'âge (Guest uniquement).
+    maxAgeRating: new FormControl<AgeRating | ''>('', { nonNullable: true })
   });
 
   readonly roles: UserRole[] = ['admin', 'guest'];
+  readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
+
+  ageRatingLabel(value: AgeRating | null): string {
+    return value ? (AGE_RATINGS.find(r => r.value === value)?.label ?? value) : 'No limit';
+  }
+
+  // Le plafond n'a de sens que pour un Guest (un admin voit tout).
+  private readonly roleValue = toSignal(this.form.controls.role.valueChanges, { initialValue: 'guest' as UserRole });
+  readonly isGuestForm = computed(() => this.roleValue() === 'guest');
 
   // Le backend refuse de supprimer ou de rétrograder le dernier admin : on le signale dès la liste.
   private adminCount = computed(() => this.users().filter(u => u.role === 'admin').length);
@@ -98,7 +110,7 @@ export class UserManagementComponent implements OnInit {
 
   showAddForm() {
     this.editingUser.set(null);
-    this.form.reset({ login: '', password: '', role: this.users().length === 0 ? 'admin' : 'guest' });
+    this.form.reset({ login: '', password: '', role: this.users().length === 0 ? 'admin' : 'guest', maxAgeRating: '' });
     this.form.controls.password.addValidators(Validators.required);
     this.form.controls.password.updateValueAndValidity();
     this.saveStatus.set('idle');
@@ -107,7 +119,7 @@ export class UserManagementComponent implements OnInit {
 
   showEditForm(user: User) {
     this.editingUser.set(user);
-    this.form.setValue({ login: user.login, password: '', role: user.role });
+    this.form.setValue({ login: user.login, password: '', role: user.role, maxAgeRating: user.maxAgeRating ?? '' });
     this.form.controls.password.clearValidators();
     this.form.controls.password.updateValueAndValidity();
     this.saveStatus.set('idle');
@@ -168,7 +180,8 @@ export class UserManagementComponent implements OnInit {
       const request: UpdateUserRequest = {
         login:    this.form.controls.login.value,
         password: this.form.controls.password.value || null,
-        role:     this.form.controls.role.value
+        role:     this.form.controls.role.value,
+        maxAgeRating: this.form.controls.maxAgeRating.value
       };
       this.userService.update(user.id, request)
         .pipe(takeUntilDestroyed(this.#destroyRef))
@@ -189,7 +202,8 @@ export class UserManagementComponent implements OnInit {
       const request: CreateUserRequest = {
         login:    this.form.controls.login.value,
         password: this.form.controls.password.value,
-        role:     this.form.controls.role.value
+        role:     this.form.controls.role.value,
+        maxAgeRating: this.form.controls.maxAgeRating.value || null
       };
       this.userService.create(request)
         .pipe(takeUntilDestroyed(this.#destroyRef))

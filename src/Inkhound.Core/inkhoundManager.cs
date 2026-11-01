@@ -273,25 +273,28 @@ public partial class InkhoundManager : BaseServiceManager
     // Vue d'ensemble toutes bibliothèques confondues pour la page Dashboard — aucun agrégat de
     // ce type n'existait jusqu'ici (les autres méthodes de lecture sont scopées à une
     // library/un volume). Lecture simple, pas un Job.
-    public async Task<DashboardStats> GetDashboardStatsAsync(CancellationToken ct = default)
+    // maxAgeRating : plafond d'un utilisateur restreint — volumes et issues au-delà sont exclus de tous les agrégats.
+    public async Task<DashboardStats> GetDashboardStatsAsync(CancellationToken ct = default, AgeRating? maxAgeRating = null)
     {
         var ctx = GetDb();
+        var allVolumes = WhereAgeAllowed(ctx.Volumes, maxAgeRating);
+        var allIssues  = IssuesOfAllowedVolumes(ctx, maxAgeRating);
 
         var librariesCount = await ctx.Libraries.CountAsync(ct);
 
-        var volumesCount     = await ctx.Volumes.CountAsync(ct);
-        var volumesMonitored = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.MONITORED, ct);
-        var volumesCompleted = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.COMPLETED, ct);
-        var volumesPaused    = await ctx.Volumes.CountAsync(v => v.Status == VolumeStatus.PAUSED, ct);
+        var volumesCount     = await allVolumes.CountAsync(ct);
+        var volumesMonitored = await allVolumes.CountAsync(v => v.Status == VolumeStatus.MONITORED, ct);
+        var volumesCompleted = await allVolumes.CountAsync(v => v.Status == VolumeStatus.COMPLETED, ct);
+        var volumesPaused    = await allVolumes.CountAsync(v => v.Status == VolumeStatus.PAUSED, ct);
 
-        var issuesCount       = await ctx.Issues.CountAsync(ct);
-        var issuesDownloaded  = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADED, ct);
-        var issuesDownloading = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.DOWNLOADING, ct);
-        var issuesMissing     = await ctx.Issues.CountAsync(i => i.Status == IssueStatus.MISSING, ct);
+        var issuesCount       = await allIssues.CountAsync(ct);
+        var issuesDownloaded  = await allIssues.CountAsync(i => i.Status == IssueStatus.DOWNLOADED, ct);
+        var issuesDownloading = await allIssues.CountAsync(i => i.Status == IssueStatus.DOWNLOADING, ct);
+        var issuesMissing     = await allIssues.CountAsync(i => i.Status == IssueStatus.MISSING, ct);
 
         // FileSizeBytes est un int — cast en long avant SUM pour éviter un dépassement sur une
         // grosse bibliothèque (le total cumulé dépasse largement int.MaxValue).
-        var totalDownloadedBytes = await ctx.Issues
+        var totalDownloadedBytes = await allIssues
             .Where(i => i.Status == IssueStatus.DOWNLOADED)
             .SumAsync(i => (long)i.FileSizeBytes, ct);
 
@@ -299,14 +302,14 @@ public partial class InkhoundManager : BaseServiceManager
 
         // Deux requêtes groupées plutôt qu'un aller-retour par bibliothèque : Volume/Issue n'ont
         // aucune navigation EF déclarée (FK scalaires), d'où les jointures explicites.
-        var volumeCountByLibrary = (await ctx.Volumes
+        var volumeCountByLibrary = (await allVolumes
                 .GroupBy(v => v.LibraryId)
                 .Select(g => new { LibraryId = g.Key, Count = g.Count() })
                 .ToListAsync(ct))
             .ToDictionary(x => x.LibraryId, x => x.Count);
 
         var issueCounts = await (from i in ctx.Issues
-                                 join v in ctx.Volumes on i.VolumeId equals v.Id
+                                 join v in allVolumes on i.VolumeId equals v.Id
                                  group i by new { v.LibraryId, i.Status } into g
                                  select new { g.Key.LibraryId, g.Key.Status, Count = g.Count() })
             .ToListAsync(ct);
@@ -327,8 +330,8 @@ public partial class InkhoundManager : BaseServiceManager
                 downloaded, downloading, missing);
         }).ToList();
 
-        var recentVolumes = await GetRecentVolumesAsync(DashboardRecentRowLimit, ct);
-        var mostWanted    = await GetMostWantedAsync(MostWantedRowLimit, ct);
+        var recentVolumes = await GetRecentVolumesAsync(DashboardRecentRowLimit, ct, maxAgeRating);
+        var mostWanted    = await GetMostWantedAsync(MostWantedRowLimit, ct, maxAgeRating);
 
         return new DashboardStats(
             librariesCount,
@@ -342,21 +345,22 @@ public partial class InkhoundManager : BaseServiceManager
 
     // Derniers volumes ajoutés (tri DateAdded décroissant) — la page Dashboard en affiche 6, la
     // sous-page « Recently added » en demande davantage.
-    public async Task<List<Volume>> GetRecentVolumesAsync(int limit, CancellationToken ct = default)
-        => await GetDb().Volumes
+    public async Task<List<Volume>> GetRecentVolumesAsync(int limit, CancellationToken ct = default, AgeRating? maxAgeRating = null)
+        => await WhereAgeAllowed(GetDb().Volumes, maxAgeRating)
             .OrderByDescending(v => v.DateAdded)
             .Take(limit)
             .ToListAsync(ct);
 
     // « Most wanted » : issues MISSING (Standard) dont l'acquisition rapproche leur volume de 100 %.
-    public async Task<List<DashboardMostWantedIssue>> GetMostWantedAsync(int limit, CancellationToken ct = default)
+    public async Task<List<DashboardMostWantedIssue>> GetMostWantedAsync(
+        int limit, CancellationToken ct = default, AgeRating? maxAgeRating = null)
     {
         var ctx = GetDb();
 
         // ---- Most wanted : issues MISSING dont l'acquisition rapproche un volume de 100 % ----
 
         // 1. Nb d'issues Standard MISSING par volume, borné à <= K directement en SQL (GROUP BY).
-        var missingByVolume = await ctx.Issues
+        var missingByVolume = await IssuesOfAllowedVolumes(ctx, maxAgeRating)
             .Where(i => i.Status == IssueStatus.MISSING && i.Category == IssueCategory.Standard)
             .GroupBy(i => i.VolumeId)
             .Select(g => new { VolumeId = g.Key, MissingCount = g.Count() })
@@ -366,7 +370,7 @@ public partial class InkhoundManager : BaseServiceManager
         var candidateVolumeIds = missingByVolume.Select(x => x.VolumeId).ToList();
 
         // 2. Restreindre aux volumes réellement suivis et incomplets.
-        var eligibleVolumes = await ctx.Volumes
+        var eligibleVolumes = await WhereAgeAllowed(ctx.Volumes, maxAgeRating)
             .Where(v => candidateVolumeIds.Contains(v.Id)
                      && v.Status == VolumeStatus.MONITORED
                      && v.CountOfIssues > 0
@@ -403,14 +407,15 @@ public partial class InkhoundManager : BaseServiceManager
         long TotalDownloadedBytes,
         DateTime? LastVolumeAddedAt, DateTime? LastRefreshedAt, DateTime? LastAutoSearchAt);
 
-    public async Task<LibraryStats?> GetLibraryStatsAsync(Guid libraryId, CancellationToken ct = default)
+    public async Task<LibraryStats?> GetLibraryStatsAsync(
+        Guid libraryId, CancellationToken ct = default, AgeRating? maxAgeRating = null)
     {
         var ctx = GetDb();
         if (!await ctx.Libraries.AnyAsync(l => l.Id == libraryId, ct)) return null;
 
-        var volumes = ctx.Volumes.Where(v => v.LibraryId == libraryId);
+        var volumes = WhereAgeAllowed(ctx.Volumes, maxAgeRating).Where(v => v.LibraryId == libraryId);
         var issues  = from i in ctx.Issues
-                      join v in ctx.Volumes on i.VolumeId equals v.Id
+                      join v in WhereAgeAllowed(ctx.Volumes, maxAgeRating) on i.VolumeId equals v.Id
                       where v.LibraryId == libraryId
                       select i;
 
@@ -681,9 +686,51 @@ public partial class InkhoundManager : BaseServiceManager
         OnDataUpdated?.Invoke(UpdatedData.CreateUpdatedData<Volume>(volumeId));
     }
 
-    public async Task<List<Volume>> GetVolumesByLibraryAsync(Guid libraryId)
+    // Plafond d'age rating d'un utilisateur restreint (User.MaxAgeRating) : ne garde que les volumes dont
+    // la classification n'est pas strictement supérieure. `null` = aucun filtre. L'enum étant stocké en
+    // texte, le filtre passe par la liste des valeurs admises (une comparaison SQL serait alphabétique).
+    private static IQueryable<Volume> WhereAgeAllowed(IQueryable<Volume> volumes, AgeRating? max)
     {
-        return await GetDb().Volumes
+        if (max is not { } limit) return volumes;
+        var allowed = AgeRatingExtensions.AllowedUpTo(limit);
+        return volumes.Where(v => allowed.Contains(v.AgeRating));
+    }
+
+    // Issues des seuls volumes accessibles sous le plafond.
+    private static IQueryable<Issue> IssuesOfAllowedVolumes(DbStorageContext ctx, AgeRating? max)
+        => max is null
+            ? ctx.Issues
+            : from i in ctx.Issues
+              join v in WhereAgeAllowed(ctx.Volumes, max) on i.VolumeId equals v.Id
+              select i;
+
+    /// <summary>
+    /// Le volume est-il accessible sous le plafond <paramref name="max"/> ? Un volume inexistant renvoie
+    /// <c>true</c> (le contrôleur répondra 404 de lui-même). Sert de garde aux routes adressées par volume.
+    /// </summary>
+    public async Task<bool> IsVolumeAccessibleAsync(Guid volumeId, AgeRating? max, CancellationToken ct = default)
+    {
+        if (max is null) return true;
+        var rating = await GetDb().Volumes.Where(v => v.Id == volumeId)
+            .Select(v => (AgeRating?)v.AgeRating).FirstOrDefaultAsync(ct);
+        return rating is null || rating.Value.IsAllowedUnder(max);
+    }
+
+    /// <summary>Idem pour une route adressée par issue (via le volume parent).</summary>
+    public async Task<bool> IsIssueAccessibleAsync(Guid issueId, AgeRating? max, CancellationToken ct = default)
+    {
+        if (max is null) return true;
+        var ctx = GetDb();
+        var rating = await (from i in ctx.Issues
+                            join v in ctx.Volumes on i.VolumeId equals v.Id
+                            where i.Id == issueId
+                            select (AgeRating?)v.AgeRating).FirstOrDefaultAsync(ct);
+        return rating is null || rating.Value.IsAllowedUnder(max);
+    }
+
+    public async Task<List<Volume>> GetVolumesByLibraryAsync(Guid libraryId, AgeRating? maxAgeRating = null)
+    {
+        return await WhereAgeAllowed(GetDb().Volumes, maxAgeRating)
             .Where(v => v.LibraryId == libraryId)
             .OrderBy(v => v.Title)
             .ToListAsync();
@@ -1087,11 +1134,16 @@ public partial class InkhoundManager : BaseServiceManager
     public Task<User?> GetUserByIdAsync(Guid id)
         => GetDb().Users.FirstOrDefaultAsync(u => u.Id == id);
 
+    // Le plafond d'age rating n'a de sens que pour un Guest : un admin voit tout.
+    private static AgeRating? EffectiveMaxAgeRating(string role, AgeRating? max)
+        => role == UserRoles.Admin ? null : max;
+
     /// <summary>
     /// Crée un utilisateur. Le tout premier compte (sortie du mode bootstrap ouvert) est <b>toujours</b>
     /// admin, quel que soit <paramref name="role"/> : sinon plus personne ne pourrait administrer l'app.
     /// </summary>
-    public async Task<User> CreateUserAsync(string login, string password, string role = UserRoles.Guest)
+    public async Task<User> CreateUserAsync(
+        string login, string password, string role = UserRoles.Guest, AgeRating? maxAgeRating = null)
     {
         if (string.IsNullOrWhiteSpace(login))    throw new ArgumentException("Login is required.");
         if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Password is required.");
@@ -1110,6 +1162,7 @@ public partial class InkhoundManager : BaseServiceManager
             Login = login,
             PasswordHash = PasswordHasher.Hash(password),
             Role = role,
+            MaxAgeRating = EffectiveMaxAgeRating(role, maxAgeRating),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1119,7 +1172,10 @@ public partial class InkhoundManager : BaseServiceManager
         return user;
     }
 
-    public async Task<User> UpdateUserAsync(Guid id, string? login, string? password, string? role = null)
+    // maxAgeRating : nouveau plafond ; clearMaxAgeRating = true le retire (sinon null = inchangé).
+    public async Task<User> UpdateUserAsync(
+        Guid id, string? login, string? password, string? role = null,
+        AgeRating? maxAgeRating = null, bool clearMaxAgeRating = false)
     {
         var db = GetDb();
         var user = await db.Users.FindAsync(id) ?? throw new KeyNotFoundException($"User '{id}' not found.");
@@ -1136,6 +1192,9 @@ public partial class InkhoundManager : BaseServiceManager
         if (login is not null)    user.Login = login;
         if (password is not null) user.PasswordHash = PasswordHasher.Hash(password);
         if (role is not null)     user.Role = role;
+        if (clearMaxAgeRating)    user.MaxAgeRating = null;
+        else if (maxAgeRating is not null) user.MaxAgeRating = maxAgeRating;
+        user.MaxAgeRating = EffectiveMaxAgeRating(user.Role, user.MaxAgeRating);
         user.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
         return user;
@@ -3844,11 +3903,16 @@ public partial class InkhoundManager : BaseServiceManager
     // l'historique), on n'enrichit (appels QBittorrent live + persistance du statut) que les
     // items de la page demandée.
     public async Task<Page<DownloadItemData>> GetDownloadsPageAsync(
-        List<DownloadStatus>? statusFilter, int page, int pageSize, CancellationToken ct = default)
+        List<DownloadStatus>? statusFilter, int page, int pageSize, CancellationToken ct = default,
+        AgeRating? maxAgeRating = null)
     {
         var ctx = GetDb();
 
         var query = ctx.IssueDownloads.AsQueryable();
+        if (maxAgeRating is not null)
+            query = from d in query
+                    join i in IssuesOfAllowedVolumes(ctx, maxAgeRating) on d.IssueId equals i.Id
+                    select d;
         if (statusFilter is { Count: > 0 })
             query = query.Where(d => statusFilter.Contains(d.Status));
 
@@ -3915,10 +3979,16 @@ public partial class InkhoundManager : BaseServiceManager
     /// en SQL renverrait l'état du dernier enrichissement (le statut n'est recalculé qu'ici), donc
     /// raterait un torrent qui vient de perdre ses seeders.
     /// </summary>
-    public async Task<List<DownloadItemData>> GetStalledDownloadsAsync(int limit, CancellationToken ct = default)
+    public async Task<List<DownloadItemData>> GetStalledDownloadsAsync(
+        int limit, CancellationToken ct = default, AgeRating? maxAgeRating = null)
     {
         var ctx = GetDb();
-        var downloads = await ctx.IssueDownloads
+        var all = ctx.IssueDownloads.AsQueryable();
+        if (maxAgeRating is not null)
+            all = from d in all
+                  join i in IssuesOfAllowedVolumes(ctx, maxAgeRating) on d.IssueId equals i.Id
+                  select d;
+        var downloads = await all
             .Where(d => ActiveDownloadStatuses.Contains(d.Status))
             .OrderByDescending(d => d.AddedAt)
             .ToListAsync(ct);

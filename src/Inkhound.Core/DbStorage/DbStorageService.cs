@@ -298,6 +298,10 @@ public class DbStorageService : BaseService<DbStorageOption>
         // existants en administrateur.
         await AddColumnIfMissingAsync(db, "Users", "Role", "TEXT NOT NULL DEFAULT 'admin'");
 
+        // Users.MaxAgeRating ajouté en novembre 2026 (plafond de classification d'âge d'un Guest) ;
+        // NULL = aucune limite, donc aucun DEFAULT à fournir.
+        await AddColumnIfMissingAsync(db, "Users", "MaxAgeRating", "TEXT NULL");
+
         // IssueDownloads.TorrentTitle/DownloadUrl/TrackerName ajoutés en juillet 2026 — l'item de
         // téléchargement porte désormais sa propre identité (titre, URL d'origine, tracker), au lieu
         // de dépendre entièrement de ce que qBittorrent peut retrouver en direct via le hash (un hash

@@ -37,6 +37,8 @@ public class AuthController(InkhoundManager manager, JwtService jwt) : Controlle
         // en priorité ; User.Identity?.Name reste le fallback pour les schemes ApiKey/OpenAccess qui,
         // eux, posent directement ClaimTypes.Name.
         Login = User.FindFirst(JwtRegisteredClaimNames.Name)?.Value ?? User.Identity?.Name,
-        Role = User.FindFirst(ClaimTypes.Role)?.Value
+        Role = User.FindFirst(ClaimTypes.Role)?.Value,
+        // Plafond de classification d'âge (null = aucune limite) : l'UI masque les classifications au-delà.
+        MaxAgeRating = User.GetMaxAgeRating()?.ToString()
     });
 }

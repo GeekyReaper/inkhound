@@ -43,6 +43,7 @@
               <tr>
                 <th>Login</th>
                 <th>Role</th>
+                <th>Max age rating</th>
                 <th>Created</th>
                 <th></th>
               </tr>
@@ -54,6 +55,7 @@
                   <td>
                     <c-badge [color]="user.role === 'admin' ? 'primary' : 'secondary'">{{ user.role === 'admin' ? 'Admin' : 'Guest' }}</c-badge>
                   </td>
+                  <td>{{ ageRatingLabel(user.maxAgeRating) }}</td>
                   <td>{{ user.createdAt | smartDate }}</td>
                   <td class="text-end text-nowrap">
                     <button cButton color="ghost-secondary" size="sm" (click)="showEditForm(user)" title="Edit">
@@ -116,6 +118,20 @@
                   <div class="form-text">This is the last administrator: its role cannot be changed.</div>
                 }
               </div>
+
+              <!-- Max age rating (Guest uniquement) -->
+              @if (isGuestForm()) {
+                <div class="mb-3">
+                  <label cLabel for="maxAgeRating">Max age rating</label>
+                  <select cSelect id="maxAgeRating" formControlName="maxAgeRating">
+                    <option value="">No limit</option>
+                    @for (r of ageRatings; track r.value) {
+                      <option [value]="r.value">{{ r.label }}</option>
+                    }
+                  </select>
+                  <div class="form-text">Volumes rated above this level are hidden from this account, and it cannot request them.</div>
+                </div>
+              }
 
               <!-- Password -->
               <div class="mb-4">

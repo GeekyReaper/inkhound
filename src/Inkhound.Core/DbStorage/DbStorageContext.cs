@@ -95,6 +95,8 @@ public class DbStorageContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Login)
             .IsUnique();
+        modelBuilder.Entity<User>()
+            .Property(u => u.MaxAgeRating).HasConversion<string>();
 
         // Catalogue local Bedetheque — la clé est l'id de série du site, jamais générée par la base.
         modelBuilder.Entity<BedethequeCatalogEntry>(entity =>

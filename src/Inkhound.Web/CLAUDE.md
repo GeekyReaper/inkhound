@@ -102,6 +102,17 @@ Ne pas suggérer de migrer vers `app.MapGet(...)` ou `IEndpointRouteBuilder`.
 - Migration : `Users.Role TEXT NOT NULL DEFAULT 'admin'` ajoutée par `AddColumnIfMissingAsync` → les comptes existants deviennent admin.
 - Tokens API (`X-Api-Key`) et mode bootstrap ouvert restent **admin** ; le login virtuel du mode ouvert est `open-access` (à ne pas confondre avec le rôle guest).
 
+## Plafond d'age rating (Guest)
+
+`User.MaxAgeRating` est relu en base à chaque requête (`OnTokenValidated`, `Program.cs`) et posé en claim `max_age_rating`
+(absent pour un admin, un token API ou le mode ouvert) ; lecture par `User.GetMaxAgeRating()` (`Auth/AgeRatingAccess.cs`).
+- **Filtre global `AgeRatingAccessFilter`** : toute route portant `volumeId` ou `issueId` dont le volume dépasse le plafond répond
+  **404**. Les listes/agrégats (volumes d'une library, stats library, dashboard, downloads) sont filtrés dans le manager.
+- `POST /api/volume-requests` : **403** si l'age rating demandé dépasse le plafond.
+- `GET /api/auth/me` expose `maxAgeRating` ; `/api/users` lit/écrit `maxAgeRating` (création : vide = aucune limite ; mise à jour :
+  absent = inchangé, `""` = retire la limite).
+- Non couvert : le module News (statut « en bibliothèque » d'un album) et les routes adressées par id d'export.
+
 ## Demandes d'ajout de volume (`VolumeRequestController`, `/api/volume-requests`)
 
 `POST /` (tout authentifié ; **admin : demande auto-approuvée** — le volume est créé tout de suite via `CreateApprovedVolumeRequestAsync`, la réponse porte `jobId` pour suivre le peuplement des issues, rien n'est enregistré si l'ajout échoue ; Guest : demande `Pending` ; 409 doublon/volume déjà présent, 404 library, 400 source/âge invalide), `GET /?status=`

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Inkhound.Core;
 using Inkhound.Core.Models;
 using Inkhound.Core.Security;
+using Inkhound.Web.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -56,6 +57,10 @@ public class VolumeRequestController(InkhoundManager manager) : ControllerBase
         if (CurrentUserId is not { } userId) return Forbid();
         if (!TryParseAgeRating(request.AgeRating, out var rating))
             return BadRequest(new { message = $"Invalid AgeRating value: {request.AgeRating}" });
+        // Utilisateur plafonné : pas de demande pour une classification qu'il n'a pas le droit de voir.
+        if (!rating.IsAllowedUnder(User.GetMaxAgeRating()))
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { message = "This age rating is above the limit set for your account." });
 
         var login = User.FindFirst(JwtRegisteredClaimNames.Name)?.Value ?? User.Identity?.Name ?? string.Empty;
         try

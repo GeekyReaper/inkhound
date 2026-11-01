@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Web.Auth;
 using Inkhound.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -48,7 +49,7 @@ public class DashboardController(InkhoundManager manager) : ControllerBase
     [HttpGet("stats")]
     public async Task<IActionResult> GetStats(CancellationToken ct)
     {
-        var stats = await manager.GetDashboardStatsAsync(ct);
+        var stats = await manager.GetDashboardStatsAsync(ct, User.GetMaxAgeRating());
 
         return Ok(new DashboardStatsDto(
             stats.LibrariesCount,
@@ -66,7 +67,7 @@ public class DashboardController(InkhoundManager manager) : ControllerBase
     [HttpGet("recent-volumes")]
     public async Task<IActionResult> GetRecentVolumes([FromQuery] int limit = 50, CancellationToken ct = default)
     {
-        var volumes = await manager.GetRecentVolumesAsync(Math.Clamp(limit, 1, MaxListLimit), ct);
+        var volumes = await manager.GetRecentVolumesAsync(Math.Clamp(limit, 1, MaxListLimit), ct, User.GetMaxAgeRating());
         return Ok(volumes.Select(ToRecentDto));
     }
 
@@ -74,7 +75,7 @@ public class DashboardController(InkhoundManager manager) : ControllerBase
     [HttpGet("most-wanted")]
     public async Task<IActionResult> GetMostWanted([FromQuery] int limit = 50, CancellationToken ct = default)
     {
-        var items = await manager.GetMostWantedAsync(Math.Clamp(limit, 1, MaxListLimit), ct);
+        var items = await manager.GetMostWantedAsync(Math.Clamp(limit, 1, MaxListLimit), ct, User.GetMaxAgeRating());
         return Ok(items.Select(ToMostWantedDto));
     }
 }

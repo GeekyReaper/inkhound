@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Web.Auth;
 using Inkhound.Core.Analysis;
 using Inkhound.Core.Models;
 using Inkhound.Core.QBittorrent;
@@ -156,7 +157,7 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
                 .ToList()
             : null;
 
-        var result = await manager.GetDownloadsPageAsync(statusFilter, page, pageSize);
+        var result = await manager.GetDownloadsPageAsync(statusFilter, page, pageSize, maxAgeRating: User.GetMaxAgeRating());
         return Ok(new DownloadsPageDto(
             result.Items.Select(ToDto), result.PageNumber, result.PageSize,
             result.TotalItems, result.TotalPages, result.HasNext, result.HasPrev));
@@ -167,7 +168,7 @@ public class QBittorrentController(InkhoundManager manager) : ControllerBase
     [HttpGet("downloads/stalled")]
     public async Task<IActionResult> GetStalledDownloads([FromQuery] int limit = 5)
     {
-        var items = await manager.GetStalledDownloadsAsync(limit);
+        var items = await manager.GetStalledDownloadsAsync(limit, maxAgeRating: User.GetMaxAgeRating());
         return Ok(items.Select(ToDto));
     }
 

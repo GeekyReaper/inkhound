@@ -21,6 +21,19 @@ public enum AgeRating
 
 public static class AgeRatingExtensions
 {
+    /// <summary>
+    /// Vrai si <paramref name="rating"/> est accessible sous le plafond <paramref name="max"/> : l'ordre de
+    /// l'enum fait foi (du plus tout public au plus restreint), une classification strictement supérieure
+    /// au plafond est refusée. Sous un plafond, un volume non classé (<c>Unknown</c>, <c>RatingPending</c>)
+    /// est lui aussi masqué : rien ne prouve qu'il respecte la limite. <c>null</c> = aucun plafond.
+    /// </summary>
+    public static bool IsAllowedUnder(this AgeRating rating, AgeRating? max)
+        => max is null || (rating > AgeRating.RatingPending && rating <= max);
+
+    /// <summary>Classifications accessibles sous un plafond — pour un filtre EF (<c>Contains</c>), l'enum étant stocké en texte.</summary>
+    public static AgeRating[] AllowedUpTo(AgeRating max)
+        => Enum.GetValues<AgeRating>().Where(r => r.IsAllowedUnder(max)).ToArray();
+
     public static string ToKavitaString(this AgeRating rating) => rating switch
     {
         AgeRating.Unknown          => "Unknown",

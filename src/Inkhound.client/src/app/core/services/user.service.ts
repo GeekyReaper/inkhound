@@ -3,11 +3,14 @@ import { inject, Injectable, signal } from '@angular/core';
 import { tap } from 'rxjs';
 
 import { UserRole } from './auth.service';
+import { AgeRating } from './volume.service';
 
 export interface User {
   id: string;
   login: string;
   role: UserRole;
+  /** Plafond de classification d'âge (Guest) — null = aucune limite. */
+  maxAgeRating: AgeRating | null;
   createdAt: string;
 }
 
@@ -15,12 +18,15 @@ export interface CreateUserRequest {
   login: string;
   password: string;
   role: UserRole;
+  maxAgeRating: AgeRating | null;
 }
 
 export interface UpdateUserRequest {
   login: string | null;
   password: string | null;
   role: UserRole | null;
+  /** '' = retire la limite. */
+  maxAgeRating: AgeRating | '' | null;
 }
 
 @Injectable({ providedIn: 'root' })

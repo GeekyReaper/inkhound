@@ -14,7 +14,7 @@ import {
   ModalTitleDirective,
   SpinnerComponent
 } from '@coreui/angular';
-import { AGE_RATINGS, AgeRating, AgeRatingOption, SourceKey } from '../../../core/services/volume.service';
+import { AgeRating, SourceKey } from '../../../core/services/volume.service';
 import { LibraryService } from '../../../core/services/library.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { VolumeRequestService } from '../../../core/services/volume-request.service';
@@ -46,7 +46,8 @@ export class VolumeAddDialogComponent {
   private readonly libraryService = inject(LibraryService);
   private readonly requestService = inject(VolumeRequestService);
   private readonly router         = inject(Router);
-  readonly isAdmin                = inject(AuthService).isAdmin;
+  private readonly auth           = inject(AuthService);
+  readonly isAdmin                = this.auth.isAdmin;
   readonly #destroyRef            = inject(DestroyRef);
 
   readonly visible  = input(false);
@@ -64,7 +65,8 @@ export class VolumeAddDialogComponent {
   readonly closed = output<void>();
 
   readonly libraries  = this.libraryService.libraries;
-  readonly ageRatings: AgeRatingOption[] = AGE_RATINGS;
+  // Un compte plafonné ne voit pas les classifications au-delà de sa limite.
+  readonly ageRatings = this.auth.allowedAgeRatings;
 
   readonly libraryId         = signal<string | null>(null);
   readonly selectedAgeRating = signal<AgeRating | ''>('');

@@ -740,6 +740,12 @@ sur le même gabarit que les cartes « Most wanted » pour que la page se lise d
   Admin pour le tout premier compte et pour le dernier admin), bouton Delete désactivé pour le dernier admin
   (`isLastAdmin`). Le backend refuse de toute façon (409) et son message s'affiche dans la modale.
 
+## Plafond d'age rating
+
+`AuthService.maxAgeRating` (depuis `/api/auth/me`) et `allowedAgeRatings` (`AGE_RATINGS` tronqué au plafond) : tout sélecteur d'age rating
+proposé à un non-admin doit les utiliser (`VolumeAddDialogComponent` le fait) — les classifications au-dessus du plafond n'y
+apparaissent pas. Page Users : sélecteur « Max age rating » (Guest seulement, « No limit » par défaut) et colonne dédiée.
+
 ## Demandes d'ajout de volume (page `/requests`)
 
 Plus personne n'ajoute de volume « en direct » depuis l'UI : `POST /api/libraries/{id}/volumes` n'est plus appelé

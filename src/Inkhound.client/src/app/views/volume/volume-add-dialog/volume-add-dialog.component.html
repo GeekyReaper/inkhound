@@ -35,7 +35,7 @@
             [value]="selectedAgeRating()"
             (change)="selectedAgeRating.set($any($event.target).value)">
       <option value="">Not set</option>
-      @for (r of ageRatings; track r.value) {
+      @for (r of ageRatings(); track r.value) {
         <option [value]="r.value">{{ r.label }}</option>
       }
     </select>

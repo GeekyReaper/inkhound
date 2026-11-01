@@ -1,4 +1,5 @@
 using Inkhound.Core;
+using Inkhound.Web.Auth;
 using Inkhound.Core.Models;
 using Inkhound.Core.Sources;
 using Inkhound.Web.Controllers.Dtos;
@@ -304,7 +305,7 @@ public class VolumeController(InkhoundManager manager) : ControllerBase
             var library = await manager.GetLibraryAsync(libraryId);
             if (library is null) return NotFound();
 
-            var volumes = await manager.GetVolumesByLibraryAsync(libraryId);
+            var volumes = await manager.GetVolumesByLibraryAsync(libraryId, User.GetMaxAgeRating());
             return Ok(volumes.Select(ToDto));
         }
         catch (InvalidOperationException ex) { return StatusCode(503, new { message = ex.Message }); }

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Inkhound.Core;
+using Inkhound.Core.Security;
 using Inkhound.Web.Auth;
 using Inkhound.Web.Hubs;
 using Inkhound.Web.Middleware;
@@ -39,7 +40,7 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 // ── Controllers + SignalR ──────────────────────────────────────────────────────
 var enumConverter = new System.Text.Json.Serialization.JsonStringEnumConverter();
 
-builder.Services.AddControllersWithViews()
+builder.Services.AddControllersWithViews(o => o.Filters.Add<AgeRatingAccessFilter>())
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(enumConverter));
 
 builder.Services.AddSignalR()
@@ -114,6 +115,13 @@ builder.Services.AddAuthentication(options =>
                     foreach (var claim in identity.FindAll(identity.RoleClaimType).ToList())
                         identity.RemoveClaim(claim);
                     identity.AddClaim(new Claim(identity.RoleClaimType, user.Role));
+
+                    // Plafond d'age rating relu lui aussi en base (modifiable à chaud par l'admin) ;
+                    // sans effet pour un admin.
+                    foreach (var claim in identity.FindAll(AgeRatingAccess.ClaimType).ToList())
+                        identity.RemoveClaim(claim);
+                    if (user.Role != UserRoles.Admin && user.MaxAgeRating is { } max)
+                        identity.AddClaim(new Claim(AgeRatingAccess.ClaimType, max.ToString()));
                 }
             },
             OnMessageReceived = ctx =>
