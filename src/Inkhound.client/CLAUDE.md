@@ -920,8 +920,11 @@ son endpoint (index de fichier qBittorrent / nom de fichier).
   enregistrée comme `TitleStrategy` dans `app.config.ts`) ignore les `title` des routes (héritage du
   template CoreUI : « Dashboard », « Login Page »…), qui sinon écraseraient `<title>` à chaque navigation.
 - `index.html` porte `description`, `og:title` / `og:description` / `og:site_name` et `twitter:card`, avec la
-  même accroche que la page login (« Your BD, comics & manga library — hunted, sorted, ready to read. »).
-  Pas d'`og:image` : elle exige une URL absolue, donc le domaine public.
+  même accroche que la page login, sans le « Your » (« BD, comics & manga library — hunted, sorted, ready to read. »).
+  `og:url` et `og:image` (`web-app-manifest-512x512.png`) sont en **URL absolue** sur le domaine public
+  `https://inkhound.mattab.duckdns.org` : WhatsApp ne construit pas la carte d'aperçu sans image. Changer de
+  domaine impose de les mettre à jour. Les crawlers mettent l'aperçu en cache : après modification, tester avec
+  un lien neuf (ex. ajouter `?v=2`).
 - Favicons (`src/favicon.*`, `apple-touch-icon.png`, `site.webmanifest`) : déjà déclarés dans `index.html`
   et copiés via `angular.json` (`assets`).
 
