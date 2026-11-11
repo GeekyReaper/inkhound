@@ -914,6 +914,17 @@ par un SCSS local qui réordonne les cellules via `order` en lignes visuelles (a
 Le parent retraduit `selection()` (indexé sur la position dans `files()`) vers la clé attendue par
 son endpoint (index de fichier qBittorrent / nom de fichier).
 
+## Titre de l'onglet et métadonnées de partage
+
+- Titre fixe **« Inkhound »** sur toutes les pages : `AppTitleStrategy` (`core/title/app-title.strategy.ts`,
+  enregistrée comme `TitleStrategy` dans `app.config.ts`) ignore les `title` des routes (héritage du
+  template CoreUI : « Dashboard », « Login Page »…), qui sinon écraseraient `<title>` à chaque navigation.
+- `index.html` porte `description`, `og:title` / `og:description` / `og:site_name` et `twitter:card`, avec la
+  même accroche que la page login (« Your BD, comics & manga library — hunted, sorted, ready to read. »).
+  Pas d'`og:image` : elle exige une URL absolue, donc le domaine public.
+- Favicons (`src/favicon.*`, `apple-touch-icon.png`, `site.webmanifest`) : déjà déclarés dans `index.html`
+  et copiés via `angular.json` (`assets`).
+
 ## Environnements
 
 - **Dev** : `apiBaseUrl = ''` (proxy Angular vers `http://localhost:5000`)

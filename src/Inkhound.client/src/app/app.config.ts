@@ -10,10 +10,12 @@ import {
   withHashLocation,
   withInMemoryScrolling,
   withRouterConfig,
+  TitleStrategy,
   withViewTransitions
 } from '@angular/router';
 import { IconSetService } from '@coreui/icons-angular';
 import { routes } from './app.routes';
+import { AppTitleStrategy } from './core/title/app-title.strategy';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -30,6 +32,7 @@ export const appConfig: ApplicationConfig = {
       withHashLocation()
     ),
     provideHttpClient(withInterceptors([authInterceptor, connectionInterceptor, authErrorInterceptor])),
+    { provide: TitleStrategy, useClass: AppTitleStrategy },
     IconSetService,
     provideAnimationsAsync()
   ]
